@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>云枢开发助手 - 设置</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="page-shell">
+      <section class="intro">
+        <!-- <p class="eyebrow">Settings</p> -->
+        <h1>云枢开发助手</h1>
+        <!-- <p class="lead">设置页只保留 VS Code 和 IDEA 的应用路径。其他抓取、映射和输出行为都使用代码默认值，仅展示说明，不允许修改。</p> -->
+      </section>
+
+      <form id="settings-form" class="settings-card">
+        <div class="sticky-actions">
+          <button id="save-btn" class="save-btn" type="submit">保存设置</button>
+          <button id="reset-btn" class="ghost-btn" type="button">恢复默认</button>
+        </div>
+
+        <section class="config-section">
+          <div class="section-copy">
+            <!-- <p class="section-kicker">Executable Paths</p> -->
+            <h2>应用路径</h2>
+            <!-- <p class="section-desc">这里只配置本机编辑器的 exe 绝对路径。抓取行为、网页识别和文件映射全部使用代码默认值。</p> -->
+          </div>
+
+          <label class="field">
+            <span class="field-label">VS Code 应用路径</span>
+            <div class="inline-action-row">
+              <input
+                id="vscode-executable-path"
+                type="text"
+                placeholder="例如：C:\\Users\\Lynn\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
+              >
+              <button id="pick-vscode-btn" class="ghost-btn" type="button">选择应用</button>
+            </div>
+          </label>
+
+          <label class="field">
+            <span class="field-label">IDEA 应用路径</span>
+            <div class="inline-action-row">
+              <input
+                id="idea-executable-path"
+                type="text"
+                placeholder="例如：C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe"
+              >
+              <button id="pick-idea-btn" class="ghost-btn" type="button">选择应用</button>
+            </div>
+          </label>
+        </section>
+
+        <section class="config-section">
+          <div class="section-copy">
+            <!-- <p class="section-kicker">Readonly Defaults</p> -->
+            <h2>默认行为说明</h2>
+            <p class="section-desc">以下配置为代码内置默认值，只用于查看说明，不支持修改。</p>
+          </div>
+
+          <div id="native-host-status" class="native-host-status">正在检测原生助手...</div>
+          <ul id="readonly-settings-list" class="readonly-list"></ul>
+        </section>
+
+        <pre id="settings-status" class="status-output">正在加载配置...</pre>
+      </form>
+    </main>
+
+    <script type="module" src="options.js"></script>
+  </body>
+</html>

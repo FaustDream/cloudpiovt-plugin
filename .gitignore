@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Environment files
+.env
+.env.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+dist/
+build/
+*.zip
+*.crx
+
+# .NET build artifacts
+bin/
+obj/
+*.publish/
+publish/
+
+# Compiled binaries (track source only)
+*.dll
+*.exe
+*.pdb
+
+# NuGet
+*.nupkg
+packages/
+
+# Logs
+*.log
+npm-debug.log*
