@@ -10,18 +10,12 @@
     <main class="popup-shell">
       <section class="hero">
         <h1>云枢开发助手</h1>
-        <!-- <p class="subtitle">固定支持 VS Code 和 IDEA。抓取与文件映射使用代码默认行为。</p> -->
       </section>
 
       <section class="card">
         <div class="meta-row meta-row-stack">
           <span class="meta-label">当前页面</span>
           <span id="page-origin" class="meta-value meta-value-full">检测中...</span>
-        </div>
-        <div class="meta-row meta-row-stack">
-          <span class="meta-label">目标文件夹路径</span>
-          <span id="target-directory-path" class="meta-value meta-value-full">更新目录句柄后自动回填</span>
-          <!-- <span class="field-hint">抓取和回写会使用当前页面类型对应的默认文件名。</span> -->
         </div>
         <div class="meta-row">
           <span class="meta-label">目录句柄</span>
@@ -34,13 +28,13 @@
 
       <section class="actions">
         <div class="action-row">
-          <button id="capture-write-btn" class="accent-btn" type="button">抓取并写入</button>
-          <button id="import-write-btn" class="secondary-btn" type="button">从文件夹回写</button>
+          <button id="frontend-capture-write-btn" class="accent-btn" type="button">前端抓取写入</button>
+          <button id="frontend-writeback-btn" class="secondary-btn" type="button">前端回写</button>
         </div>
 
         <div class="action-row">
-          <button id="open-vscode-btn" class="launch-btn" type="button">用 VS Code 打开</button>
-          <button id="open-idea-btn" class="ghost-launch-btn" type="button">用 IDEA 打开</button>
+          <button id="bizrule-capture-write-btn" class="accent-btn" type="button">业务规则抓取写入</button>
+          <button id="bizrule-writeback-btn" class="secondary-btn" type="button">业务规则回写</button>
         </div>
       </section>
 
