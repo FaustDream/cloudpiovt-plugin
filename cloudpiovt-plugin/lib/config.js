@@ -1,16 +1,3 @@
-export const EDITOR_OPTIONS = [
-  {
-    id: "vscode",
-    name: "VS Code",
-    iconPath: "assets/vscode.ico"
-  },
-  {
-    id: "idea",
-    name: "IDEA",
-    iconPath: ""
-  }
-];
-
 export const DEFAULT_ALLOWED_ORIGINS = [];
 export const DEFAULT_SELECTION_STRATEGY = "visible-first";
 export const DEFAULT_OUTPUT_MODE = "codes-multi-file-export";
@@ -65,9 +52,7 @@ export const READONLY_SETTINGS = [
 
 export const DEFAULT_CONFIG = {
   vscodeExecutablePath: "",
-  ideaExecutablePath: "",
-  targetDirectoryPath: "",
-  targetDirectoryPaths: {}
+  ideaExecutablePath: ""
 };
 
 function normalizePath(value) {
@@ -78,12 +63,7 @@ export async function loadConfig() {
   const stored = await chrome.storage.local.get(DEFAULT_CONFIG);
   return {
     vscodeExecutablePath: normalizePath(stored.vscodeExecutablePath),
-    ideaExecutablePath: normalizePath(stored.ideaExecutablePath),
-    targetDirectoryPath: normalizePath(stored.targetDirectoryPath),
-    targetDirectoryPaths:
-      stored.targetDirectoryPaths && typeof stored.targetDirectoryPaths === "object"
-        ? stored.targetDirectoryPaths
-        : {}
+    ideaExecutablePath: normalizePath(stored.ideaExecutablePath)
   };
 }
 
@@ -95,38 +75,11 @@ export async function saveConfig(partialConfig) {
       : currentConfig.vscodeExecutablePath,
     ideaExecutablePath: Object.prototype.hasOwnProperty.call(partialConfig, "ideaExecutablePath")
       ? normalizePath(partialConfig.ideaExecutablePath)
-      : currentConfig.ideaExecutablePath,
-    targetDirectoryPath: Object.prototype.hasOwnProperty.call(partialConfig, "targetDirectoryPath")
-      ? normalizePath(partialConfig.targetDirectoryPath)
-      : currentConfig.targetDirectoryPath,
-    targetDirectoryPaths: Object.prototype.hasOwnProperty.call(partialConfig, "targetDirectoryPaths")
-      ? {
-          ...partialConfig.targetDirectoryPaths
-        }
-      : currentConfig.targetDirectoryPaths
+      : currentConfig.ideaExecutablePath
   };
 
   await chrome.storage.local.set(nextConfig);
   return nextConfig;
-}
-
-export function getTargetDirectoryPathByPageType(config, pageType = "default") {
-  const pageTypeKey = String(pageType || "").trim() || "default";
-  return normalizePath(config?.targetDirectoryPaths?.[pageTypeKey]);
-}
-
-export async function saveTargetDirectoryPathByPageType(pageType, targetDirectoryPath) {
-  const currentConfig = await loadConfig();
-  const pageTypeKey = String(pageType || "").trim() || "default";
-  const nextTargetDirectoryPaths = {
-    ...currentConfig.targetDirectoryPaths,
-    [pageTypeKey]: normalizePath(targetDirectoryPath)
-  };
-
-  return saveConfig({
-    targetDirectoryPath: nextTargetDirectoryPaths[pageTypeKey],
-    targetDirectoryPaths: nextTargetDirectoryPaths
-  });
 }
 
 export function isOriginAllowed(pageUrl, allowedOrigins = DEFAULT_ALLOWED_ORIGINS) {
@@ -147,20 +100,4 @@ export function resolvePageTypeConfig(pageUrl) {
     return PAGE_TYPE_CONFIG.form;
   }
   return PAGE_TYPE_CONFIG.default;
-}
-
-export function getEditorProfileById(config, editorId) {
-  const editor = EDITOR_OPTIONS.find((item) => item.id === editorId);
-  if (!editor) {
-    return null;
-  }
-
-  const executablePath =
-    editorId === "vscode" ? config.vscodeExecutablePath : config.ideaExecutablePath;
-
-  return {
-    ...editor,
-    executablePath: normalizePath(executablePath),
-    argumentsTemplate: '"{path}"'
-  };
 }

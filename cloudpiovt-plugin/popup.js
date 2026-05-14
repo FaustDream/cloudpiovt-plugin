@@ -1,70 +1,43 @@
-import {
+﻿import {
   getTargetDirectoryHandle,
   saveTargetDirectoryHandle
 } from "./lib/file-handle-db.js";
 import {
   DEFAULT_ALLOWED_ORIGINS,
   DEFAULT_SELECTION_STRATEGY,
-  EDITOR_OPTIONS,
-  getEditorProfileById,
-  getTargetDirectoryPathByPageType,
   isOriginAllowed,
-  loadConfig,
-  resolvePageTypeConfig,
-  saveTargetDirectoryPathByPageType
+  resolvePageTypeConfig
 } from "./lib/config.js";
-import {
-  launchNativeEditor,
-  pickNativeDirectory,
-  probeNativeHost
-} from "./lib/native-host.js";
 import { buildReadmeContent, extractReadmeMetadataFromHtml } from "./lib/readme-parser.js";
 
 const pageOriginEl = document.querySelector("#page-origin");
 const targetHandleEl = document.querySelector("#target-handle");
 const refreshHandleButton = document.querySelector("#refresh-handle-btn");
-const targetDirectoryPathField = document.querySelector("#target-directory-path");
 const statusOutput = document.querySelector("#status-output");
-const captureWriteButton = document.querySelector("#capture-write-btn");
-const importWriteButton = document.querySelector("#import-write-btn");
-const openVscodeButton = document.querySelector("#open-vscode-btn");
-const openIdeaButton = document.querySelector("#open-idea-btn");
+const frontendCaptureWriteButton = document.querySelector("#frontend-capture-write-btn");
+const frontendWritebackButton = document.querySelector("#frontend-writeback-btn");
+const bizruleCaptureWriteButton = document.querySelector("#bizrule-capture-write-btn");
+const bizruleWritebackButton = document.querySelector("#bizrule-writeback-btn");
 const openOptionsButton = document.querySelector("#open-options-btn");
+
 let currentPageContext = null;
 
 function setBusy(isBusy) {
-  captureWriteButton.disabled = isBusy;
-  importWriteButton.disabled = isBusy;
-  openVscodeButton.disabled = isBusy;
-  openIdeaButton.disabled = isBusy;
+  frontendCaptureWriteButton.disabled = isBusy;
+  frontendWritebackButton.disabled = isBusy;
+  bizruleCaptureWriteButton.disabled = isBusy;
+  bizruleWritebackButton.disabled = isBusy;
   refreshHandleButton.disabled = isBusy;
 }
 
-function setStatus(lines) {
-  statusOutput.textContent = Array.isArray(lines) ? lines.join("\n") : String(lines || "");
+function setStatus(message) {
+  statusOutput.textContent = Array.isArray(message) ? message.join("\n") : String(message || "");
 }
 
 function cleanInlineText(value) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function normalizePath(value) {
-  return String(value || "").trim();
-}
-
-function getPathLeafName(path) {
-  const normalized = normalizePath(path).replace(/[\\/]+$/, "");
-  if (!normalized) {
-    return "";
-  }
-  const segments = normalized.split(/[\\/]/);
-  return segments[segments.length - 1] || "";
-}
-
-function isLikelyAbsolutePath(path) {
-  return /^[a-zA-Z]:[\\/]/.test(path) || /^\\\\/.test(path) || /^\//.test(path);
 }
 
 async function getActiveTab() {
@@ -79,13 +52,17 @@ function describeOrigin(url) {
   try {
     return new URL(url).origin;
   } catch (_error) {
-    return "不可识别页面";
+    return "涓嶅彲璇嗗埆椤甸潰";
   }
+}
+
+function renderCurrentPageUrl(tab) {
+  pageOriginEl.textContent = tab?.url || "鏃犳硶鑾峰彇";
 }
 
 async function updatePageInfo() {
   const tab = await getActiveTab();
-  pageOriginEl.textContent = tab?.url || "无法获取";
+  renderCurrentPageUrl(tab);
   const pageTypeConfig = resolvePageTypeConfig(tab?.url || "");
   currentPageContext = {
     tab,
@@ -95,15 +72,21 @@ async function updatePageInfo() {
   return currentPageContext;
 }
 
-async function updateDirectoryInfo(pageType, config = null) {
-  const nextConfig = config || (await loadConfig());
-  targetDirectoryPathField.textContent = getTargetDirectoryPathByPageType(nextConfig, pageType) || "未设置";
+function getCurrentPageContext() {
+  return currentPageContext || {
+    tab: null,
+    pageType: "default",
+    pageTypeConfig: resolvePageTypeConfig("")
+  };
+}
+
+async function updateDirectoryInfo(pageType) {
   try {
     const handle = await getTargetDirectoryHandle(pageType);
-    targetHandleEl.textContent = handle?.name || "尚未选择";
+    targetHandleEl.textContent = handle?.name || "灏氭湭閫夋嫨";
   } catch (error) {
-    targetHandleEl.textContent = "读取失败";
-    setStatus(`读取目录句柄失败。\n${error?.message || String(error)}`);
+    targetHandleEl.textContent = "璇诲彇澶辫触";
+    setStatus(`璇诲彇鐩綍鍙ユ焺澶辫触銆俓n${error?.message || String(error)}`);
   }
 }
 
@@ -113,7 +96,7 @@ function supportsDirectoryPicker() {
 
 async function selectTargetDirectoryHandle(pageType) {
   if (!supportsDirectoryPicker()) {
-    throw new Error("当前扩展页不支持 File System Access API。");
+    throw new Error("褰撳墠鎵╁睍椤典笉鏀寔 File System Access API銆?);
   }
   const handle = await window.showDirectoryPicker({ mode: "readwrite" });
   await saveTargetDirectoryHandle(handle, pageType);
@@ -122,7 +105,7 @@ async function selectTargetDirectoryHandle(pageType) {
 
 async function ensureDirectoryPermission(handle, mode = "readwrite") {
   if (!handle) {
-    throw new Error("尚未选择目标文件夹。");
+    throw new Error("灏氭湭閫夋嫨鐩綍鍙ユ焺銆?);
   }
 
   const options = { mode };
@@ -140,7 +123,7 @@ async function ensureDirectoryPermission(handle, mode = "readwrite") {
     }
   }
 
-  throw new Error(mode === "read" ? "目标文件夹读取权限未授予。" : "目标文件夹写入权限未授予。");
+  throw new Error(mode === "read" ? "鐩綍璇诲彇鏉冮檺鏈巿浜堛€? : "鐩綍鍐欏叆鏉冮檺鏈巿浜堛€?);
 }
 
 async function ensureDirectoryHandleForOperation(pageType, mode) {
@@ -152,98 +135,29 @@ async function ensureDirectoryHandleForOperation(pageType, mode) {
   return handle;
 }
 
-async function persistTargetDirectoryPath(pageType) {
-  const config = await loadConfig();
-  targetDirectoryPathField.textContent = getTargetDirectoryPathByPageType(config, pageType) || "未设置";
-  return config;
-}
-
 async function refreshDirectoryHandle(pageType) {
   const handle = await selectTargetDirectoryHandle(pageType);
   await updateDirectoryInfo(pageType);
   return handle;
 }
 
-async function updateDirectoryPathByPrompt(pageType) {
-  const config = await loadConfig();
-  const pickedDirectory = await pickNativeDirectory(
-    getTargetDirectoryPathByPageType(config, pageType)
-  );
-
-  if (!pickedDirectory?.ok) {
-    return {
-      ok: false,
-      cancelled: Boolean(pickedDirectory?.cancelled),
-      error: pickedDirectory?.error || "未知错误",
-      directoryPath: ""
-    };
-  }
-
-  const nextConfig = await saveTargetDirectoryPathByPageType(
-    pageType,
-    pickedDirectory.directoryPath || ""
-  );
-  await updateDirectoryInfo(pageType, nextConfig);
-  return {
-    ok: true,
-    cancelled: false,
-    error: "",
-    directoryPath: pickedDirectory.directoryPath || ""
-  };
-}
-
 async function handleRefreshDirectoryHandle() {
   setBusy(true);
-  setStatus("正在更新目录句柄...");
+  setStatus("姝ｅ湪鏇存柊鐩綍鍙ユ焺...");
 
   try {
     const { pageType } = getCurrentPageContext();
     const handle = await refreshDirectoryHandle(pageType);
-    const hostStatus = await probeNativeHost();
-
-    if (!hostStatus.available) {
-      setStatus(`目录句柄已更新：${handle?.name || "未命名目录"}\n原生助手未连接，目标文件夹路径未更新。`);
-      return;
-    }
-
-    setStatus(`目录句柄已更新：${handle?.name || "未命名目录"}\n请在接下来的系统目录选择器中选择同一个文件夹，以更新目标文件夹路径。`);
-    const pathResult = await updateDirectoryPathByPrompt(pageType);
-    if (!pathResult.ok) {
-      if (pathResult.cancelled) {
-        setStatus("目录句柄已更新，但目标文件夹路径更新已取消。");
-        return;
-      }
-
-      setStatus(`目录句柄已更新，但目标文件夹路径更新失败。\n${pathResult.error}`);
-      return;
-    }
-
-    const pathLeafName = getPathLeafName(pathResult.directoryPath);
-    const mismatchHint = !pathLeafName || pathLeafName === handle?.name
-      ? ""
-      : `\n注意：目录句柄名称为 ${handle?.name || "未知目录"}，路径末级目录名为 ${pathLeafName}，请确认两次选择的是同一目录。`;
-    setStatus(`目录句柄和目标文件夹路径已更新：${pathResult.directoryPath}${mismatchHint}`);
+    setStatus(`鐩綍鍙ユ焺宸叉洿鏂帮細${handle?.name || "鏈懡鍚嶇洰褰?}`);
   } catch (error) {
     if (error?.name === "AbortError") {
-      setStatus("已取消更新目录句柄。");
+      setStatus("宸插彇娑堟洿鏂扮洰褰曞彞鏌勩€?);
       return;
     }
-    setStatus(`更新目录句柄失败。\n${error?.message || String(error)}`);
+    setStatus(`鏇存柊鐩綍鍙ユ焺澶辫触銆俓n${error?.message || String(error)}`);
   } finally {
     setBusy(false);
   }
-}
-
-function getCurrentPageContext() {
-  return currentPageContext || {
-    tab: null,
-    pageType: "default",
-    pageTypeConfig: resolvePageTypeConfig("")
-  };
-}
-
-function renderCurrentPageUrl(tab) {
-  pageOriginEl.textContent = tab?.url || "无法获取";
 }
 
 async function writeTextToFile(handle, payload) {
@@ -265,17 +179,17 @@ function normalizeExcessBlankLines(content) {
 
 function getExecutableContextError(tab) {
   if (!tab?.id || !tab.url) {
-    return "未找到当前活动标签页。";
+    return "鏈壘鍒板綋鍓嶆椿鍔ㄦ爣绛鹃〉銆?;
   }
   if (!/^https?:/i.test(tab.url)) {
-    return "当前标签页不是普通网页，无法注入脚本。";
+    return "褰撳墠鏍囩椤典笉鏄櫘閫氱綉椤碉紝鏃犳硶娉ㄥ叆鑴氭湰銆?;
   }
   return "";
 }
 
 function getOriginError(tabUrl) {
   if (!isOriginAllowed(tabUrl, DEFAULT_ALLOWED_ORIGINS)) {
-    return `当前页面 origin 不在允许列表中：${describeOrigin(tabUrl)}`;
+    return `褰撳墠椤甸潰 origin 涓嶅湪鍏佽鍒楄〃涓細${describeOrigin(tabUrl)}`;
   }
   return "";
 }
@@ -286,7 +200,7 @@ function buildCodeExportPlan(data, pageTypeConfig) {
     return {
       ok: false,
       errorCode: "NO_CODES_OBJECT",
-      details: "目标组件的 $data 中未找到有效的 data.codes 对象。"
+      details: "鐩爣缁勪欢鐨?$data 涓湭鎵惧埌鏈夋晥鐨?data.codes 瀵硅薄銆?
     };
   }
 
@@ -311,7 +225,7 @@ function buildCodeExportPlan(data, pageTypeConfig) {
     return {
       ok: false,
       errorCode: "NO_EXPORTABLE_CODE_FILES",
-      details: "data.codes 中没有可导出的 javascript、html、css 文本内容。",
+      details: "data.codes 涓病鏈夊彲瀵煎嚭鐨?javascript銆乭tml銆乧ss 鏂囨湰鍐呭銆?,
       skippedKeys
     };
   }
@@ -346,7 +260,7 @@ async function readCodeFilesFromDirectory(directoryHandle, pageTypeConfig) {
       return {
         ok: false,
         errorCode: "DIRECTORY_READ_FAILED",
-        details: `读取 ${fileName} 失败：${error?.message || String(error)}`
+        details: `璇诲彇 ${fileName} 澶辫触锛?{error?.message || String(error)}`
       };
     }
 
@@ -360,7 +274,7 @@ async function readCodeFilesFromDirectory(directoryHandle, pageTypeConfig) {
       return {
         ok: false,
         errorCode: "DIRECTORY_READ_FAILED",
-        details: `读取 ${fileName} 内容失败：${error?.message || String(error)}`
+        details: `璇诲彇 ${fileName} 鍐呭澶辫触锛?{error?.message || String(error)}`
       };
     }
   }
@@ -369,7 +283,7 @@ async function readCodeFilesFromDirectory(directoryHandle, pageTypeConfig) {
     return {
       ok: false,
       errorCode: "NO_IMPORTABLE_CODE_FILES",
-      details: `${pageTypeConfig.pageLabel} 对应的默认文件不存在。`,
+      details: `${pageTypeConfig.pageLabel} 瀵瑰簲鐨勯粯璁ゆ枃浠朵笉瀛樺湪銆俙,
       skippedKeys
     };
   }
@@ -399,143 +313,13 @@ async function writeReadmeFile(directoryHandle, metadata, pageTypeConfig, pageUr
   await writeTextToFile(readmeHandle, readmeContent);
 }
 
-function formatLaunchResult(result) {
-  const editorName = result.editorName || "编辑器";
-  return result.ok ? `${editorName} 打开成功` : `${editorName} 打开失败`;
-}
-
-/* async function handleSelectDirectory() {
-  setBusy(true);
-  setStatus("正在选择目标文件夹...");
-
-  try {
-    const { pageType } = getCurrentPageContext();
-    const hostStatus = await probeNativeHost();
-    if (!hostStatus.available) {
-      setStatus("鍘熺敓鍔╂墜鏈繛鎺ワ紝鏃犳硶鍥炲啓鏈湴缁濆璺緞銆?);
-      return;
-    }
-    let savedConfig = await loadConfig();
-    const pickedDirectory = await pickNativeDirectory(
-      getTargetDirectoryPathByPageType(savedConfig, pageType)
-    );
-    if (pickedDirectory?.ok) {
-      savedConfig = await saveTargetDirectoryPathByPageType(
-        pageType,
-        pickedDirectory.directoryPath || ""
-      );
-    } else if (!pickedDirectory?.cancelled) {
-        setStatus(`目录句柄已保存，但路径回写失败：${pickedDirectory?.error || "未知错误"}`);
-        await updateDirectoryInfo(pageType, savedConfig);
-        return;
-      }
-    }
-
-    await updateDirectoryInfo(pageType, savedConfig);
-    setStatus(
-      hostStatus.available
-        ? `已选择目标文件夹：${handle.name}\n路径已回写。`
-        : `已选择目标文件夹：${handle.name}\n原生助手未连接，请手动填写路径。`
-    );
-  } catch (error) {
-    setStatus(`选择目标文件夹失败。\n${error?.message || String(error)}`);
-  } finally {
-    setBusy(false);
-  }
-}
-
-*/
-
-function buildEditorLaunchTarget(profile, targetDirectoryPath) {
-  const normalizedPath = normalizePath(targetDirectoryPath);
-  const normalizedExecutablePath = normalizePath(profile?.executablePath);
-  const editorName = profile?.name || "编辑器";
-
-  if (!normalizedPath) {
-    return {
-      ok: false,
-      editorName,
-      errorCode: "MISSING_TARGET_PATH",
-      details: "请先填写目标文件夹路径。"
-    };
-  }
-
-  if (!isLikelyAbsolutePath(normalizedPath)) {
-    return {
-      ok: false,
-      editorName,
-      errorCode: "INVALID_TARGET_PATH",
-      details: "目标文件夹路径必须是本地绝对路径。"
-    };
-  }
-
-  if (!normalizedExecutablePath) {
-    return {
-      ok: false,
-      editorName,
-      errorCode: "MISSING_EXECUTABLE_PATH",
-      details: `请先在设置页填写 ${editorName} 的应用路径。`
-    };
-  }
-
-  return {
-    ok: true,
-    editorName,
-    executablePath: normalizedExecutablePath,
-    targetPath: normalizedPath,
-    argumentsTemplate: '"{path}"'
-  };
-}
-
-async function launchEditorById(editorId) {
-  setBusy(true);
-  setStatus("正在打开编辑器...");
-
-  try {
-    const { pageType } = getCurrentPageContext();
-    const config = await persistTargetDirectoryPath(pageType);
-    const profile = getEditorProfileById(config, editorId);
-    if (!profile) {
-      setStatus("未找到对应的打开方式。");
-      return;
-    }
-
-    const launchTarget = buildEditorLaunchTarget(
-      profile,
-      getTargetDirectoryPathByPageType(config, pageType)
-    );
-    if (!launchTarget.ok) {
-      setStatus(`${formatLaunchResult(launchTarget)}\n${launchTarget.details || ""}`);
-      return;
-    }
-
-    const launchState = await launchNativeEditor(launchTarget);
-    if (!launchState?.ok) {
-      setStatus(
-        `${formatLaunchResult({ ok: false, editorName: profile.name })}\n${
-          launchState?.error || "未知错误"
-        }`
-      );
-      return;
-    }
-
-    setStatus(formatLaunchResult({ ok: true, editorName: profile.name }));
-  } catch (error) {
-    setStatus(`打开编辑器失败。\n${error?.message || String(error)}`);
-  } finally {
-    setBusy(false);
-  }
-}
-
 async function handleCaptureAndWrite() {
   setBusy(true);
-  setStatus("正在抓取并写入...");
+  setStatus("姝ｅ湪鎶撳彇骞跺啓鍏?..");
 
   try {
     const pageContext = await updatePageInfo();
     const { tab, pageType, pageTypeConfig } = pageContext;
-    renderCurrentPageUrl(tab);
-    await persistTargetDirectoryPath(pageType);
     const executableContextError = getExecutableContextError(tab);
     if (executableContextError) {
       throw new Error(executableContextError);
@@ -562,13 +346,13 @@ async function handleCaptureAndWrite() {
     });
 
     if (!result?.ok) {
-      setStatus(`抓取失败。\n${result?.details || result?.errorCode || "未知错误"}`);
+      setStatus(`鎶撳彇澶辫触銆俓n${result?.details || result?.errorCode || "鏈煡閿欒"}`);
       return;
     }
 
     const exportPlan = buildCodeExportPlan(result.data, pageTypeConfig);
     if (!exportPlan.ok) {
-      setStatus(`写入失败。\n${exportPlan.details || exportPlan.errorCode || "未知错误"}`);
+      setStatus(`鍐欏叆澶辫触銆俓n${exportPlan.details || exportPlan.errorCode || "鏈煡閿欒"}`);
       return;
     }
 
@@ -578,16 +362,14 @@ async function handleCaptureAndWrite() {
     await writeReadmeFile(handle, readmeMetadata, pageTypeConfig, result.pageUrl || tab.url);
     await updateDirectoryInfo(pageType);
 
-    setStatus(
-      [
-        "抓取并写入成功。",
-        `页面类型：${pageTypeConfig.pageLabel}`,
-        `代码文件：${exportPlan.filesToWrite.map((item) => item.fileName).join("、")}`,
-        hadReadme ? "README.MD 已更新。" : "README.MD 已新建。"
-      ].join("\n")
-    );
+    setStatus([
+      "鎶撳彇骞跺啓鍏ユ垚鍔熴€?,
+      `椤甸潰绫诲瀷锛?{pageTypeConfig.pageLabel}`,
+      `浠ｇ爜鏂囦欢锛?{exportPlan.filesToWrite.map((item) => item.fileName).join("銆?)}`,
+      hadReadme ? "README.MD 宸叉洿鏂般€? : "README.MD 宸叉柊寤恒€?
+    ]);
   } catch (error) {
-    setStatus(`抓取并写入失败。\n${error?.message || String(error)}`);
+    setStatus(`鎶撳彇骞跺啓鍏ュけ璐ャ€俓n${error?.message || String(error)}`);
   } finally {
     setBusy(false);
   }
@@ -595,13 +377,11 @@ async function handleCaptureAndWrite() {
 
 async function handleImportAndWriteBack() {
   setBusy(true);
-  setStatus("正在从文件夹回写...");
+  setStatus("姝ｅ湪浠庢枃浠跺す鍥炲啓...");
 
   try {
     const pageContext = await updatePageInfo();
     const { tab, pageType, pageTypeConfig } = pageContext;
-    renderCurrentPageUrl(tab);
-    await persistTargetDirectoryPath(pageType);
     const executableContextError = getExecutableContextError(tab);
     if (executableContextError) {
       throw new Error(executableContextError);
@@ -615,7 +395,7 @@ async function handleImportAndWriteBack() {
     const handle = await ensureDirectoryHandleForOperation(pageType, "read");
     const importPlan = await readCodeFilesFromDirectory(handle, pageTypeConfig);
     if (!importPlan.ok) {
-      setStatus(`回写失败。\n${importPlan.details || importPlan.errorCode || "未知错误"}`);
+      setStatus(`鍥炲啓澶辫触銆俓n${importPlan.details || importPlan.errorCode || "鏈煡閿欒"}`);
       return;
     }
 
@@ -634,25 +414,94 @@ async function handleImportAndWriteBack() {
     });
 
     if (!result?.ok) {
-      setStatus(`回写失败。\n${result?.details || result?.errorCode || "未知错误"}`);
+      setStatus(`鍥炲啓澶辫触銆俓n${result?.details || result?.errorCode || "鏈煡閿欒"}`);
       return;
     }
 
     await updateDirectoryInfo(pageType);
-    setStatus(
-      [
-        "从文件夹回写成功。",
-        `页面类型：${pageTypeConfig.pageLabel}`,
-        `回写字段：${result.updatedKeys.join("、") || "无"}`
-      ].join("\n")
-    );
+    setStatus([
+      "从文件夹回写成功。",
+      `页面类型：${pageTypeConfig.pageLabel}`,
+      `回写字段：${result.updatedKeys.join("、") || "无"}`,
+      result.compatibilityState?.shimmed
+        ? `兼容处理：webIDEService.updateDataSource -> ${result.compatibilityState.fallbackMethod}`
+        : "兼容处理：未注入 webIDEService 兜底"
+    ]);
   } catch (error) {
-    setStatus(`从文件夹回写失败。\n${error?.message || String(error)}`);
+    setStatus(`浠庢枃浠跺す鍥炲啓澶辫触銆俓n${error?.message || String(error)}`);
   } finally {
     setBusy(false);
   }
 }
 
+async function handleBizruleCaptureAndWrite() {
+  setBusy(true);
+  setStatus("姝ｅ湪鎶撳彇涓氬姟瑙勫垯骞跺啓鍏?..");
+
+  try {
+    const pageContext = await updatePageInfo();
+    const { tab, pageType } = pageContext;
+    const executableContextError = getExecutableContextError(tab);
+    if (executableContextError) {
+      throw new Error(executableContextError);
+    }
+
+    const originError = getOriginError(tab.url);
+    if (originError) {
+      throw new Error(originError);
+    }
+
+    const handle = await ensureDirectoryHandleForOperation(pageType, "readwrite");
+    const [{ result }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: "MAIN",
+      func: bizRuleProbeMain
+    });
+
+    if (!result?.ok) {
+      setStatus([
+        "涓氬姟瑙勫垯鎶撳彇澶辫触銆?,
+        `閿欒鐮侊細${result?.errorCode || "UNKNOWN_ERROR"}`,
+        result?.details || "鏈繑鍥炴洿澶氳瘖鏂俊鎭€?
+      ]);
+      return;
+    }
+
+    if (!result.sourceContent) {
+      setStatus("涓氬姟瑙勫垯鎶撳彇澶辫触銆俓n椤甸潰宸叉壘鍒?Monaco model锛屼絾婧愮爜鍐呭涓虹┖銆?);
+      return;
+    }
+
+    if (!result.fileName) {
+      setStatus("涓氬姟瑙勫垯鎶撳彇澶辫触銆俓n宸茶鍙栨簮鐮侊紝浣嗘湭鑳借В鏋愯緭鍑烘枃浠跺悕銆?);
+      return;
+    }
+
+    const hadTargetFile = await fileExists(handle, result.fileName);
+    const fileHandle = await handle.getFileHandle(result.fileName, { create: true });
+    await writeTextToFile(fileHandle, result.sourceContent);
+    await updateDirectoryInfo(pageType);
+
+    setStatus([
+      "涓氬姟瑙勫垯鎶撳彇鍐欏叆鎴愬姛銆?,
+      `鏂囦欢鍚嶏細${result.fileName}`,
+      `绫诲悕锛?{result.className || "鏈В鏋?}`,
+      `璇█锛?{result.language || "鏈煡"}`,
+      `URI锛?{result.uri || "绌?}`,
+      `婧愮爜闀垮害锛?{result.sourceLength}`,
+      hadTargetFile ? "鐩爣鏂囦欢宸叉洿鏂般€? : "鐩爣鏂囦欢宸叉柊寤恒€?,
+      `璇婃柇锛?{(result.details || []).join(" | ") || "鏃?}`
+    ]);
+  } catch (error) {
+    setStatus(`涓氬姟瑙勫垯鎶撳彇鍐欏叆澶辫触銆俓n${error?.message || String(error)}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+function handleBizruleWriteback() {
+  setStatus("涓氬姟瑙勫垯鍥炲啓鍔熻兘鏆傛湭瀹炵幇銆?);
+}
 function getReadableAttribute(element, names) {
   for (const name of names) {
     const value = cleanInlineText(element.getAttribute?.(name));
@@ -947,8 +796,8 @@ function pageCaptureMain(input) {
     }
 
     const normalized = text
-      .replace(/[>＞]/g, "/")
-      .replace(/[|｜]/g, "/")
+      .replace(/[>锛瀅/g, "/")
+      .replace(/[|锝淽/g, "/")
       .replace(/\s+-\s+/g, "/");
     const parts = normalized
       .split("/")
@@ -1107,7 +956,7 @@ function pageCaptureMain(input) {
       .map((value) => String(value || "").toLowerCase())
       .join(" ");
 
-    return /subtable|sub-table|detail|child|sheet|明细|子表/.test(source);
+    return /subtable|sub-table|detail|child|sheet|鏄庣粏|瀛愯〃/.test(source);
   }
 
   function extractControlsFromDom() {
@@ -1214,7 +1063,7 @@ function pageCaptureMain(input) {
         candidate?.name,
         candidate?.label
       ]).toLowerCase();
-      return /subtable|detail|child|sheet|明细|子表/.test(marker);
+      return /subtable|detail|child|sheet|鏄庣粏|瀛愯〃/.test(marker);
     }
 
     function walk(node, currentSubtable = null, depth = 0) {
@@ -1345,7 +1194,7 @@ function pageCaptureMain(input) {
   if (!discoveredComponentNames.size && !candidateEntries.length) {
     return createBaseResult({
       errorCode: "NO_VUE_ROOT",
-      details: "页面上未发现可访问的 Vue 组件入口。"
+      details: "椤甸潰涓婃湭鍙戠幇鍙闂殑 Vue 缁勪欢鍏ュ彛銆?
     });
   }
 
@@ -1364,7 +1213,7 @@ function pageCaptureMain(input) {
       errorCode: "NO_EDITOR_FOUND",
       vueMajor,
       discoveredComponentNames: Array.from(discoveredComponentNames).sort(),
-      details: `未匹配到候选组件名：${candidateNames.join(", ")}`
+      details: `鏈尮閰嶅埌鍊欓€夌粍浠跺悕锛?{candidateNames.join(", ")}`
     });
   }
 
@@ -1376,7 +1225,7 @@ function pageCaptureMain(input) {
       candidateCount: candidateEntries.length,
       matchedComponentName: selected.componentName,
       discoveredComponentNames: Array.from(discoveredComponentNames).sort(),
-      details: "目标组件存在，但未暴露公开的 $data。"
+      details: "鐩爣缁勪欢瀛樺湪锛屼絾鏈毚闇插叕寮€鐨?$data銆?
     });
   }
 
@@ -1643,6 +1492,39 @@ function pageWritebackMain(input) {
     return { ok: true, target: data.codes };
   }
 
+  function ensureWebIDEServiceCompatibility(selected) {
+    const vm = selected?.vueMajor === 2 ? selected?.instance : selected?.instance?.proxy;
+    const serviceCandidates = [
+      vm?.webIDEService,
+      selected?.instance?.webIDEService,
+      selected?.instance?.proxy?.webIDEService,
+      vm?.$data?.webIDEService
+    ].filter(Boolean);
+
+    for (const service of serviceCandidates) {
+      if (typeof service.updateDataSource === "function") {
+        return { shimmed: false, fallbackMethod: "" };
+      }
+
+      const fallbackMethod = [
+        "updateDatasource",
+        "setDataSource",
+        "syncDataSource",
+        "refreshDataSource"
+      ].find((name) => typeof service[name] === "function");
+
+      if (fallbackMethod) {
+        service.updateDataSource = (...args) => service[fallbackMethod](...args);
+        return { shimmed: true, fallbackMethod };
+      }
+
+      service.updateDataSource = () => undefined;
+      return { shimmed: true, fallbackMethod: "noop" };
+    }
+
+    return { shimmed: false, fallbackMethod: "" };
+  }
+
   try {
     scanElements();
     scanVueRoots();
@@ -1658,7 +1540,7 @@ function pageWritebackMain(input) {
   if (!discoveredComponentNames.size && !candidateEntries.length) {
     return createBaseResult({
       errorCode: "NO_VUE_ROOT",
-      details: "页面上未发现可访问的 Vue 组件入口。"
+      details: "椤甸潰涓婃湭鍙戠幇鍙闂殑 Vue 缁勪欢鍏ュ彛銆?
     });
   }
 
@@ -1677,7 +1559,7 @@ function pageWritebackMain(input) {
       errorCode: "NO_EDITOR_FOUND",
       vueMajor,
       discoveredComponentNames: Array.from(discoveredComponentNames).sort(),
-      details: `未匹配到候选组件名：${candidateNames.join(", ")}`
+      details: `鏈尮閰嶅埌鍊欓€夌粍浠跺悕锛?{candidateNames.join(", ")}`
     });
   }
 
@@ -1688,7 +1570,7 @@ function pageWritebackMain(input) {
       candidateCount: candidateEntries.length,
       matchedComponentName: candidateEntries[0].componentName,
       discoveredComponentNames: Array.from(discoveredComponentNames).sort(),
-      details: "没有可回写的代码文件内容。"
+      details: "娌℃湁鍙洖鍐欑殑浠ｇ爜鏂囦欢鍐呭銆?
     });
   }
 
@@ -1703,10 +1585,12 @@ function pageWritebackMain(input) {
       discoveredComponentNames: Array.from(discoveredComponentNames).sort(),
       details:
         codesTargetResult.errorCode === "NO_DATA"
-          ? "目标组件存在，但未暴露公开的 $data。"
-          : "目标组件的 $data.codes 无法建立为可写对象。"
+          ? "鐩爣缁勪欢瀛樺湪锛屼絾鏈毚闇插叕寮€鐨?$data銆?
+          : "鐩爣缁勪欢鐨?$data.codes 鏃犳硶寤虹珛涓哄彲鍐欏璞°€?
     });
   }
+
+  const compatibilityState = ensureWebIDEServiceCompatibility(selected);
 
   try {
     const updatedKeys = [];
@@ -1727,6 +1611,7 @@ function pageWritebackMain(input) {
       candidateCount: candidateEntries.length,
       updatedKeys,
       skippedKeys,
+      compatibilityState,
       discoveredComponentNames: Array.from(discoveredComponentNames).sort()
     };
   } catch (error) {
@@ -1741,21 +1626,157 @@ function pageWritebackMain(input) {
   }
 }
 
+function bizRuleProbeMain() {
+  function safePageUrl() {
+    try {
+      return window.location.href;
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function createBaseResult(overrides) {
+    return {
+      ok: false,
+      pageUrl: safePageUrl(),
+      hasMonacoGlobal: false,
+      editorCount: 0,
+      modelCount: 0,
+      language: "",
+      uri: "",
+      sourceLength: 0,
+      sourceContent: "",
+      className: "",
+      fileName: "",
+      sampleText: "",
+      details: [],
+      ...overrides
+    };
+  }
+
+  function extractFileNameFromUri(uri) {
+    const normalized = String(uri || "").trim();
+    if (!normalized) {
+      return "";
+    }
+
+    const match = normalized.match(/\/([^/?#]+\.java)(?:[?#].*)?$/i);
+    return match ? match[1] : "";
+  }
+
+  function extractJavaClassName(source) {
+    const text = String(source || "");
+    const publicMatch = text.match(/\bpublic\s+class\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+    if (publicMatch) {
+      return publicMatch[1];
+    }
+
+    const classMatch = text.match(/\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+    return classMatch ? classMatch[1] : "";
+  }
+
+  try {
+    const monaco = window.monaco;
+    if (!monaco?.editor) {
+      return createBaseResult({
+        errorCode: "NO_MONACO_GLOBAL",
+        details: ["window.monaco.editor 涓嶅瓨鍦?]
+      });
+    }
+
+    const editors = typeof monaco.editor.getEditors === "function"
+      ? monaco.editor.getEditors().filter(Boolean)
+      : [];
+    const models = typeof monaco.editor.getModels === "function"
+      ? monaco.editor.getModels().filter(Boolean)
+      : [];
+    const details = [];
+    let model = null;
+
+    if (editors.length > 0 && typeof editors[0]?.getModel === "function") {
+      model = editors[0].getModel();
+      details.push("宸查€氳繃 editor.getModel() 鑾峰彇妯″瀷");
+    }
+
+    if (!model && models.length > 0) {
+      model = models[0];
+      details.push("宸插洖閫€鍒?monaco.editor.getModels()[0]");
+    }
+
+    if (!model) {
+      return createBaseResult({
+        errorCode: "NO_MONACO_MODEL",
+        hasMonacoGlobal: true,
+        editorCount: editors.length,
+        modelCount: models.length,
+        details: details.concat("鏈壘鍒板彲鐢ㄧ殑 Monaco model")
+      });
+    }
+
+    if (typeof model.getValue !== "function") {
+      return createBaseResult({
+        errorCode: "MODEL_NOT_READABLE",
+        hasMonacoGlobal: true,
+        editorCount: editors.length,
+        modelCount: models.length,
+        details: details.concat("Monaco model 涓嶆敮鎸?getValue()")
+      });
+    }
+
+    const source = String(model.getValue() || "");
+    const sampleText = source.slice(0, 300);
+    const language = typeof model.getLanguageId === "function" ? model.getLanguageId() : "";
+    const uri = model.uri?.toString?.() || "";
+    const className = extractJavaClassName(source);
+    const uriFileName = extractFileNameFromUri(uri);
+    const fileName = uriFileName || (className ? `${className}.java` : "");
+    details.push(source ? "宸茶鍙栧埌婧愮爜鏂囨湰" : "婧愮爜鏂囨湰涓虹┖");
+    if (uriFileName) {
+      details.push("宸蹭粠 model URI 瑙ｆ瀽鏂囦欢鍚?);
+    } else if (className) {
+      details.push("宸蹭粠婧愮爜绫诲悕鍥為€€瑙ｆ瀽鏂囦欢鍚?);
+    } else {
+      details.push("鏈В鏋愬埌涓氬姟瑙勫垯鏂囦欢鍚?);
+    }
+
+    return {
+      ok: true,
+      pageUrl: safePageUrl(),
+      hasMonacoGlobal: true,
+      editorCount: editors.length,
+      modelCount: models.length,
+      language,
+      uri,
+      sourceLength: source.length,
+      sourceContent: source,
+      className,
+      fileName,
+      sampleText,
+      details
+    };
+  } catch (error) {
+    return createBaseResult({
+      errorCode: "MONACO_PROBE_FAILED",
+      details: [error?.message || String(error)]
+    });
+  }
+}
+
 refreshHandleButton.addEventListener("click", handleRefreshDirectoryHandle);
-captureWriteButton.addEventListener("click", handleCaptureAndWrite);
-importWriteButton.addEventListener("click", handleImportAndWriteBack);
-openVscodeButton.addEventListener("click", () => launchEditorById("vscode"));
-openIdeaButton.addEventListener("click", () => launchEditorById("idea"));
+frontendCaptureWriteButton.addEventListener("click", handleCaptureAndWrite);
+frontendWritebackButton.addEventListener("click", handleImportAndWriteBack);
+bizruleCaptureWriteButton.addEventListener("click", handleBizruleCaptureAndWrite);
+bizruleWritebackButton.addEventListener("click", handleBizruleWriteback);
 openOptionsButton.addEventListener("click", () => chrome.runtime.openOptionsPage());
 
 async function init() {
   const pageContext = await updatePageInfo();
   renderCurrentPageUrl(pageContext.tab);
   await updateDirectoryInfo(pageContext.pageType);
-  const availableEditors = EDITOR_OPTIONS.map((item) => item.name).join(" / ");
-  setStatus(`等待操作。\n可用打开方式：${availableEditors}`);
+  setStatus("等待操作。");
 }
 
 init().catch((error) => {
-  setStatus(`初始化失败。\n${error?.message || String(error)}`);
+  setStatus(`鍒濆鍖栧け璐ャ€俓n${error?.message || String(error)}`);
 });
+
