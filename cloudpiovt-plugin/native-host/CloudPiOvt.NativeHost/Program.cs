@@ -22,6 +22,24 @@ internal sealed class HostRequest
 
     [JsonPropertyName("targetPath")]
     public string TargetPath { get; init; } = "";
+
+    [JsonPropertyName("directoryPath")]
+    public string DirectoryPath { get; init; } = "";
+
+    [JsonPropertyName("files")]
+    public IReadOnlyList<HostFileEntry> Files { get; init; } = Array.Empty<HostFileEntry>();
+}
+
+internal sealed class HostFileEntry
+{
+    [JsonPropertyName("fileName")]
+    public string FileName { get; init; } = "";
+
+    [JsonPropertyName("content")]
+    public string Content { get; init; } = "";
+
+    [JsonPropertyName("exists")]
+    public bool Exists { get; init; }
 }
 
 internal sealed class HostResponse
@@ -49,11 +67,15 @@ internal sealed class HostResponse
 
     [JsonPropertyName("directoryPath")]
     public string DirectoryPath { get; init; } = "";
+
+    [JsonPropertyName("files")]
+    public IReadOnlyList<HostFileEntry> Files { get; init; } = Array.Empty<HostFileEntry>();
 }
 
 internal static class Program
 {
     private const string HostName = "com.cloudpiovt.editor_helper";
+    private static readonly UTF8Encoding Utf8NoBom = new(false);
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
@@ -149,6 +171,8 @@ internal static class Program
             },
             "pick_editor" => PickEditor(request.ExistingPath),
             "pick_directory" => PickDirectory(request.ExistingPath),
+            "write_directory_files" => WriteDirectoryFiles(request.DirectoryPath, request.Files),
+            "read_directory_files" => ReadDirectoryFiles(request.DirectoryPath, request.Files),
             "launch_native_editor" => LaunchNativeEditor(
                 request.ExecutablePath,
                 request.ArgumentsTemplate,
@@ -237,6 +261,129 @@ internal static class Program
             Ok = true,
             DirectoryPath = Path.GetFullPath(dialog.SelectedPath)
         };
+    }
+
+    private static HostResponse WriteDirectoryFiles(string directoryPath, IReadOnlyList<HostFileEntry> files)
+    {
+        try
+        {
+            var normalizedDirectoryPath = NormalizeDirectoryPath(directoryPath);
+            var results = new List<HostFileEntry>();
+
+            foreach (var file in files)
+            {
+                var targetFilePath = ResolveFilePath(normalizedDirectoryPath, file.FileName);
+                var parentDirectory = Path.GetDirectoryName(targetFilePath);
+                if (!string.IsNullOrWhiteSpace(parentDirectory))
+                {
+                    Directory.CreateDirectory(parentDirectory);
+                }
+
+                var existed = File.Exists(targetFilePath);
+                File.WriteAllText(targetFilePath, file.Content ?? "", Utf8NoBom);
+                results.Add(new HostFileEntry
+                {
+                    FileName = file.FileName,
+                    Exists = existed
+                });
+            }
+
+            return new HostResponse
+            {
+                Ok = true,
+                DirectoryPath = normalizedDirectoryPath,
+                Files = results
+            };
+        }
+        catch (Exception error)
+        {
+            return new HostResponse
+            {
+                Ok = false,
+                Error = error.Message
+            };
+        }
+    }
+
+    private static HostResponse ReadDirectoryFiles(string directoryPath, IReadOnlyList<HostFileEntry> files)
+    {
+        try
+        {
+            var normalizedDirectoryPath = NormalizeDirectoryPath(directoryPath);
+            var results = new List<HostFileEntry>();
+
+            foreach (var file in files)
+            {
+                var targetFilePath = ResolveFilePath(normalizedDirectoryPath, file.FileName);
+                if (!File.Exists(targetFilePath))
+                {
+                    results.Add(new HostFileEntry
+                    {
+                        FileName = file.FileName,
+                        Exists = false,
+                        Content = ""
+                    });
+                    continue;
+                }
+
+                results.Add(new HostFileEntry
+                {
+                    FileName = file.FileName,
+                    Exists = true,
+                    Content = File.ReadAllText(targetFilePath, Encoding.UTF8)
+                });
+            }
+
+            return new HostResponse
+            {
+                Ok = true,
+                DirectoryPath = normalizedDirectoryPath,
+                Files = results
+            };
+        }
+        catch (Exception error)
+        {
+            return new HostResponse
+            {
+                Ok = false,
+                Error = error.Message
+            };
+        }
+    }
+
+    private static string NormalizeDirectoryPath(string directoryPath)
+    {
+        var normalizedDirectoryPath = string.IsNullOrWhiteSpace(directoryPath)
+            ? ""
+            : Path.GetFullPath(directoryPath);
+
+        if (string.IsNullOrWhiteSpace(normalizedDirectoryPath) || !Directory.Exists(normalizedDirectoryPath))
+        {
+            throw new DirectoryNotFoundException("Target directory is missing or does not exist.");
+        }
+
+        return normalizedDirectoryPath;
+    }
+
+    private static string ResolveFilePath(string directoryPath, string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            throw new InvalidOperationException("File name is missing.");
+        }
+
+        var normalizedDirectoryPath = NormalizeDirectoryPath(directoryPath);
+        var targetFilePath = Path.GetFullPath(Path.Combine(normalizedDirectoryPath, fileName));
+        var directoryPrefix = normalizedDirectoryPath.EndsWith(Path.DirectorySeparatorChar)
+            ? normalizedDirectoryPath
+            : normalizedDirectoryPath + Path.DirectorySeparatorChar;
+
+        if (!targetFilePath.StartsWith(directoryPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"File path escapes target directory: {fileName}");
+        }
+
+        return targetFilePath;
     }
 
     private static void TryApplyInitialPath(OpenFileDialog dialog, string existingPath)

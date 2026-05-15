@@ -1,23 +1,39 @@
 ﻿import {
+  clearTargetDirectoryHandle,
   getTargetDirectoryHandle,
   saveTargetDirectoryHandle
 } from "./lib/file-handle-db.js";
 import {
   DEFAULT_ALLOWED_ORIGINS,
   DEFAULT_SELECTION_STRATEGY,
+  getTargetDirectoryPathByPageType,
   isOriginAllowed,
+  loadConfig,
+  saveTargetDirectoryPathByPageType,
   resolvePageTypeConfig
 } from "./lib/config.js";
 import { buildReadmeContent, extractReadmeMetadataFromHtml } from "./lib/readme-parser.js";
+import { launchNativeEditor, pickNativeDirectory } from "./lib/native-host.js";
+import {
+  ensureTargetDirectorySelection,
+  fileExistsInSelection,
+  getStoredTargetDirectorySelection,
+  readFilesFromSelection,
+  refreshTargetDirectorySelection,
+  writeFilesToSelection
+} from "./lib/target-directory-access.js";
 
 const pageOriginEl = document.querySelector("#page-origin");
 const targetHandleEl = document.querySelector("#target-handle");
+const targetPathEl = document.querySelector("#target-path");
 const refreshHandleButton = document.querySelector("#refresh-handle-btn");
 const statusOutput = document.querySelector("#status-output");
 const frontendCaptureWriteButton = document.querySelector("#frontend-capture-write-btn");
 const frontendWritebackButton = document.querySelector("#frontend-writeback-btn");
 const bizruleCaptureWriteButton = document.querySelector("#bizrule-capture-write-btn");
 const bizruleWritebackButton = document.querySelector("#bizrule-writeback-btn");
+const openVscodeButton = document.querySelector("#open-vscode-btn");
+const openIdeaButton = document.querySelector("#open-idea-btn");
 const openOptionsButton = document.querySelector("#open-options-btn");
 
 let currentPageContext = null;
@@ -28,10 +44,53 @@ function setBusy(isBusy) {
   bizruleCaptureWriteButton.disabled = isBusy;
   bizruleWritebackButton.disabled = isBusy;
   refreshHandleButton.disabled = isBusy;
+  openVscodeButton.disabled = isBusy;
+  openIdeaButton.disabled = isBusy;
 }
 
 function setStatus(message) {
   statusOutput.textContent = Array.isArray(message) ? message.join("\n") : String(message || "");
+}
+
+function setCopyableValue(element, options) {
+  const {
+    fullValue,
+    shortLabel,
+    emptyLabel,
+    copyLabel
+  } = options;
+
+  const normalizedValue = String(fullValue || "").trim();
+  if (!normalizedValue) {
+    element.textContent = emptyLabel;
+    element.title = emptyLabel;
+    element.dataset.copyValue = "";
+    element.dataset.copyLabel = copyLabel;
+    element.disabled = true;
+    return;
+  }
+
+  element.textContent = shortLabel;
+  element.title = `点击复制完整${copyLabel}\n${normalizedValue}`;
+  element.dataset.copyValue = normalizedValue;
+  element.dataset.copyLabel = copyLabel;
+  element.disabled = false;
+}
+
+async function handleCopyValue(event) {
+  const element = event.currentTarget;
+  const copyValue = String(element?.dataset?.copyValue || "").trim();
+  const copyLabel = String(element?.dataset?.copyLabel || "内容");
+  if (!copyValue) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(copyValue);
+    setStatus(`已复制${copyLabel}。\n${copyValue}`);
+  } catch (error) {
+    setStatus(`复制${copyLabel}失败。\n${error?.message || String(error)}`);
+  }
 }
 
 function cleanInlineText(value) {
@@ -52,12 +111,17 @@ function describeOrigin(url) {
   try {
     return new URL(url).origin;
   } catch (_error) {
-    return "涓嶅彲璇嗗埆椤甸潰";
+    return "不可识别页面";
   }
 }
 
 function renderCurrentPageUrl(tab) {
-  pageOriginEl.textContent = tab?.url || "鏃犳硶鑾峰彇";
+  setCopyableValue(pageOriginEl, {
+    fullValue: tab?.url || "",
+    shortLabel: "复制链接",
+    emptyLabel: "无法获取",
+    copyLabel: "页面链接"
+  });
 }
 
 async function updatePageInfo() {
@@ -82,79 +146,148 @@ function getCurrentPageContext() {
 
 async function updateDirectoryInfo(pageType) {
   try {
-    const handle = await getTargetDirectoryHandle(pageType);
-    targetHandleEl.textContent = handle?.name || "灏氭湭閫夋嫨";
+    const config = await loadConfig();
+    const targetPath = getTargetDirectoryPathByPageType(config, pageType);
+    const handle = await getTargetDirectoryHandle(pageType).catch(() => null);
+    const pathHandleLabel = targetPath
+      ? targetPath.split(/[\\/]/).filter(Boolean).pop() || targetPath
+      : "未授权";
+    targetHandleEl.textContent = targetPath ? pathHandleLabel : (handle?.name || "未授权");
+    setCopyableValue(targetPathEl, {
+      fullValue: targetPath,
+      shortLabel: "复制路径",
+      emptyLabel: "未保存",
+      copyLabel: "绝对路径"
+    });
   } catch (error) {
-    targetHandleEl.textContent = "璇诲彇澶辫触";
-    setStatus(`璇诲彇鐩綍鍙ユ焺澶辫触銆俓n${error?.message || String(error)}`);
+    targetHandleEl.textContent = "读取失败";
+    setCopyableValue(targetPathEl, {
+      fullValue: "",
+      shortLabel: "复制路径",
+      emptyLabel: "读取失败",
+      copyLabel: "绝对路径"
+    });
+    setStatus(`读取目标目录失败。
+${error?.message || String(error)}`);
   }
 }
 
-function supportsDirectoryPicker() {
-  return typeof window.showDirectoryPicker === "function";
+async function ensureDirectoryAccessForOperation(pageType, mode) {
+  return ensureTargetDirectorySelection(pageType, mode);
 }
 
-async function selectTargetDirectoryHandle(pageType) {
-  if (!supportsDirectoryPicker()) {
-    throw new Error("褰撳墠鎵╁睍椤典笉鏀寔 File System Access API銆?);
+async function resolveLaunchTargetPath(pageType) {
+  const selection = await getStoredTargetDirectorySelection(pageType);
+  if (selection.kind === "native-path" && selection.directoryPath) {
+    return selection.directoryPath;
   }
-  const handle = await window.showDirectoryPicker({ mode: "readwrite" });
-  await saveTargetDirectoryHandle(handle, pageType);
-  return handle;
+
+  const config = await loadConfig();
+  return getTargetDirectoryPathByPageType(config, pageType);
 }
 
-async function ensureDirectoryPermission(handle, mode = "readwrite") {
-  if (!handle) {
-    throw new Error("灏氭湭閫夋嫨鐩綍鍙ユ焺銆?);
+async function ensureLaunchTargetPath(pageType) {
+  const existingPath = await resolveLaunchTargetPath(pageType);
+  if (existingPath) {
+    return existingPath;
   }
 
-  const options = { mode };
-  if (typeof handle.queryPermission === "function") {
-    const permission = await handle.queryPermission(options);
-    if (permission === "granted") {
-      return;
+  const response = await pickNativeDirectory("");
+  if (!response?.ok) {
+    if (response?.cancelled) {
+      const error = new Error("已取消选择目标目录。");
+      error.name = "AbortError";
+      throw error;
     }
+    throw new Error(response?.error || "选择目标目录失败。");
   }
 
-  if (typeof handle.requestPermission === "function") {
-    const permission = await handle.requestPermission(options);
-    if (permission === "granted") {
-      return;
-    }
+  const directoryPath = String(response.directoryPath || "").trim();
+  if (!directoryPath) {
+    throw new Error("原生助手未返回目标目录绝对路径。");
   }
 
-  throw new Error(mode === "read" ? "鐩綍璇诲彇鏉冮檺鏈巿浜堛€? : "鐩綍鍐欏叆鏉冮檺鏈巿浜堛€?);
-}
-
-async function ensureDirectoryHandleForOperation(pageType, mode) {
-  let handle = await getTargetDirectoryHandle(pageType);
-  if (!handle) {
-    handle = await selectTargetDirectoryHandle(pageType);
-  }
-  await ensureDirectoryPermission(handle, mode);
-  return handle;
+  await saveTargetDirectoryPathByPageType(pageType, directoryPath);
+  await clearTargetDirectoryHandle(pageType);
+  await updateDirectoryInfo(pageType);
+  return directoryPath;
 }
 
 async function refreshDirectoryHandle(pageType) {
-  const handle = await selectTargetDirectoryHandle(pageType);
+  const selection = await refreshTargetDirectorySelection(pageType);
   await updateDirectoryInfo(pageType);
-  return handle;
+  return {
+    handleLabel:
+      selection.kind === "handle"
+        ? (selection.label || "未授权")
+        : (selection.directoryPath.split(/[\\/]/).filter(Boolean).pop() || selection.directoryPath),
+    directoryPath: selection.kind === "native-path" ? selection.directoryPath : ""
+  };
 }
 
 async function handleRefreshDirectoryHandle() {
   setBusy(true);
-  setStatus("姝ｅ湪鏇存柊鐩綍鍙ユ焺...");
+  setStatus("正在更新目标目录...");
 
   try {
-    const { pageType } = getCurrentPageContext();
-    const handle = await refreshDirectoryHandle(pageType);
-    setStatus(`鐩綍鍙ユ焺宸叉洿鏂帮細${handle?.name || "鏈懡鍚嶇洰褰?}`);
+    const { pageType } = await updatePageInfo();
+    const selection = await refreshDirectoryHandle(pageType);
+    setStatus([
+      "目标目录已更新。",
+      `目录句柄：${selection.handleLabel || "未授权"}`,
+      `绝对路径：${selection.directoryPath || "未保存"}`
+    ]);
   } catch (error) {
     if (error?.name === "AbortError") {
-      setStatus("宸插彇娑堟洿鏂扮洰褰曞彞鏌勩€?);
+      setStatus("已取消更新目标目录。");
       return;
     }
-    setStatus(`鏇存柊鐩綍鍙ユ焺澶辫触銆俓n${error?.message || String(error)}`);
+    setStatus(`更新目标目录失败。
+${error?.message || String(error)}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleOpenEditor(editorType) {
+  setBusy(true);
+  const editorLabel = editorType === "vscode" ? "VS Code" : "IDEA";
+  setStatus(`正在打开 ${editorLabel}...`);
+
+  try {
+    const { pageType } = await updatePageInfo();
+    const config = await loadConfig();
+    const executablePath = editorType === "vscode"
+      ? config.vscodeExecutablePath
+      : config.ideaExecutablePath;
+
+    if (!executablePath) {
+      throw new Error(`请先在设置页配置 ${editorLabel} 可执行文件路径。`);
+    }
+
+    const targetPath = await ensureLaunchTargetPath(pageType);
+
+    const response = await launchNativeEditor({
+      executablePath,
+      targetPath
+    });
+
+    if (!response?.ok) {
+      throw new Error(response?.error || `打开 ${editorLabel} 失败。`);
+    }
+
+    setStatus([
+      `${editorLabel} 已打开目标目录。`,
+      `页面类型：${getCurrentPageContext().pageTypeConfig.pageLabel}`,
+      `目标目录：${targetPath}`,
+      `可执行文件：${executablePath}`
+    ]);
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      setStatus(`已取消打开 ${editorLabel}。`);
+      return;
+    }
+    setStatus(`打开 ${editorLabel} 失败。\n${error?.message || String(error)}`);
   } finally {
     setBusy(false);
   }
@@ -179,17 +312,17 @@ function normalizeExcessBlankLines(content) {
 
 function getExecutableContextError(tab) {
   if (!tab?.id || !tab.url) {
-    return "鏈壘鍒板綋鍓嶆椿鍔ㄦ爣绛鹃〉銆?;
+    return "未找到当前活动标签页。";
   }
   if (!/^https?:/i.test(tab.url)) {
-    return "褰撳墠鏍囩椤典笉鏄櫘閫氱綉椤碉紝鏃犳硶娉ㄥ叆鑴氭湰銆?;
+    return "当前标签页不是普通网页，无法注入脚本。";
   }
   return "";
 }
 
 function getOriginError(tabUrl) {
   if (!isOriginAllowed(tabUrl, DEFAULT_ALLOWED_ORIGINS)) {
-    return `褰撳墠椤甸潰 origin 涓嶅湪鍏佽鍒楄〃涓細${describeOrigin(tabUrl)}`;
+    return `当前页面 origin 不在允许列表中：${describeOrigin(tabUrl)}`;
   }
   return "";
 }
@@ -200,7 +333,7 @@ function buildCodeExportPlan(data, pageTypeConfig) {
     return {
       ok: false,
       errorCode: "NO_CODES_OBJECT",
-      details: "鐩爣缁勪欢鐨?$data 涓湭鎵惧埌鏈夋晥鐨?data.codes 瀵硅薄銆?
+      details: "目标组件的$data 中未找到有效的 data.codes 对象。"
     };
   }
 
@@ -225,7 +358,7 @@ function buildCodeExportPlan(data, pageTypeConfig) {
     return {
       ok: false,
       errorCode: "NO_EXPORTABLE_CODE_FILES",
-      details: "data.codes 涓病鏈夊彲瀵煎嚭鐨?javascript銆乭tml銆乧ss 鏂囨湰鍐呭銆?,
+      details: "data.codes 中没有可导出的 javascript、html、css 文本内容。",
       skippedKeys
     };
   }
@@ -237,53 +370,57 @@ function buildCodeExportPlan(data, pageTypeConfig) {
   };
 }
 
-async function writeCodeFilesToDirectory(directoryHandle, filesToWrite) {
-  for (const file of filesToWrite) {
-    const fileHandle = await directoryHandle.getFileHandle(file.fileName, { create: true });
-    await writeTextToFile(fileHandle, file.content);
-  }
+async function writeCodeFilesToDirectory(directorySelection, filesToWrite) {
+  await writeFilesToSelection(directorySelection, filesToWrite);
 }
 
-async function readCodeFilesFromDirectory(directoryHandle, pageTypeConfig) {
+async function readCodeFilesFromDirectory(directorySelection, pageTypeConfig) {
   const filesToImport = [];
   const skippedKeys = [];
+  let readResults;
+
+  try {
+    readResults = await readFilesFromSelection(
+      directorySelection,
+      pageTypeConfig.fileMappings.map((item) => item.fileName)
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      errorCode: "DIRECTORY_READ_FAILED",
+      details: error?.message || String(error)
+    };
+  }
+
+  const resultMap = new Map(
+    readResults.map((item) => [
+      item.fileName,
+      {
+        exists: Boolean(item?.exists),
+        content: String(item?.content ?? "")
+      }
+    ])
+  );
 
   for (const { key, fileName } of pageTypeConfig.fileMappings) {
-    let fileHandle;
-    try {
-      fileHandle = await directoryHandle.getFileHandle(fileName);
-    } catch (error) {
-      if (error?.name === "NotFoundError") {
-        skippedKeys.push(key);
-        continue;
-      }
-      return {
-        ok: false,
-        errorCode: "DIRECTORY_READ_FAILED",
-        details: `璇诲彇 ${fileName} 澶辫触锛?{error?.message || String(error)}`
-      };
+    const fileResult = resultMap.get(fileName);
+    if (!fileResult?.exists) {
+      skippedKeys.push(key);
+      continue;
     }
 
-    try {
-      filesToImport.push({
-        key,
-        fileName,
-        content: normalizeExcessBlankLines(await readTextFromFile(fileHandle))
-      });
-    } catch (error) {
-      return {
-        ok: false,
-        errorCode: "DIRECTORY_READ_FAILED",
-        details: `璇诲彇 ${fileName} 鍐呭澶辫触锛?{error?.message || String(error)}`
-      };
-    }
+    filesToImport.push({
+      key,
+      fileName,
+      content: normalizeExcessBlankLines(fileResult.content)
+    });
   }
 
   if (!filesToImport.length) {
     return {
       ok: false,
       errorCode: "NO_IMPORTABLE_CODE_FILES",
-      details: `${pageTypeConfig.pageLabel} 瀵瑰簲鐨勯粯璁ゆ枃浠朵笉瀛樺湪銆俙,
+      details: `${pageTypeConfig.pageLabel} 对应的默认文件不存在`,
       skippedKeys
     };
   }
@@ -295,27 +432,58 @@ async function readCodeFilesFromDirectory(directoryHandle, pageTypeConfig) {
   };
 }
 
-async function fileExists(directoryHandle, fileName) {
-  try {
-    await directoryHandle.getFileHandle(fileName);
-    return true;
-  } catch (error) {
-    if (error?.name === "NotFoundError") {
-      return false;
-    }
-    throw error;
-  }
+async function fileExists(directorySelection, fileName) {
+  return fileExistsInSelection(directorySelection, fileName);
 }
 
-async function writeReadmeFile(directoryHandle, metadata, pageTypeConfig, pageUrl) {
+async function readBizRuleFileFromDirectory(directorySelection, fileName) {
+  let readResults;
+
+  try {
+    readResults = await readFilesFromSelection(directorySelection, [fileName]);
+  } catch (error) {
+    return {
+      ok: false,
+      errorCode: "DIRECTORY_READ_FAILED",
+      details: error?.message || String(error)
+    };
+  }
+
+  const fileResult = Array.isArray(readResults) ? readResults[0] : null;
+  if (!fileResult?.exists) {
+    return {
+      ok: false,
+      errorCode: "BIZRULE_FILE_NOT_FOUND",
+      details: `目标目录中不存在文件：${fileName}`
+    };
+  }
+
+  return {
+    ok: true,
+    fileName,
+    content: normalizeExcessBlankLines(fileResult.content)
+  };
+}
+
+async function writeReadmeFile(directorySelection, metadata, pageTypeConfig, pageUrl) {
   const readmeContent = buildReadmeContent(metadata, pageTypeConfig, pageUrl);
-  const readmeHandle = await directoryHandle.getFileHandle("README.MD", { create: true });
-  await writeTextToFile(readmeHandle, readmeContent);
+  await writeFilesToSelection(directorySelection, [
+    {
+      fileName: "README.MD",
+      content: readmeContent
+    }
+  ]);
+}
+
+function describeDirectoryAccessMode(directorySelection) {
+  return directorySelection.kind === "native-path"
+    ? "Native Host"
+    : "File System Access API";
 }
 
 async function handleCaptureAndWrite() {
   setBusy(true);
-  setStatus("姝ｅ湪鎶撳彇骞跺啓鍏?..");
+  setStatus("正在抓取并写入...");
 
   try {
     const pageContext = await updatePageInfo();
@@ -330,8 +498,8 @@ async function handleCaptureAndWrite() {
       throw new Error(originError);
     }
 
-    const handle = await ensureDirectoryHandleForOperation(pageType, "readwrite");
-    const hadReadme = await fileExists(handle, "README.MD");
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite");
+    const hadReadme = await fileExists(directorySelection, "README.MD");
 
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -346,30 +514,34 @@ async function handleCaptureAndWrite() {
     });
 
     if (!result?.ok) {
-      setStatus(`鎶撳彇澶辫触銆俓n${result?.details || result?.errorCode || "鏈煡閿欒"}`);
+      setStatus(`抓取失败。
+${result?.details || result?.errorCode || "未知错误"}`);
       return;
     }
 
     const exportPlan = buildCodeExportPlan(result.data, pageTypeConfig);
     if (!exportPlan.ok) {
-      setStatus(`鍐欏叆澶辫触銆俓n${exportPlan.details || exportPlan.errorCode || "鏈煡閿欒"}`);
+      setStatus(`写入失败。
+${exportPlan.details || exportPlan.errorCode || "未知错误"}`);
       return;
     }
 
-    await writeCodeFilesToDirectory(handle, exportPlan.filesToWrite);
+    await writeCodeFilesToDirectory(directorySelection, exportPlan.filesToWrite);
     const exportedHtml = exportPlan.filesToWrite.find((item) => item.key === "html")?.content || "";
     const readmeMetadata = extractReadmeMetadataFromHtml(exportedHtml, result.pageUrl || tab.url);
-    await writeReadmeFile(handle, readmeMetadata, pageTypeConfig, result.pageUrl || tab.url);
+    await writeReadmeFile(directorySelection, readmeMetadata, pageTypeConfig, result.pageUrl || tab.url);
     await updateDirectoryInfo(pageType);
 
     setStatus([
-      "鎶撳彇骞跺啓鍏ユ垚鍔熴€?,
-      `椤甸潰绫诲瀷锛?{pageTypeConfig.pageLabel}`,
-      `浠ｇ爜鏂囦欢锛?{exportPlan.filesToWrite.map((item) => item.fileName).join("銆?)}`,
-      hadReadme ? "README.MD 宸叉洿鏂般€? : "README.MD 宸叉柊寤恒€?
+      "抓取并写入成功。",
+      `页面类型：${pageTypeConfig.pageLabel}`,
+      `目录访问：${describeDirectoryAccessMode(directorySelection)}`,
+      `代码文件：${exportPlan.filesToWrite.map((item) => item.fileName).join("、")}`,
+      hadReadme ? "README.MD 已更新。" : "README.MD 已新建。",
     ]);
   } catch (error) {
-    setStatus(`鎶撳彇骞跺啓鍏ュけ璐ャ€俓n${error?.message || String(error)}`);
+    setStatus(`抓取并写入失败。
+${error?.message || String(error)}`);
   } finally {
     setBusy(false);
   }
@@ -377,7 +549,7 @@ async function handleCaptureAndWrite() {
 
 async function handleImportAndWriteBack() {
   setBusy(true);
-  setStatus("姝ｅ湪浠庢枃浠跺す鍥炲啓...");
+  setStatus("正在从文件夹回写...");
 
   try {
     const pageContext = await updatePageInfo();
@@ -392,10 +564,11 @@ async function handleImportAndWriteBack() {
       throw new Error(originError);
     }
 
-    const handle = await ensureDirectoryHandleForOperation(pageType, "read");
-    const importPlan = await readCodeFilesFromDirectory(handle, pageTypeConfig);
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "read");
+    const importPlan = await readCodeFilesFromDirectory(directorySelection, pageTypeConfig);
     if (!importPlan.ok) {
-      setStatus(`鍥炲啓澶辫触銆俓n${importPlan.details || importPlan.errorCode || "鏈煡閿欒"}`);
+      setStatus(`回写失败。
+${importPlan.details || importPlan.errorCode || "未知错误"}`);
       return;
     }
 
@@ -414,7 +587,8 @@ async function handleImportAndWriteBack() {
     });
 
     if (!result?.ok) {
-      setStatus(`鍥炲啓澶辫触銆俓n${result?.details || result?.errorCode || "鏈煡閿欒"}`);
+      setStatus(`回写失败。
+${result?.details || result?.errorCode || "未知错误"}`);
       return;
     }
 
@@ -422,13 +596,15 @@ async function handleImportAndWriteBack() {
     setStatus([
       "从文件夹回写成功。",
       `页面类型：${pageTypeConfig.pageLabel}`,
+      `目录访问：${describeDirectoryAccessMode(directorySelection)}`,
       `回写字段：${result.updatedKeys.join("、") || "无"}`,
       result.compatibilityState?.shimmed
         ? `兼容处理：webIDEService.updateDataSource -> ${result.compatibilityState.fallbackMethod}`
-        : "兼容处理：未注入 webIDEService 兜底"
+        : "兼容处理：未注入 webIDEService 兜底",
     ]);
   } catch (error) {
-    setStatus(`浠庢枃浠跺す鍥炲啓澶辫触銆俓n${error?.message || String(error)}`);
+    setStatus(`从文件夹回写失败。
+${error?.message || String(error)}`);
   } finally {
     setBusy(false);
   }
@@ -436,7 +612,7 @@ async function handleImportAndWriteBack() {
 
 async function handleBizruleCaptureAndWrite() {
   setBusy(true);
-  setStatus("姝ｅ湪鎶撳彇涓氬姟瑙勫垯骞跺啓鍏?..");
+  setStatus("正在抓取业务规则并写入...");
 
   try {
     const pageContext = await updatePageInfo();
@@ -451,7 +627,7 @@ async function handleBizruleCaptureAndWrite() {
       throw new Error(originError);
     }
 
-    const handle = await ensureDirectoryHandleForOperation(pageType, "readwrite");
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite");
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
@@ -460,47 +636,139 @@ async function handleBizruleCaptureAndWrite() {
 
     if (!result?.ok) {
       setStatus([
-        "涓氬姟瑙勫垯鎶撳彇澶辫触銆?,
-        `閿欒鐮侊細${result?.errorCode || "UNKNOWN_ERROR"}`,
-        result?.details || "鏈繑鍥炴洿澶氳瘖鏂俊鎭€?
+        "业务规则抓取失败。",
+        `错误码：${result?.errorCode || "UNKNOWN_ERROR"}`,
+        result?.details || "未返回更多诊断信息"
       ]);
       return;
     }
 
     if (!result.sourceContent) {
-      setStatus("涓氬姟瑙勫垯鎶撳彇澶辫触銆俓n椤甸潰宸叉壘鍒?Monaco model锛屼絾婧愮爜鍐呭涓虹┖銆?);
+      setStatus("业务规则抓取失败。\n页面已找到 Monaco model，但源代码内容为空。");
       return;
     }
 
     if (!result.fileName) {
-      setStatus("涓氬姟瑙勫垯鎶撳彇澶辫触銆俓n宸茶鍙栨簮鐮侊紝浣嗘湭鑳借В鏋愯緭鍑烘枃浠跺悕銆?);
+      setStatus("业务规则抓取失败。\n已读取源代码，但未能解析输出文件名。");
       return;
     }
 
-    const hadTargetFile = await fileExists(handle, result.fileName);
-    const fileHandle = await handle.getFileHandle(result.fileName, { create: true });
-    await writeTextToFile(fileHandle, result.sourceContent);
+    const hadTargetFile = await fileExists(directorySelection, result.fileName);
+    await writeFilesToSelection(directorySelection, [
+      {
+        fileName: result.fileName,
+        content: result.sourceContent
+      }
+    ]);
     await updateDirectoryInfo(pageType);
 
     setStatus([
-      "涓氬姟瑙勫垯鎶撳彇鍐欏叆鎴愬姛銆?,
-      `鏂囦欢鍚嶏細${result.fileName}`,
-      `绫诲悕锛?{result.className || "鏈В鏋?}`,
-      `璇█锛?{result.language || "鏈煡"}`,
-      `URI锛?{result.uri || "绌?}`,
-      `婧愮爜闀垮害锛?{result.sourceLength}`,
-      hadTargetFile ? "鐩爣鏂囦欢宸叉洿鏂般€? : "鐩爣鏂囦欢宸叉柊寤恒€?,
-      `璇婃柇锛?{(result.details || []).join(" | ") || "鏃?}`
+      "业务规则抓取写入成功。",
+      `目录访问：${describeDirectoryAccessMode(directorySelection)}`,
+      `文件名：${result.fileName}`,
+      `类名：${result.className || "未解析"}`,
+      `语言：${result.language || "未知"}`,
+      `URI：${result.uri || "空"}`,
+      `源代码长度：${result.sourceLength}`,
+      hadTargetFile ? "目标文件已更新。" : "目标文件已新建。",
+      `诊断：${(result.details || []).join(" | ") || "无"}`
     ]);
   } catch (error) {
-    setStatus(`涓氬姟瑙勫垯鎶撳彇鍐欏叆澶辫触銆俓n${error?.message || String(error)}`);
+    setStatus(`业务规则抓取写入失败。
+${error?.message || String(error)}`);
   } finally {
     setBusy(false);
   }
 }
 
 function handleBizruleWriteback() {
-  setStatus("涓氬姟瑙勫垯鍥炲啓鍔熻兘鏆傛湭瀹炵幇銆?);
+  return handleBizruleWritebackInternal();
+}
+
+async function handleBizruleWritebackInternal() {
+  setBusy(true);
+  setStatus("正在回写业务规则到页面编辑器...");
+
+  try {
+    const pageContext = await updatePageInfo();
+    const { tab, pageType } = pageContext;
+    const executableContextError = getExecutableContextError(tab);
+    if (executableContextError) {
+      throw new Error(executableContextError);
+    }
+
+    const originError = getOriginError(tab.url);
+    if (originError) {
+      throw new Error(originError);
+    }
+
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "read");
+    const [{ result: probeResult }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: "MAIN",
+      func: bizRuleProbeMain
+    });
+
+    if (!probeResult?.ok) {
+      setStatus([
+        "业务规则回写失败。",
+        `错误码：${probeResult?.errorCode || "UNKNOWN_ERROR"}`,
+        ...(Array.isArray(probeResult?.details) ? probeResult.details : [probeResult?.details || "未返回更多诊断信息"])
+      ]);
+      return;
+    }
+
+    if (!probeResult.fileName) {
+      setStatus("业务规则回写失败。\n当前页面未解析到业务规则文件名。");
+      return;
+    }
+
+    const importResult = await readBizRuleFileFromDirectory(directorySelection, probeResult.fileName);
+    if (!importResult.ok) {
+      setStatus(`业务规则回写失败。\n${importResult.details || importResult.errorCode || "未知错误"}`);
+      return;
+    }
+
+    const [{ result: writebackResult }] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: "MAIN",
+      func: bizRuleWritebackMain,
+      args: [
+        {
+          fileName: importResult.fileName,
+          sourceContent: importResult.content
+        }
+      ]
+    });
+
+    if (!writebackResult?.ok) {
+      setStatus([
+        "业务规则回写失败。",
+        `错误码：${writebackResult?.errorCode || "UNKNOWN_ERROR"}`,
+        ...(Array.isArray(writebackResult?.details)
+          ? writebackResult.details
+          : [writebackResult?.details || "未返回更多诊断信息"])
+      ]);
+      return;
+    }
+
+    await updateDirectoryInfo(pageType);
+    setStatus([
+      "业务规则回写成功。",
+      `目录访问：${describeDirectoryAccessMode(directorySelection)}`,
+      `文件名：${writebackResult.fileName || importResult.fileName}`,
+      `语言：${writebackResult.language || "未知"}`,
+      `URI：${writebackResult.uri || "空"}`,
+      `源代码长度：${writebackResult.sourceLength}`,
+      `编辑器数量：${writebackResult.editorCount}`,
+      `模型数量：${writebackResult.modelCount}`,
+      `诊断：${(writebackResult.details || []).join(" | ") || "无"}`
+    ]);
+  } catch (error) {
+    setStatus(`业务规则回写失败。\n${error?.message || String(error)}`);
+  } finally {
+    setBusy(false);
+  }
 }
 function getReadableAttribute(element, names) {
   for (const name of names) {
@@ -796,8 +1064,8 @@ function pageCaptureMain(input) {
     }
 
     const normalized = text
-      .replace(/[>锛瀅/g, "/")
-      .replace(/[|锝淽/g, "/")
+      .replace(/[>：]/g, "/")
+      .replace(/[|~]/g, "/")
       .replace(/\s+-\s+/g, "/");
     const parts = normalized
       .split("/")
@@ -1194,7 +1462,7 @@ function pageCaptureMain(input) {
   if (!discoveredComponentNames.size && !candidateEntries.length) {
     return createBaseResult({
       errorCode: "NO_VUE_ROOT",
-      details: "椤甸潰涓婃湭鍙戠幇鍙闂殑 Vue 缁勪欢鍏ュ彛銆?
+      details: "页面上未发现可访问的 Vue 组件入口。"
     });
   }
 
@@ -1213,7 +1481,7 @@ function pageCaptureMain(input) {
       errorCode: "NO_EDITOR_FOUND",
       vueMajor,
       discoveredComponentNames: Array.from(discoveredComponentNames).sort(),
-      details: `鏈尮閰嶅埌鍊欓€夌粍浠跺悕锛?{candidateNames.join(", ")}`
+      details: `未匹配到候选组件名：${candidateNames.join(", ")}`
     });
   }
 
@@ -1225,7 +1493,7 @@ function pageCaptureMain(input) {
       candidateCount: candidateEntries.length,
       matchedComponentName: selected.componentName,
       discoveredComponentNames: Array.from(discoveredComponentNames).sort(),
-      details: "鐩爣缁勪欢瀛樺湪锛屼絾鏈毚闇插叕寮€鐨?$data銆?
+      details: "目标组件存在，但未暴露公开的 $data。"
     });
   }
 
@@ -1540,7 +1808,7 @@ function pageWritebackMain(input) {
   if (!discoveredComponentNames.size && !candidateEntries.length) {
     return createBaseResult({
       errorCode: "NO_VUE_ROOT",
-      details: "椤甸潰涓婃湭鍙戠幇鍙闂殑 Vue 缁勪欢鍏ュ彛銆?
+      details: "页面上未发现可访问的 Vue 组件入口。"
     });
   }
 
@@ -1559,7 +1827,7 @@ function pageWritebackMain(input) {
       errorCode: "NO_EDITOR_FOUND",
       vueMajor,
       discoveredComponentNames: Array.from(discoveredComponentNames).sort(),
-      details: `鏈尮閰嶅埌鍊欓€夌粍浠跺悕锛?{candidateNames.join(", ")}`
+      details: `未匹配到候选组件名：${candidateNames.join(", ")}`
     });
   }
 
@@ -1570,7 +1838,7 @@ function pageWritebackMain(input) {
       candidateCount: candidateEntries.length,
       matchedComponentName: candidateEntries[0].componentName,
       discoveredComponentNames: Array.from(discoveredComponentNames).sort(),
-      details: "娌℃湁鍙洖鍐欑殑浠ｇ爜鏂囦欢鍐呭銆?
+      details: "没有可回写的代码文件内容。"
     });
   }
 
@@ -1585,8 +1853,8 @@ function pageWritebackMain(input) {
       discoveredComponentNames: Array.from(discoveredComponentNames).sort(),
       details:
         codesTargetResult.errorCode === "NO_DATA"
-          ? "鐩爣缁勪欢瀛樺湪锛屼絾鏈毚闇插叕寮€鐨?$data銆?
-          : "鐩爣缁勪欢鐨?$data.codes 鏃犳硶寤虹珛涓哄彲鍐欏璞°€?
+          ? "目标组件存在，但未暴露公开的 $data。"
+          : "目标组件的 $data.codes 无法建立为可写对象。"
     });
   }
 
@@ -1680,7 +1948,7 @@ function bizRuleProbeMain() {
     if (!monaco?.editor) {
       return createBaseResult({
         errorCode: "NO_MONACO_GLOBAL",
-        details: ["window.monaco.editor 涓嶅瓨鍦?]
+        details: ["window.monaco.editor 不存在"]
       });
     }
 
@@ -1695,12 +1963,12 @@ function bizRuleProbeMain() {
 
     if (editors.length > 0 && typeof editors[0]?.getModel === "function") {
       model = editors[0].getModel();
-      details.push("宸查€氳繃 editor.getModel() 鑾峰彇妯″瀷");
+      details.push("已通过 editor.getModel() 获取模型");
     }
 
     if (!model && models.length > 0) {
       model = models[0];
-      details.push("宸插洖閫€鍒?monaco.editor.getModels()[0]");
+      details.push("已回退到monaco.editor.getModels()[0]");
     }
 
     if (!model) {
@@ -1709,7 +1977,7 @@ function bizRuleProbeMain() {
         hasMonacoGlobal: true,
         editorCount: editors.length,
         modelCount: models.length,
-        details: details.concat("鏈壘鍒板彲鐢ㄧ殑 Monaco model")
+        details: details.concat("未找到可用的 Monaco model")
       });
     }
 
@@ -1719,7 +1987,7 @@ function bizRuleProbeMain() {
         hasMonacoGlobal: true,
         editorCount: editors.length,
         modelCount: models.length,
-        details: details.concat("Monaco model 涓嶆敮鎸?getValue()")
+        details: details.concat("Monaco model 不支持getValue()")
       });
     }
 
@@ -1730,13 +1998,13 @@ function bizRuleProbeMain() {
     const className = extractJavaClassName(source);
     const uriFileName = extractFileNameFromUri(uri);
     const fileName = uriFileName || (className ? `${className}.java` : "");
-    details.push(source ? "宸茶鍙栧埌婧愮爜鏂囨湰" : "婧愮爜鏂囨湰涓虹┖");
+    details.push(source ? "已读取到源代码文本" : "源代码文本为空");
     if (uriFileName) {
-      details.push("宸蹭粠 model URI 瑙ｆ瀽鏂囦欢鍚?);
+      details.push("已从 model URI 解析文件名");
     } else if (className) {
-      details.push("宸蹭粠婧愮爜绫诲悕鍥為€€瑙ｆ瀽鏂囦欢鍚?);
+      details.push("已从源代码类名回退解析文件名");
     } else {
-      details.push("鏈В鏋愬埌涓氬姟瑙勫垯鏂囦欢鍚?);
+      details.push("未解析到业务规则文件名");
     }
 
     return {
@@ -1762,12 +2030,156 @@ function bizRuleProbeMain() {
   }
 }
 
+function bizRuleWritebackMain(input) {
+  function safePageUrl() {
+    try {
+      return window.location.href;
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function createBaseResult(overrides) {
+    return {
+      ok: false,
+      pageUrl: safePageUrl(),
+      hasMonacoGlobal: false,
+      editorCount: 0,
+      modelCount: 0,
+      language: "",
+      uri: "",
+      sourceLength: 0,
+      fileName: "",
+      details: [],
+      ...overrides
+    };
+  }
+
+  function extractFileNameFromUri(uri) {
+    const normalized = String(uri || "").trim();
+    if (!normalized) {
+      return "";
+    }
+
+    const match = normalized.match(/\/([^/?#]+\.java)(?:[?#].*)?$/i);
+    return match ? match[1] : "";
+  }
+
+  try {
+    const fileName = String(input?.fileName || "").trim();
+    const sourceContent = String(input?.sourceContent ?? "");
+    if (!fileName) {
+      return createBaseResult({
+        errorCode: "MISSING_FILE_NAME",
+        details: ["未提供待回写的业务规则文件名"]
+      });
+    }
+
+    const monaco = window.monaco;
+    if (!monaco?.editor) {
+      return createBaseResult({
+        errorCode: "NO_MONACO_GLOBAL",
+        details: ["window.monaco.editor 不存在"]
+      });
+    }
+
+    const editors = typeof monaco.editor.getEditors === "function"
+      ? monaco.editor.getEditors().filter(Boolean)
+      : [];
+    const models = typeof monaco.editor.getModels === "function"
+      ? monaco.editor.getModels().filter(Boolean)
+      : [];
+    const details = [];
+    const candidateModels = [];
+    const seenModels = new Set();
+
+    for (const editor of editors) {
+      const model = typeof editor?.getModel === "function" ? editor.getModel() : null;
+      if (model && !seenModels.has(model)) {
+        candidateModels.push(model);
+        seenModels.add(model);
+      }
+    }
+
+    for (const model of models) {
+      if (model && !seenModels.has(model)) {
+        candidateModels.push(model);
+        seenModels.add(model);
+      }
+    }
+
+    if (!candidateModels.length) {
+      return createBaseResult({
+        errorCode: "NO_MONACO_MODEL",
+        hasMonacoGlobal: true,
+        editorCount: editors.length,
+        modelCount: models.length,
+        details: ["未找到可写入的 Monaco model"]
+      });
+    }
+
+    const matchedModel = candidateModels.find((model) => {
+      const uri = model?.uri?.toString?.() || "";
+      return extractFileNameFromUri(uri) === fileName;
+    });
+
+    if (!matchedModel) {
+      return createBaseResult({
+        errorCode: "TARGET_MODEL_NOT_FOUND",
+        hasMonacoGlobal: true,
+        editorCount: editors.length,
+        modelCount: models.length,
+        fileName,
+        details: [`未找到文件名匹配 ${fileName} 的 Monaco model`]
+      });
+    }
+
+    if (typeof matchedModel.setValue !== "function") {
+      return createBaseResult({
+        errorCode: "MODEL_NOT_WRITABLE",
+        hasMonacoGlobal: true,
+        editorCount: editors.length,
+        modelCount: models.length,
+        fileName,
+        uri: matchedModel?.uri?.toString?.() || "",
+        details: ["目标 Monaco model 不支持 setValue()"]
+      });
+    }
+
+    matchedModel.setValue(sourceContent);
+    details.push("已通过 model.setValue() 完整替换业务规则源码");
+
+    return {
+      ok: true,
+      pageUrl: safePageUrl(),
+      hasMonacoGlobal: true,
+      editorCount: editors.length,
+      modelCount: models.length,
+      language: typeof matchedModel.getLanguageId === "function" ? matchedModel.getLanguageId() : "",
+      uri: matchedModel?.uri?.toString?.() || "",
+      sourceLength: sourceContent.length,
+      fileName,
+      details
+    };
+  } catch (error) {
+    return createBaseResult({
+      errorCode: "WRITEBACK_FAILED",
+      fileName: String(input?.fileName || "").trim(),
+      details: [error?.message || String(error)]
+    });
+  }
+}
+
 refreshHandleButton.addEventListener("click", handleRefreshDirectoryHandle);
 frontendCaptureWriteButton.addEventListener("click", handleCaptureAndWrite);
 frontendWritebackButton.addEventListener("click", handleImportAndWriteBack);
 bizruleCaptureWriteButton.addEventListener("click", handleBizruleCaptureAndWrite);
 bizruleWritebackButton.addEventListener("click", handleBizruleWriteback);
+openVscodeButton.addEventListener("click", () => handleOpenEditor("vscode"));
+openIdeaButton.addEventListener("click", () => handleOpenEditor("idea"));
 openOptionsButton.addEventListener("click", () => chrome.runtime.openOptionsPage());
+pageOriginEl.addEventListener("click", handleCopyValue);
+targetPathEl.addEventListener("click", handleCopyValue);
 
 async function init() {
   const pageContext = await updatePageInfo();
@@ -1777,6 +2189,6 @@ async function init() {
 }
 
 init().catch((error) => {
-  setStatus(`鍒濆鍖栧け璐ャ€俓n${error?.message || String(error)}`);
+  setStatus(`初始化失败。
+${error?.message || String(error)}`);
 });
-
