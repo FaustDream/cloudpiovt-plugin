@@ -45,6 +45,31 @@ export async function pickNativeDirectory(existingPath = "") {
   });
 }
 
+export async function writeNativeDirectoryFiles({ directoryPath, files }) {
+  return sendNativeMessage({
+    command: "write_directory_files",
+    directoryPath: String(directoryPath || ""),
+    files: Array.isArray(files)
+      ? files.map((file) => ({
+          fileName: String(file?.fileName || ""),
+          content: String(file?.content ?? "")
+        }))
+      : []
+  });
+}
+
+export async function readNativeDirectoryFiles({ directoryPath, fileNames }) {
+  return sendNativeMessage({
+    command: "read_directory_files",
+    directoryPath: String(directoryPath || ""),
+    files: Array.isArray(fileNames)
+      ? fileNames.map((fileName) => ({
+          fileName: String(fileName || "")
+        }))
+      : []
+  });
+}
+
 export async function launchNativeEditor({ executablePath, argumentsTemplate, targetPath }) {
   return sendNativeMessage({
     command: "launch_native_editor",

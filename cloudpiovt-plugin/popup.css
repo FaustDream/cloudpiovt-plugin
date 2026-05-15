@@ -40,10 +40,23 @@ body {
   margin-bottom: 14px;
 }
 
+.hero-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .hero h1 {
   margin: 0;
   font-size: 24px;
   line-height: 1.1;
+}
+
+.hero-launchers {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .subtitle {
@@ -101,6 +114,37 @@ body {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.copy-chip {
+  max-width: 232px;
+  min-width: 88px;
+  padding: 4px 10px;
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.92);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.5;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.copy-chip-full {
+  max-width: none;
+  justify-self: start;
+  text-align: left;
+}
+
+.copy-chip:hover:not(:disabled) {
+  background: #fff;
+}
+
+.copy-chip:disabled {
+  cursor: default;
+  opacity: 1;
+  color: var(--muted);
 }
 
 .field-label {
@@ -168,7 +212,8 @@ button:disabled {
 .accent-btn,
 .secondary-btn,
 .launch-btn,
-.ghost-launch-btn {
+.ghost-launch-btn,
+.editor-launch-btn {
   padding: 12px 14px;
   font-size: 14px;
   font-weight: 700;
@@ -223,6 +268,53 @@ button:disabled {
 
 .ghost-launch-btn:hover:not(:disabled) {
   background: #fff;
+}
+
+.editor-launch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 104px;
+  padding: 10px 12px;
+  border: 1px solid rgba(35, 32, 27, 0.1);
+  color: #fff;
+  box-shadow: 0 10px 20px rgba(35, 32, 27, 0.14);
+}
+
+.editor-launch-icon {
+  display: inline-flex;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+}
+
+.editor-launch-icon svg {
+  width: 100%;
+  height: 100%;
+}
+
+.vscode-btn {
+  background: linear-gradient(135deg, #0065a9 0%, #1f9cf0 100%);
+}
+
+.vscode-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #00558e 0%, #1688d4 100%);
+}
+
+.vscode-btn .editor-launch-icon {
+  color: #fff;
+}
+
+.vscode-btn .editor-launch-icon svg {
+  fill: currentColor;
+}
+
+.idea-btn {
+  background: linear-gradient(135deg, #1f1638 0%, #3d155f 45%, #0059d6 100%);
+}
+
+.idea-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #170f2d 0%, #34114f 45%, #004db8 100%);
 }
 
 .status-card {

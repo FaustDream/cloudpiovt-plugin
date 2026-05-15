@@ -23,6 +23,7 @@ body {
     linear-gradient(180deg, #fbf8f1 0%, #ede4d6 100%);
   color: var(--ink);
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-size: 17px;
 }
 
 .page-shell {
@@ -46,7 +47,7 @@ body {
 
 .intro h1 {
   margin: 0;
-  font-size: 34px;
+  font-size: 38px;
   line-height: 1.05;
 }
 
@@ -54,6 +55,7 @@ body {
   max-width: 760px;
   margin: 10px 0 0;
   color: var(--muted);
+  font-size: 17px;
   line-height: 1.6;
 }
 
@@ -92,13 +94,14 @@ body {
 
 .section-copy h2 {
   margin: 0;
-  font-size: 24px;
+  font-size: 28px;
   line-height: 1.1;
 }
 
 .section-desc {
   margin: 8px 0 0;
   color: var(--muted);
+  font-size: 16px;
   line-height: 1.6;
 }
 
@@ -111,7 +114,7 @@ body {
 .field-label {
   display: block;
   margin-bottom: 8px;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 700;
 }
 
@@ -143,7 +146,7 @@ input:focus {
   border-radius: 14px;
   background: #f3ebdc;
   color: var(--ink);
-  font-size: 13px;
+  font-size: 15px;
   line-height: 1.5;
 }
 
@@ -153,8 +156,35 @@ input:focus {
 }
 
 .readonly-list-item {
+  font-size: 15px;
   line-height: 1.7;
   color: var(--ink);
+}
+
+.usage-doc {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.usage-item {
+  padding: 16px 18px;
+  background: #fffdf9;
+  border: 1px solid rgba(216, 204, 185, 0.9);
+  border-radius: 18px;
+}
+
+.usage-item h3 {
+  margin: 0 0 8px;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.usage-item p {
+  margin: 0;
+  color: var(--ink);
+  font-size: 15px;
+  line-height: 1.7;
 }
 
 button {
@@ -205,5 +235,5 @@ button:disabled {
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
-  font-size: 13px;
+  font-size: 15px;
 }

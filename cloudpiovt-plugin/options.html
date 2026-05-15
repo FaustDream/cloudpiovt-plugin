@@ -11,7 +11,7 @@
       <section class="intro">
         <!-- <p class="eyebrow">Settings</p> -->
         <h1>云枢开发助手</h1>
-        <!-- <p class="lead">设置页只保留 VS Code 和 IDEA 的应用路径。其他抓取、映射和输出行为都使用代码默认值，仅展示说明，不允许修改。</p> -->
+        <p class="lead">设置页只保留 VS Code 和 IDEA 的应用路径。目录绑定、抓取写入、前端回写和业务规则回写都按当前代码默认逻辑运行。</p>
       </section>
 
       <form id="settings-form" class="settings-card">
@@ -56,11 +56,37 @@
           <div class="section-copy">
             <!-- <p class="section-kicker">Readonly Defaults</p> -->
             <h2>默认行为说明</h2>
-            <p class="section-desc">以下配置为代码内置默认值，只用于查看说明，不支持修改。</p>
+            <p class="section-desc">以下配置为代码内置默认值，只用于查看说明，不支持修改。内容已按当前最新目录选择、编辑器打开和回写逻辑同步更新。</p>
           </div>
 
           <div id="native-host-status" class="native-host-status">正在检测原生助手...</div>
           <ul id="readonly-settings-list" class="readonly-list"></ul>
+        </section>
+
+        <section class="config-section">
+          <div class="section-copy">
+            <h2>使用文档</h2>
+            <p class="section-desc">首次配置和日常使用建议按下面顺序执行，能避免目录未绑定、编辑器打不开或回写命中错误页面。</p>
+          </div>
+
+          <div class="usage-doc">
+            <article class="usage-item">
+              <h3>1. 初始化</h3>
+              <p>先配置 VS Code 与 IDEA 的 exe 路径，再回到弹窗点击“更新目标目录”，为当前页面类型绑定本地目标目录。</p>
+            </article>
+            <article class="usage-item">
+              <h3>2. 前端页面</h3>
+              <p>使用“前端抓取写入”把页面中的 html、css、javascript 写入目标目录；本地修改后，再用“前端回写”同步回页面。</p>
+            </article>
+            <article class="usage-item">
+              <h3>3. 业务规则</h3>
+              <p>使用“业务规则抓取写入”导出当前 Monaco 中的 .java 文件；本地修改后，用“业务规则回写”按同名文件回写到对应 Monaco model。</p>
+            </article>
+            <article class="usage-item">
+              <h3>4. 快捷操作</h3>
+              <p>弹窗顶部的 VS Code / IDEA 按钮会直接打开当前页面绑定的目标目录；“复制链接”和“复制路径”可复制完整值用于排查和分享。</p>
+            </article>
+          </div>
         </section>
 
         <pre id="settings-status" class="status-output">正在加载配置...</pre>
