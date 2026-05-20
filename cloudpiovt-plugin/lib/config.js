@@ -40,14 +40,14 @@ export const READONLY_SETTINGS = [
   "读取策略：visible-first，默认优先命中当前可见编辑区域",
   "输出模式：codes-multi-file-export，前端代码按页面类型拆分写入默认文件",
   "页面识别：form-design -> 表单在线开发，list-design -> 列表在线开发，其余页面走默认类型",
-  "目标目录：点击“更新目标目录”后会保存同一文件夹的目录名与本地绝对路径，后续抓取、回写、打开编辑器共用",
+  "目标目录：点击“更新目标目录”后会更新当前页面快照和新页面默认值，旧页面快照不自动覆盖",
   "表单文件映射：html -> form-index.html，css -> form-style.css，javascript -> form-script.js",
   "列表文件映射：html -> list-index.html，css -> list-style.css，javascript -> list-script.js",
   "业务规则文件：抓取时按 Monaco model URI 或 Java 类名解析 .java 文件名，回写时优先匹配同名 model",
-  "README 解析规则：页面地址中 model 后第一段是应用编码，下一段是表单编码，表单编码同时作为主表编码",
-  "README HTML 规则：a-title 表示表单名称，只读取名称；普通控件使用 data-name 和 key；a-sheet 表示子表并归组控件",
+  "FromCode 解析规则：页面地址中 model 后第一段是应用编码，下一段是表单编码，表单编码同时作为主表编码",
+  "文档 HTML 规则：a-title 表示表单名称，只读取名称；普通控件使用 data-name 和 key；a-sheet 表示子表并归组控件",
   "打开方式：只支持 VS Code 和 IDEA，点击弹窗顶部按钮时会直接打开当前页面绑定的目标目录",
-  "README.MD：仅在抓取并写入时生成或更新，前端回写与业务规则回写不会改动 README.MD"
+  "README.MD / FromCode.md：仅在抓取并写入时生成或更新，前端回写与业务规则回写不会改动文档"
 ];
 
 export const DEFAULT_CONFIG = {
