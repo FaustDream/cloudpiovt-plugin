@@ -15,8 +15,13 @@
     "activeTab",
     "scripting",
     "storage",
+    "tabs",
     "nativeMessaging"
   ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "action": {
     "default_title": "云枢开发助手",
     "default_icon": {

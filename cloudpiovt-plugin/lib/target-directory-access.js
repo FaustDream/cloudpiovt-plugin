@@ -1,13 +1,9 @@
 import {
-  clearTargetDirectoryHandle,
-  getTargetDirectoryHandle,
-  saveTargetDirectoryHandle
-} from "./file-handle-db.js";
-import {
-  getTargetDirectoryPathByPageType,
-  loadConfig,
-  saveTargetDirectoryPathByPageType
-} from "./config.js";
+  getStoredDirectoryPath,
+  getStoredTargetDirectorySelection,
+  saveHandleSelection,
+  saveNativeTargetDirectorySelection
+} from "./target-directory-state.js";
 import {
   pickNativeDirectory,
   probeNativeHost,
@@ -58,19 +54,17 @@ async function ensureDirectoryPermission(handle, mode = "readwrite") {
   throw new Error(mode === "read" ? "目录读取权限未授予。" : "目录写入权限未授予。");
 }
 
-async function selectHandleDirectory(pageType) {
+async function selectHandleDirectory(pageType, pageScope) {
   const handle = await window.showDirectoryPicker({ mode: "readwrite" });
-  await saveTargetDirectoryHandle(handle, pageType);
-  await saveTargetDirectoryPathByPageType(pageType, "");
+  await saveHandleSelection(pageType, handle, pageScope);
   return buildSelection("handle", {
     handle,
     label: handle?.name || "未命名目录"
   });
 }
 
-async function selectNativeDirectory(pageType) {
-  const config = await loadConfig();
-  const existingPath = getTargetDirectoryPathByPageType(config, pageType);
+async function selectNativeDirectory(pageType, pageScope) {
+  const existingPath = await getStoredDirectoryPath(pageType, pageScope);
   const response = await pickNativeDirectory(existingPath);
   if (!response?.ok) {
     if (response?.cancelled) {
@@ -84,50 +78,34 @@ async function selectNativeDirectory(pageType) {
     throw new Error("原生助手未返回目录路径。");
   }
 
-  await saveTargetDirectoryPathByPageType(pageType, directoryPath);
-  await clearTargetDirectoryHandle(pageType);
+  await saveNativeTargetDirectorySelection(pageType, directoryPath, pageScope);
   return buildSelection("native-path", {
     directoryPath,
     label: directoryPath
   });
 }
 
-export async function getStoredTargetDirectorySelection(pageType) {
-  const config = await loadConfig();
-  const directoryPath = getTargetDirectoryPathByPageType(config, pageType);
-  if (directoryPath) {
-    return buildSelection("native-path", {
-      directoryPath,
-      label: directoryPath
-    });
-  }
-
-  const handle = await getTargetDirectoryHandle(pageType).catch(() => null);
-  if (handle) {
-    return buildSelection("handle", {
-      handle,
-      label: handle?.name || "未命名目录"
-    });
-  }
-
-  return buildSelection("none");
-}
-
-export async function refreshTargetDirectorySelection(pageType) {
+/**
+ * 重新选择目标目录；用户主动重选时会更新当前页面快照和全局默认选择。
+ */
+export async function refreshTargetDirectorySelection(pageType, pageScope = "") {
   const hostStatus = await probeNativeHost();
   if (hostStatus.available) {
-    return selectNativeDirectory(pageType);
+    return selectNativeDirectory(pageType, pageScope);
   }
 
   if (supportsDirectoryPicker()) {
-    return selectHandleDirectory(pageType);
+    return selectHandleDirectory(pageType, pageScope);
   }
 
-  return selectNativeDirectory(pageType);
+  return selectNativeDirectory(pageType, pageScope);
 }
 
-export async function ensureTargetDirectorySelection(pageType, mode = "readwrite") {
-  const storedSelection = await getStoredTargetDirectorySelection(pageType);
+/**
+ * 执行抓取/回写前确保目标目录可用；没有选择时才触发重新选择流程。
+ */
+export async function ensureTargetDirectorySelection(pageType, mode = "readwrite", pageScope = "") {
+  const storedSelection = await getStoredTargetDirectorySelection(pageType, pageScope);
   if (storedSelection.kind === "handle") {
     await ensureDirectoryPermission(storedSelection.handle, mode);
     return storedSelection;
@@ -137,7 +115,7 @@ export async function ensureTargetDirectorySelection(pageType, mode = "readwrite
     return storedSelection;
   }
 
-  const selection = await refreshTargetDirectorySelection(pageType);
+  const selection = await refreshTargetDirectorySelection(pageType, pageScope);
   if (selection.kind === "handle") {
     await ensureDirectoryPermission(selection.handle, mode);
   }

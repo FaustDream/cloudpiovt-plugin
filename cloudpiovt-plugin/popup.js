@@ -1,27 +1,25 @@
 ﻿import {
-  clearTargetDirectoryHandle,
-  getTargetDirectoryHandle,
-  saveTargetDirectoryHandle
-} from "./lib/file-handle-db.js";
-import {
   DEFAULT_ALLOWED_ORIGINS,
   DEFAULT_SELECTION_STRATEGY,
-  getTargetDirectoryPathByPageType,
   isOriginAllowed,
   loadConfig,
-  saveTargetDirectoryPathByPageType,
   resolvePageTypeConfig
 } from "./lib/config.js";
-import { buildReadmeContent, extractReadmeMetadataFromHtml } from "./lib/readme-parser.js";
-import { launchNativeEditor, pickNativeDirectory } from "./lib/native-host.js";
 import {
   ensureTargetDirectorySelection,
   fileExistsInSelection,
-  getStoredTargetDirectorySelection,
   readFilesFromSelection,
   refreshTargetDirectorySelection,
   writeFilesToSelection
 } from "./lib/target-directory-access.js";
+import {
+  createTargetDirectoryPageScope,
+  ensureTargetDirectorySnapshot,
+  getStoredTargetDirectorySelection,
+  saveNativeTargetDirectorySelection
+} from "./lib/target-directory-state.js";
+import { buildFromCodeContent, buildReadmeContent, extractReadmeMetadataFromHtml } from "./lib/readme-parser.js";
+import { launchNativeEditor, pickNativeDirectory } from "./lib/native-host.js";
 
 const pageOriginEl = document.querySelector("#page-origin");
 const targetHandleEl = document.querySelector("#target-handle");
@@ -128,10 +126,15 @@ async function updatePageInfo() {
   const tab = await getActiveTab();
   renderCurrentPageUrl(tab);
   const pageTypeConfig = resolvePageTypeConfig(tab?.url || "");
+  const targetScope = createTargetDirectoryPageScope(tab, pageTypeConfig.pageType);
+
+  // 页面级快照用于固定已打开页面的目录选择；全局默认变化只影响后续新页面。
+  await ensureTargetDirectorySnapshot(pageTypeConfig.pageType, targetScope);
   currentPageContext = {
     tab,
     pageType: pageTypeConfig.pageType,
-    pageTypeConfig
+    pageTypeConfig,
+    targetScope
   };
   return currentPageContext;
 }
@@ -140,19 +143,19 @@ function getCurrentPageContext() {
   return currentPageContext || {
     tab: null,
     pageType: "default",
-    pageTypeConfig: resolvePageTypeConfig("")
+    pageTypeConfig: resolvePageTypeConfig(""),
+    targetScope: ""
   };
 }
 
-async function updateDirectoryInfo(pageType) {
+async function updateDirectoryInfo(pageType, targetScope = "") {
   try {
-    const config = await loadConfig();
-    const targetPath = getTargetDirectoryPathByPageType(config, pageType);
-    const handle = await getTargetDirectoryHandle(pageType).catch(() => null);
+    const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
+    const targetPath = selection.kind === "native-path" ? selection.directoryPath : "";
     const pathHandleLabel = targetPath
       ? targetPath.split(/[\\/]/).filter(Boolean).pop() || targetPath
       : "未授权";
-    targetHandleEl.textContent = targetPath ? pathHandleLabel : (handle?.name || "未授权");
+    targetHandleEl.textContent = targetPath ? pathHandleLabel : (selection.handle?.name || "未授权");
     setCopyableValue(targetPathEl, {
       fullValue: targetPath,
       shortLabel: "复制路径",
@@ -172,22 +175,23 @@ ${error?.message || String(error)}`);
   }
 }
 
-async function ensureDirectoryAccessForOperation(pageType, mode) {
-  return ensureTargetDirectorySelection(pageType, mode);
+// 抓取和回写始终使用当前页面快照，避免旧页面被全局默认目录变化影响。
+async function ensureDirectoryAccessForOperation(pageType, mode, targetScope) {
+  return ensureTargetDirectorySelection(pageType, mode, targetScope);
 }
 
-async function resolveLaunchTargetPath(pageType) {
-  const selection = await getStoredTargetDirectorySelection(pageType);
+// 打开编辑器必须拿到 Native Host 绝对路径，只有句柄快照时返回空值并触发重新选择。
+async function resolveLaunchTargetPath(pageType, targetScope) {
+  const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
   if (selection.kind === "native-path" && selection.directoryPath) {
     return selection.directoryPath;
   }
 
-  const config = await loadConfig();
-  return getTargetDirectoryPathByPageType(config, pageType);
+  return "";
 }
 
-async function ensureLaunchTargetPath(pageType) {
-  const existingPath = await resolveLaunchTargetPath(pageType);
+async function ensureLaunchTargetPath(pageType, targetScope) {
+  const existingPath = await resolveLaunchTargetPath(pageType, targetScope);
   if (existingPath) {
     return existingPath;
   }
@@ -207,15 +211,14 @@ async function ensureLaunchTargetPath(pageType) {
     throw new Error("原生助手未返回目标目录绝对路径。");
   }
 
-  await saveTargetDirectoryPathByPageType(pageType, directoryPath);
-  await clearTargetDirectoryHandle(pageType);
-  await updateDirectoryInfo(pageType);
+  await saveNativeTargetDirectorySelection(pageType, directoryPath, targetScope);
+  await updateDirectoryInfo(pageType, targetScope);
   return directoryPath;
 }
 
-async function refreshDirectoryHandle(pageType) {
-  const selection = await refreshTargetDirectorySelection(pageType);
-  await updateDirectoryInfo(pageType);
+async function refreshDirectoryHandle(pageType, targetScope) {
+  const selection = await refreshTargetDirectorySelection(pageType, targetScope);
+  await updateDirectoryInfo(pageType, targetScope);
   return {
     handleLabel:
       selection.kind === "handle"
@@ -230,8 +233,8 @@ async function handleRefreshDirectoryHandle() {
   setStatus("正在更新目标目录...");
 
   try {
-    const { pageType } = await updatePageInfo();
-    const selection = await refreshDirectoryHandle(pageType);
+    const { pageType, targetScope } = await updatePageInfo();
+    const selection = await refreshDirectoryHandle(pageType, targetScope);
     setStatus([
       "目标目录已更新。",
       `目录句柄：${selection.handleLabel || "未授权"}`,
@@ -255,7 +258,7 @@ async function handleOpenEditor(editorType) {
   setStatus(`正在打开 ${editorLabel}...`);
 
   try {
-    const { pageType } = await updatePageInfo();
+    const { pageType, targetScope } = await updatePageInfo();
     const config = await loadConfig();
     const executablePath = editorType === "vscode"
       ? config.vscodeExecutablePath
@@ -265,7 +268,7 @@ async function handleOpenEditor(editorType) {
       throw new Error(`请先在设置页配置 ${editorLabel} 可执行文件路径。`);
     }
 
-    const targetPath = await ensureLaunchTargetPath(pageType);
+    const targetPath = await ensureLaunchTargetPath(pageType, targetScope);
 
     const response = await launchNativeEditor({
       executablePath,
@@ -467,10 +470,16 @@ async function readBizRuleFileFromDirectory(directorySelection, fileName) {
 
 async function writeReadmeFile(directorySelection, metadata, pageTypeConfig, pageUrl) {
   const readmeContent = buildReadmeContent(metadata, pageTypeConfig, pageUrl);
+  const fromCodeContent = buildFromCodeContent(metadata, pageTypeConfig, pageUrl);
+  // README.MD 保持自动创建但只放人工说明，编码映射统一沉淀到 FromCode.md。
   await writeFilesToSelection(directorySelection, [
     {
       fileName: "README.MD",
       content: readmeContent
+    },
+    {
+      fileName: "FromCode.md",
+      content: fromCodeContent
     }
   ]);
 }
@@ -487,7 +496,7 @@ async function handleCaptureAndWrite() {
 
   try {
     const pageContext = await updatePageInfo();
-    const { tab, pageType, pageTypeConfig } = pageContext;
+    const { tab, pageType, pageTypeConfig, targetScope } = pageContext;
     const executableContextError = getExecutableContextError(tab);
     if (executableContextError) {
       throw new Error(executableContextError);
@@ -498,7 +507,7 @@ async function handleCaptureAndWrite() {
       throw new Error(originError);
     }
 
-    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite");
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite", targetScope);
     const hadReadme = await fileExists(directorySelection, "README.MD");
 
     const [{ result }] = await chrome.scripting.executeScript({
@@ -530,7 +539,7 @@ ${exportPlan.details || exportPlan.errorCode || "未知错误"}`);
     const exportedHtml = exportPlan.filesToWrite.find((item) => item.key === "html")?.content || "";
     const readmeMetadata = extractReadmeMetadataFromHtml(exportedHtml, result.pageUrl || tab.url);
     await writeReadmeFile(directorySelection, readmeMetadata, pageTypeConfig, result.pageUrl || tab.url);
-    await updateDirectoryInfo(pageType);
+    await updateDirectoryInfo(pageType, targetScope);
 
     setStatus([
       "抓取并写入成功。",
@@ -538,6 +547,7 @@ ${exportPlan.details || exportPlan.errorCode || "未知错误"}`);
       `目录访问：${describeDirectoryAccessMode(directorySelection)}`,
       `代码文件：${exportPlan.filesToWrite.map((item) => item.fileName).join("、")}`,
       hadReadme ? "README.MD 已更新。" : "README.MD 已新建。",
+      "FromCode.md 已同步编码信息。",
     ]);
   } catch (error) {
     setStatus(`抓取并写入失败。
@@ -553,7 +563,7 @@ async function handleImportAndWriteBack() {
 
   try {
     const pageContext = await updatePageInfo();
-    const { tab, pageType, pageTypeConfig } = pageContext;
+    const { tab, pageType, pageTypeConfig, targetScope } = pageContext;
     const executableContextError = getExecutableContextError(tab);
     if (executableContextError) {
       throw new Error(executableContextError);
@@ -564,7 +574,7 @@ async function handleImportAndWriteBack() {
       throw new Error(originError);
     }
 
-    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "read");
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "read", targetScope);
     const importPlan = await readCodeFilesFromDirectory(directorySelection, pageTypeConfig);
     if (!importPlan.ok) {
       setStatus(`回写失败。
@@ -592,7 +602,7 @@ ${result?.details || result?.errorCode || "未知错误"}`);
       return;
     }
 
-    await updateDirectoryInfo(pageType);
+    await updateDirectoryInfo(pageType, targetScope);
     setStatus([
       "从文件夹回写成功。",
       `页面类型：${pageTypeConfig.pageLabel}`,
@@ -616,7 +626,7 @@ async function handleBizruleCaptureAndWrite() {
 
   try {
     const pageContext = await updatePageInfo();
-    const { tab, pageType } = pageContext;
+    const { tab, pageType, targetScope } = pageContext;
     const executableContextError = getExecutableContextError(tab);
     if (executableContextError) {
       throw new Error(executableContextError);
@@ -627,7 +637,7 @@ async function handleBizruleCaptureAndWrite() {
       throw new Error(originError);
     }
 
-    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite");
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite", targetScope);
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
@@ -660,7 +670,7 @@ async function handleBizruleCaptureAndWrite() {
         content: result.sourceContent
       }
     ]);
-    await updateDirectoryInfo(pageType);
+    await updateDirectoryInfo(pageType, targetScope);
 
     setStatus([
       "业务规则抓取写入成功。",
@@ -691,7 +701,7 @@ async function handleBizruleWritebackInternal() {
 
   try {
     const pageContext = await updatePageInfo();
-    const { tab, pageType } = pageContext;
+    const { tab, pageType, targetScope } = pageContext;
     const executableContextError = getExecutableContextError(tab);
     if (executableContextError) {
       throw new Error(executableContextError);
@@ -702,7 +712,7 @@ async function handleBizruleWritebackInternal() {
       throw new Error(originError);
     }
 
-    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "read");
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "read", targetScope);
     const [{ result: probeResult }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
@@ -752,7 +762,7 @@ async function handleBizruleWritebackInternal() {
       return;
     }
 
-    await updateDirectoryInfo(pageType);
+    await updateDirectoryInfo(pageType, targetScope);
     setStatus([
       "业务规则回写成功。",
       `目录访问：${describeDirectoryAccessMode(directorySelection)}`,
@@ -2184,7 +2194,7 @@ targetPathEl.addEventListener("click", handleCopyValue);
 async function init() {
   const pageContext = await updatePageInfo();
   renderCurrentPageUrl(pageContext.tab);
-  await updateDirectoryInfo(pageContext.pageType);
+  await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);
   setStatus("等待操作。");
 }
 
