@@ -3,6 +3,7 @@ import {
   loadConfig,
   saveTargetDirectoryPathByPageType
 } from "./config.js";
+import { addRecentTargetDirectory } from "./recent-target-directories.js";
 import {
   clearTargetDirectoryHandle,
   clearTargetDirectoryHandleForScope,
@@ -87,6 +88,9 @@ export async function saveNativeTargetDirectorySelection(pageType, directoryPath
     await saveTargetDirectoryPathByScope(pageScope, normalizedPath);
     await clearTargetDirectoryHandleForScope(pageScope);
   }
+
+  // 最近路径只是快捷入口，不改变现有“页面快照优先、默认值兜底”的目录状态模型。
+  await addRecentTargetDirectory(normalizedPath, pageType);
 
   return normalizedPath;
 }

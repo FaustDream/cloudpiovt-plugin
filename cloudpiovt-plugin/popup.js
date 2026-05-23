@@ -6,6 +6,10 @@
   resolvePageTypeConfig
 } from "./lib/config.js";
 import {
+  BIZ_RULE_USAGE_NOTICE,
+  buildBizRuleMissingFileDetails
+} from "./lib/bizrule-constraints.js";
+import {
   ensureTargetDirectorySelection,
   fileExistsInSelection,
   readFilesFromSelection,
@@ -18,12 +22,23 @@ import {
   getStoredTargetDirectorySelection,
   saveNativeTargetDirectorySelection
 } from "./lib/target-directory-state.js";
-import { buildFromCodeContent, buildReadmeContent, extractReadmeMetadataFromHtml } from "./lib/readme-parser.js";
+import { buildReadmeWriteFiles, extractReadmeMetadataFromHtml } from "./lib/readme-parser.js";
+import {
+  getRecentTargetDirectories,
+  removeRecentTargetDirectory
+} from "./lib/recent-target-directories.js";
 import { launchNativeEditor, pickNativeDirectory } from "./lib/native-host.js";
 
 const pageOriginEl = document.querySelector("#page-origin");
 const targetHandleEl = document.querySelector("#target-handle");
-const targetPathEl = document.querySelector("#target-path");
+const targetPathSectionEl = document.querySelector("#target-path-section");
+const targetPathToggleButton = document.querySelector("#target-path-toggle");
+const targetPathSummaryEl = document.querySelector("#target-path-summary");
+const targetPathPanelEl = document.querySelector("#target-path-panel");
+const targetPathFullEl = document.querySelector("#target-path-full");
+const targetPathCopyButton = document.querySelector("#target-path-copy-btn");
+const recentPathsEmptyEl = document.querySelector("#recent-paths-empty");
+const recentPathsListEl = document.querySelector("#recent-paths-list");
 const refreshHandleButton = document.querySelector("#refresh-handle-btn");
 const statusOutput = document.querySelector("#status-output");
 const frontendCaptureWriteButton = document.querySelector("#frontend-capture-write-btn");
@@ -35,8 +50,19 @@ const openIdeaButton = document.querySelector("#open-idea-btn");
 const openOptionsButton = document.querySelector("#open-options-btn");
 
 let currentPageContext = null;
+// 折叠状态只服务当前弹窗会话，避免把纯展示偏好写入业务配置。
+let isTargetPathExpanded = false;
+let currentTargetPath = "";
+let isPopupBusy = false;
+
+function syncRecentPathInteractionState() {
+  for (const element of recentPathsListEl.querySelectorAll("button")) {
+    element.disabled = isPopupBusy;
+  }
+}
 
 function setBusy(isBusy) {
+  isPopupBusy = Boolean(isBusy);
   frontendCaptureWriteButton.disabled = isBusy;
   frontendWritebackButton.disabled = isBusy;
   bizruleCaptureWriteButton.disabled = isBusy;
@@ -44,6 +70,8 @@ function setBusy(isBusy) {
   refreshHandleButton.disabled = isBusy;
   openVscodeButton.disabled = isBusy;
   openIdeaButton.disabled = isBusy;
+  targetPathToggleButton.disabled = isBusy;
+  syncRecentPathInteractionState();
 }
 
 function setStatus(message) {
@@ -95,6 +123,101 @@ function cleanInlineText(value) {
   return String(value || "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function getDirectoryName(directoryPath) {
+  const normalizedPath = String(directoryPath || "").trim();
+  if (!normalizedPath) {
+    return "";
+  }
+
+  return normalizedPath.split(/[\\/]/).filter(Boolean).pop() || normalizedPath;
+}
+
+function setTargetPathExpanded(isExpanded) {
+  isTargetPathExpanded = Boolean(isExpanded);
+  targetPathSectionEl.classList.toggle("is-expanded", isTargetPathExpanded);
+  targetPathPanelEl.hidden = !isTargetPathExpanded;
+  targetPathToggleButton.setAttribute("aria-expanded", isTargetPathExpanded ? "true" : "false");
+  const actionLabel = isTargetPathExpanded ? "收起" : "展开";
+  const titleSuffix = currentTargetPath ? `\n${currentTargetPath}` : "";
+  targetPathToggleButton.title = `点击${actionLabel}路径详情${titleSuffix}`;
+}
+
+function renderTargetPathSummary(directoryPath) {
+  const normalizedPath = String(directoryPath || "").trim();
+  targetPathSummaryEl.textContent = getDirectoryName(normalizedPath) || "未保存";
+}
+
+/**
+ * 最近路径只是 Native 绝对路径的快捷入口，点击时仍会回到统一的保存流程更新页面快照。
+ */
+async function renderRecentTargetDirectories(activePath = "") {
+  const recentTargetDirectories = await getRecentTargetDirectories();
+  recentPathsListEl.replaceChildren();
+
+  if (!recentTargetDirectories.length) {
+    recentPathsEmptyEl.hidden = false;
+    recentPathsListEl.hidden = true;
+    return;
+  }
+
+  recentPathsEmptyEl.hidden = true;
+  recentPathsListEl.hidden = false;
+
+  const fragment = document.createDocumentFragment();
+  for (const entry of recentTargetDirectories) {
+    const isCurrentPath = entry.path === activePath;
+    const listItem = document.createElement("li");
+    listItem.className = "recent-path-item";
+
+    const useButton = document.createElement("button");
+    useButton.type = "button";
+    useButton.className = isCurrentPath ? "recent-path-entry recent-path-entry-current" : "recent-path-entry";
+    useButton.dataset.recentPath = entry.path;
+    useButton.title = `切换到 ${getDirectoryName(entry.path) || entry.path}`;
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "recent-path-name";
+    nameSpan.textContent = getDirectoryName(entry.path) || entry.path;
+    useButton.appendChild(nameSpan);
+
+    if (isCurrentPath) {
+      const currentBadge = document.createElement("span");
+      currentBadge.className = "recent-path-current-badge";
+      currentBadge.textContent = "当前";
+      useButton.appendChild(currentBadge);
+    }
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "recent-path-remove";
+    removeButton.dataset.removeRecentPath = entry.path;
+    removeButton.title = `移除最近路径：${getDirectoryName(entry.path) || entry.path}`;
+    removeButton.setAttribute("aria-label", `移除最近路径 ${getDirectoryName(entry.path) || entry.path}`);
+    removeButton.textContent = "×";
+
+    listItem.append(useButton, removeButton);
+    fragment.appendChild(listItem);
+  }
+
+  recentPathsListEl.appendChild(fragment);
+  syncRecentPathInteractionState();
+}
+
+async function renderTargetPathSection(directoryPath) {
+  currentTargetPath = String(directoryPath || "").trim();
+  renderTargetPathSummary(currentTargetPath);
+  targetPathFullEl.textContent = currentTargetPath || "未保存";
+  targetPathFullEl.title = currentTargetPath || "未保存";
+  setCopyableValue(targetPathCopyButton, {
+    fullValue: currentTargetPath,
+    shortLabel: "复制路径",
+    emptyLabel: "未保存",
+    copyLabel: "绝对路径"
+  });
+  await renderRecentTargetDirectories(currentTargetPath);
+  setTargetPathExpanded(isTargetPathExpanded);
 }
 
 async function getActiveTab() {
@@ -152,24 +275,25 @@ async function updateDirectoryInfo(pageType, targetScope = "") {
   try {
     const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
     const targetPath = selection.kind === "native-path" ? selection.directoryPath : "";
-    const pathHandleLabel = targetPath
-      ? targetPath.split(/[\\/]/).filter(Boolean).pop() || targetPath
-      : "未授权";
+    const pathHandleLabel = targetPath ? getDirectoryName(targetPath) : "未授权";
     targetHandleEl.textContent = targetPath ? pathHandleLabel : (selection.handle?.name || "未授权");
-    setCopyableValue(targetPathEl, {
-      fullValue: targetPath,
-      shortLabel: "复制路径",
-      emptyLabel: "未保存",
-      copyLabel: "绝对路径"
-    });
+    await renderTargetPathSection(targetPath);
   } catch (error) {
+    currentTargetPath = "";
     targetHandleEl.textContent = "读取失败";
-    setCopyableValue(targetPathEl, {
+    renderTargetPathSummary("");
+    targetPathFullEl.textContent = "读取失败";
+    targetPathFullEl.title = "读取失败";
+    setCopyableValue(targetPathCopyButton, {
       fullValue: "",
       shortLabel: "复制路径",
       emptyLabel: "读取失败",
       copyLabel: "绝对路径"
     });
+    recentPathsEmptyEl.hidden = false;
+    recentPathsListEl.hidden = true;
+    recentPathsListEl.replaceChildren();
+    setTargetPathExpanded(isTargetPathExpanded);
     setStatus(`读取目标目录失败。
 ${error?.message || String(error)}`);
   }
@@ -223,7 +347,7 @@ async function refreshDirectoryHandle(pageType, targetScope) {
     handleLabel:
       selection.kind === "handle"
         ? (selection.label || "未授权")
-        : (selection.directoryPath.split(/[\\/]/).filter(Boolean).pop() || selection.directoryPath),
+        : getDirectoryName(selection.directoryPath),
     directoryPath: selection.kind === "native-path" ? selection.directoryPath : ""
   };
 }
@@ -249,6 +373,94 @@ async function handleRefreshDirectoryHandle() {
 ${error?.message || String(error)}`);
   } finally {
     setBusy(false);
+  }
+}
+
+function handleToggleTargetPathPanel() {
+  if (isPopupBusy) {
+    return;
+  }
+
+  setTargetPathExpanded(!isTargetPathExpanded);
+}
+
+/**
+ * 点击最近路径时直接复用 Native 路径保存流程，避免分叉出另一套目录状态更新逻辑。
+ */
+async function handleUseRecentPath(directoryPath) {
+  const normalizedPath = String(directoryPath || "").trim();
+  if (!normalizedPath || isPopupBusy) {
+    return;
+  }
+
+  setBusy(true);
+  setStatus("正在切换最近路径...");
+
+  try {
+    const { pageType, targetScope } = await updatePageInfo();
+    const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
+    const activePath = selection.kind === "native-path" ? selection.directoryPath : "";
+
+    if (activePath === normalizedPath) {
+      setStatus([
+        "当前路径已在使用。",
+        `目标目录：${normalizedPath}`
+      ]);
+      return;
+    }
+
+    await saveNativeTargetDirectorySelection(pageType, normalizedPath, targetScope);
+    await updateDirectoryInfo(pageType, targetScope);
+    setStatus([
+      "已切换到最近路径。",
+      `目标目录：${normalizedPath}`
+    ]);
+  } catch (error) {
+    setStatus(`切换最近路径失败。\n${error?.message || String(error)}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleRemoveRecentPath(directoryPath) {
+  const normalizedPath = String(directoryPath || "").trim();
+  if (!normalizedPath || isPopupBusy) {
+    return;
+  }
+
+  setBusy(true);
+  setStatus("正在移除最近路径...");
+
+  try {
+    // 删除历史记录只影响快捷入口，不能反向清空当前页面已经绑定的目录状态。
+    await removeRecentTargetDirectory(normalizedPath);
+    const pageContext = currentPageContext || await updatePageInfo();
+    await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);
+    setStatus([
+      "已移除最近路径。",
+      "当前目标目录绑定保持不变。",
+      normalizedPath
+    ]);
+  } catch (error) {
+    setStatus(`移除最近路径失败。\n${error?.message || String(error)}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function handleRecentPathsClick(event) {
+  const removeButton = event.target.closest("[data-remove-recent-path]");
+  if (removeButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    await handleRemoveRecentPath(removeButton.dataset.removeRecentPath);
+    return;
+  }
+
+  const useButton = event.target.closest("[data-recent-path]");
+  if (useButton) {
+    event.preventDefault();
+    await handleUseRecentPath(useButton.dataset.recentPath);
   }
 }
 
@@ -439,6 +651,16 @@ async function fileExists(directorySelection, fileName) {
   return fileExistsInSelection(directorySelection, fileName);
 }
 
+async function readOptionalDirectoryFile(directorySelection, fileName) {
+  try {
+    const [fileResult] = await readFilesFromSelection(directorySelection, [fileName]);
+    return fileResult?.exists ? String(fileResult.content || "") : "";
+  } catch {
+    // 旧文档读取失败时只放弃保留逻辑，不能反过来让本次抓取写入整体失败。
+    return "";
+  }
+}
+
 async function readBizRuleFileFromDirectory(directorySelection, fileName) {
   let readResults;
 
@@ -457,7 +679,7 @@ async function readBizRuleFileFromDirectory(directorySelection, fileName) {
     return {
       ok: false,
       errorCode: "BIZRULE_FILE_NOT_FOUND",
-      details: `目标目录中不存在文件：${fileName}`
+      details: buildBizRuleMissingFileDetails(fileName)
     };
   }
 
@@ -468,20 +690,13 @@ async function readBizRuleFileFromDirectory(directorySelection, fileName) {
   };
 }
 
-async function writeReadmeFile(directorySelection, metadata, pageTypeConfig, pageUrl) {
-  const readmeContent = buildReadmeContent(metadata, pageTypeConfig, pageUrl);
-  const fromCodeContent = buildFromCodeContent(metadata, pageTypeConfig, pageUrl);
-  // README.MD 保持自动创建但只放人工说明，编码映射统一沉淀到 FromCode.md。
-  await writeFilesToSelection(directorySelection, [
-    {
-      fileName: "README.MD",
-      content: readmeContent
-    },
-    {
-      fileName: "FromCode.md",
-      content: fromCodeContent
-    }
-  ]);
+async function writeReadmeFile(directorySelection, metadata, pageTypeConfig, pageUrl, options = {}) {
+  const existingFromCodeContent = await readOptionalDirectoryFile(directorySelection, "FromCode.md");
+  const filesToWrite = buildReadmeWriteFiles(metadata, pageTypeConfig, pageUrl, {
+    ...options,
+    existingFromCodeContent
+  });
+  await writeFilesToSelection(directorySelection, filesToWrite);
 }
 
 function describeDirectoryAccessMode(directorySelection) {
@@ -508,6 +723,7 @@ async function handleCaptureAndWrite() {
     }
 
     const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite", targetScope);
+    // README.MD 允许人工补充说明，因此抓取时只在文件缺失时补建，已有内容不覆盖。
     const hadReadme = await fileExists(directorySelection, "README.MD");
 
     const [{ result }] = await chrome.scripting.executeScript({
@@ -538,7 +754,9 @@ ${exportPlan.details || exportPlan.errorCode || "未知错误"}`);
     await writeCodeFilesToDirectory(directorySelection, exportPlan.filesToWrite);
     const exportedHtml = exportPlan.filesToWrite.find((item) => item.key === "html")?.content || "";
     const readmeMetadata = extractReadmeMetadataFromHtml(exportedHtml, result.pageUrl || tab.url);
-    await writeReadmeFile(directorySelection, readmeMetadata, pageTypeConfig, result.pageUrl || tab.url);
+    await writeReadmeFile(directorySelection, readmeMetadata, pageTypeConfig, result.pageUrl || tab.url, {
+      hasReadme: hadReadme
+    });
     await updateDirectoryInfo(pageType, targetScope);
 
     setStatus([
@@ -546,7 +764,7 @@ ${exportPlan.details || exportPlan.errorCode || "未知错误"}`);
       `页面类型：${pageTypeConfig.pageLabel}`,
       `目录访问：${describeDirectoryAccessMode(directorySelection)}`,
       `代码文件：${exportPlan.filesToWrite.map((item) => item.fileName).join("、")}`,
-      hadReadme ? "README.MD 已更新。" : "README.MD 已新建。",
+      hadReadme ? "README.MD 已保留现有内容。" : "README.MD 已新建。",
       "FromCode.md 已同步编码信息。",
     ]);
   } catch (error) {
@@ -641,14 +859,15 @@ async function handleBizruleCaptureAndWrite() {
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
-      func: bizRuleProbeMain
+      func: bizRuleProbeMain,
+      args: [{ multiModelHint: BIZ_RULE_USAGE_NOTICE }]
     });
 
     if (!result?.ok) {
       setStatus([
         "业务规则抓取失败。",
         `错误码：${result?.errorCode || "UNKNOWN_ERROR"}`,
-        result?.details || "未返回更多诊断信息"
+        ...(Array.isArray(result?.details) ? result.details : [result?.details || "未返回更多诊断信息"])
       ]);
       return;
     }
@@ -716,7 +935,8 @@ async function handleBizruleWritebackInternal() {
     const [{ result: probeResult }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
-      func: bizRuleProbeMain
+      func: bizRuleProbeMain,
+      args: [{ multiModelHint: BIZ_RULE_USAGE_NOTICE }]
     });
 
     if (!probeResult?.ok) {
@@ -735,7 +955,12 @@ async function handleBizruleWritebackInternal() {
 
     const importResult = await readBizRuleFileFromDirectory(directorySelection, probeResult.fileName);
     if (!importResult.ok) {
-      setStatus(`业务规则回写失败。\n${importResult.details || importResult.errorCode || "未知错误"}`);
+      setStatus([
+        "业务规则回写失败。",
+        ...(Array.isArray(importResult.details)
+          ? importResult.details
+          : [importResult.details || importResult.errorCode || "未知错误"])
+      ]);
       return;
     }
 
@@ -746,7 +971,8 @@ async function handleBizruleWritebackInternal() {
       args: [
         {
           fileName: importResult.fileName,
-          sourceContent: importResult.content
+          sourceContent: importResult.content,
+          multiModelHint: BIZ_RULE_USAGE_NOTICE
         }
       ]
     });
@@ -1904,7 +2130,7 @@ function pageWritebackMain(input) {
   }
 }
 
-function bizRuleProbeMain() {
+function bizRuleProbeMain(input = {}) {
   function safePageUrl() {
     try {
       return window.location.href;
@@ -1953,7 +2179,54 @@ function bizRuleProbeMain() {
     return classMatch ? classMatch[1] : "";
   }
 
+  function collectCandidateModels(editors, models) {
+    const candidateModels = [];
+    const seenModels = new Set();
+
+    for (const editor of editors) {
+      const model = typeof editor?.getModel === "function" ? editor.getModel() : null;
+      if (model && !seenModels.has(model)) {
+        candidateModels.push(model);
+        seenModels.add(model);
+      }
+    }
+
+    for (const model of models) {
+      if (model && !seenModels.has(model)) {
+        candidateModels.push(model);
+        seenModels.add(model);
+      }
+    }
+
+    return candidateModels;
+  }
+
+  function collectBizRuleFileNames(candidateModels) {
+    const fileNames = [];
+    const seenFileNames = new Set();
+
+    for (const model of candidateModels) {
+      const uriFileName = extractFileNameFromUri(model?.uri?.toString?.() || "");
+      const language = typeof model?.getLanguageId === "function" ? model.getLanguageId() : "";
+      if (!uriFileName && language !== "java") {
+        continue;
+      }
+
+      const source = typeof model?.getValue === "function" ? String(model.getValue() || "") : "";
+      const className = extractJavaClassName(source);
+      const fileName = uriFileName || (className ? `${className}.java` : "");
+      if (fileName && !seenFileNames.has(fileName)) {
+        fileNames.push(fileName);
+        seenFileNames.add(fileName);
+      }
+    }
+
+    return fileNames;
+  }
+
   try {
+    const multiModelHint = String(input?.multiModelHint || "").trim()
+      || "业务规则限制：同一页面同时只支持一个业务规则编辑器，请先关闭多余业务规则后再重试。";
     const monaco = window.monaco;
     if (!monaco?.editor) {
       return createBaseResult({
@@ -1968,17 +2241,29 @@ function bizRuleProbeMain() {
     const models = typeof monaco.editor.getModels === "function"
       ? monaco.editor.getModels().filter(Boolean)
       : [];
+    const candidateModels = collectCandidateModels(editors, models);
     const details = [];
-    let model = null;
+    const bizRuleFileNames = collectBizRuleFileNames(candidateModels);
+    const model = candidateModels.find((candidateModel) => {
+      const uriFileName = extractFileNameFromUri(candidateModel?.uri?.toString?.() || "");
+      const language = typeof candidateModel?.getLanguageId === "function"
+        ? candidateModel.getLanguageId()
+        : "";
+      return Boolean(uriFileName) || language === "java";
+    }) || candidateModels[0] || null;
 
-    if (editors.length > 0 && typeof editors[0]?.getModel === "function") {
-      model = editors[0].getModel();
-      details.push("已通过 editor.getModel() 获取模型");
-    }
-
-    if (!model && models.length > 0) {
-      model = models[0];
-      details.push("已回退到monaco.editor.getModels()[0]");
+    // 业务规则回写依赖页面内只存在一个有效 Java model，多开时必须先阻止继续抓取。
+    if (bizRuleFileNames.length > 1) {
+      return createBaseResult({
+        errorCode: "MULTIPLE_BIZRULE_MODELS",
+        hasMonacoGlobal: true,
+        editorCount: editors.length,
+        modelCount: models.length,
+        details: [
+          `当前页面检测到多个业务规则文件：${bizRuleFileNames.join("、")}`,
+          multiModelHint
+        ]
+      });
     }
 
     if (!model) {
@@ -1990,6 +2275,8 @@ function bizRuleProbeMain() {
         details: details.concat("未找到可用的 Monaco model")
       });
     }
+
+    details.push("已收集到当前页面候选 Monaco model");
 
     if (typeof model.getValue !== "function") {
       return createBaseResult({
@@ -2075,9 +2362,45 @@ function bizRuleWritebackMain(input) {
     return match ? match[1] : "";
   }
 
+  function extractJavaClassName(source) {
+    const text = String(source || "");
+    const publicMatch = text.match(/\bpublic\s+class\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+    if (publicMatch) {
+      return publicMatch[1];
+    }
+
+    const classMatch = text.match(/\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+    return classMatch ? classMatch[1] : "";
+  }
+
+  function collectBizRuleFileNames(candidateModels) {
+    const fileNames = [];
+    const seenFileNames = new Set();
+
+    for (const model of candidateModels) {
+      const uriFileName = extractFileNameFromUri(model?.uri?.toString?.() || "");
+      const language = typeof model?.getLanguageId === "function" ? model.getLanguageId() : "";
+      if (!uriFileName && language !== "java") {
+        continue;
+      }
+
+      const source = typeof model?.getValue === "function" ? String(model.getValue() || "") : "";
+      const className = extractJavaClassName(source);
+      const fileName = uriFileName || (className ? `${className}.java` : "");
+      if (fileName && !seenFileNames.has(fileName)) {
+        fileNames.push(fileName);
+        seenFileNames.add(fileName);
+      }
+    }
+
+    return fileNames;
+  }
+
   try {
     const fileName = String(input?.fileName || "").trim();
     const sourceContent = String(input?.sourceContent ?? "");
+    const multiModelHint = String(input?.multiModelHint || "").trim()
+      || "业务规则限制：同一页面同时只支持一个业务规则编辑器，请先关闭多余业务规则后再重试。";
     if (!fileName) {
       return createBaseResult({
         errorCode: "MISSING_FILE_NAME",
@@ -2118,6 +2441,8 @@ function bizRuleWritebackMain(input) {
       }
     }
 
+    const bizRuleFileNames = collectBizRuleFileNames(candidateModels);
+
     if (!candidateModels.length) {
       return createBaseResult({
         errorCode: "NO_MONACO_MODEL",
@@ -2125,6 +2450,21 @@ function bizRuleWritebackMain(input) {
         editorCount: editors.length,
         modelCount: models.length,
         details: ["未找到可写入的 Monaco model"]
+      });
+    }
+
+    // 同页存在多个业务规则时，按文件名回写会命中错误 model，这里直接中断并提示用户排查。
+    if (bizRuleFileNames.length > 1) {
+      return createBaseResult({
+        errorCode: "MULTIPLE_BIZRULE_MODELS",
+        hasMonacoGlobal: true,
+        editorCount: editors.length,
+        modelCount: models.length,
+        fileName,
+        details: [
+          `当前页面检测到多个业务规则文件：${bizRuleFileNames.join("、")}`,
+          multiModelHint
+        ]
       });
     }
 
@@ -2189,7 +2529,9 @@ openVscodeButton.addEventListener("click", () => handleOpenEditor("vscode"));
 openIdeaButton.addEventListener("click", () => handleOpenEditor("idea"));
 openOptionsButton.addEventListener("click", () => chrome.runtime.openOptionsPage());
 pageOriginEl.addEventListener("click", handleCopyValue);
-targetPathEl.addEventListener("click", handleCopyValue);
+targetPathToggleButton.addEventListener("click", handleToggleTargetPathPanel);
+targetPathCopyButton.addEventListener("click", handleCopyValue);
+recentPathsListEl.addEventListener("click", handleRecentPathsClick);
 
 async function init() {
   const pageContext = await updatePageInfo();
