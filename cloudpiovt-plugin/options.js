@@ -1,4 +1,5 @@
 import { DEFAULT_CONFIG, READONLY_SETTINGS, loadConfig, saveConfig } from "./lib/config.js";
+import { CONTROL_TYPE_REFERENCE } from "./lib/control-metadata.js";
 import { pickNativeEditor, probeNativeHost } from "./lib/native-host.js";
 
 const form = document.querySelector("#settings-form");
@@ -9,8 +10,10 @@ const ideaPathField = document.querySelector("#idea-executable-path");
 const pickVscodeButton = document.querySelector("#pick-vscode-btn");
 const pickIdeaButton = document.querySelector("#pick-idea-btn");
 const readonlyList = document.querySelector("#readonly-settings-list");
+const controlTypeReferenceBody = document.querySelector("#control-type-reference-body");
 const nativeHostStatus = document.querySelector("#native-host-status");
 const statusOutput = document.querySelector("#settings-status");
+const sectionNavLinks = Array.from(document.querySelectorAll("[data-nav-link]"));
 
 function setStatus(message) {
   statusOutput.textContent = message;
@@ -20,6 +23,56 @@ function setNativeHostStatus(message) {
   nativeHostStatus.textContent = message;
 }
 
+function setActiveNavLink(sectionId) {
+  for (const link of sectionNavLinks) {
+    const isActive = link.getAttribute("href") === `#${sectionId}`;
+    link.classList.toggle("is-active", isActive);
+    if (isActive) {
+      link.setAttribute("aria-current", "true");
+    } else {
+      link.removeAttribute("aria-current");
+    }
+  }
+}
+
+function bindSectionNavigation() {
+  if (!sectionNavLinks.length) {
+    return;
+  }
+
+  const sections = sectionNavLinks
+    .map((link) => document.querySelector(link.getAttribute("href")))
+    .filter(Boolean);
+
+  if (!sections.length) {
+    return;
+  }
+
+  setActiveNavLink(sections[0].id);
+
+  // 使用可见区块驱动导航高亮，避免长页面滚动时用户丢失当前位置。
+  if (!("IntersectionObserver" in window)) {
+    return;
+  }
+
+  const observer = new IntersectionObserver((entries) => {
+    const activeEntry = entries
+      .filter((entry) => entry.isIntersecting)
+      .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top)[0];
+
+    if (activeEntry?.target?.id) {
+      setActiveNavLink(activeEntry.target.id);
+    }
+  }, {
+    rootMargin: "-20% 0px -60% 0px",
+    threshold: [0.15, 0.35, 0.6]
+  });
+
+  for (const section of sections) {
+    observer.observe(section);
+  }
+}
+
 function renderReadonlySettings() {
   readonlyList.replaceChildren(
     ...READONLY_SETTINGS.map((text) => {
@@ -27,6 +80,21 @@ function renderReadonlySettings() {
       item.className = "readonly-list-item";
       item.textContent = text;
       return item;
+    })
+  );
+}
+
+function renderControlTypeReference() {
+  controlTypeReferenceBody.replaceChildren(
+    ...CONTROL_TYPE_REFERENCE.map((controlType) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td><code>${controlType.tagName}</code></td>
+        <td>${controlType.typeName}</td>
+        <td>${controlType.exampleName || "-"}</td>
+        <td>${controlType.notes || "-"}</td>
+      `;
+      return row;
     })
   );
 }
@@ -90,7 +158,9 @@ async function handleReset() {
 }
 
 async function init() {
+  bindSectionNavigation();
   renderReadonlySettings();
+  renderControlTypeReference();
   renderConfig(await loadConfig());
   const hostStatus = await probeNativeHost();
   setNativeHostStatus(

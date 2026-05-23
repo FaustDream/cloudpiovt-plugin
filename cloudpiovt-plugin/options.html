@@ -5,26 +5,41 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>云枢开发助手 - 设置</title>
     <link rel="stylesheet" href="options.css">
+    <link rel="stylesheet" href="options-layout.css">
   </head>
   <body>
     <main class="page-shell">
-      <section class="intro">
-        <!-- <p class="eyebrow">Settings</p> -->
-        <h1>云枢开发助手</h1>
-        <p class="lead">设置页只保留 VS Code 和 IDEA 的应用路径。目录绑定、抓取写入、前端回写和业务规则回写都按当前代码默认逻辑运行。</p>
-      </section>
+      <div class="page-layout">
+        <aside class="section-nav" aria-label="设置页导航">
+          <p class="section-nav-title">快速导航</p>
+          <nav>
+            <ul class="section-nav-list">
+              <li><a class="section-nav-link" data-nav-link href="#page-top">设置说明</a></li>
+              <li><a class="section-nav-link" data-nav-link href="#editor-paths">应用路径</a></li>
+              <li><a class="section-nav-link" data-nav-link href="#builtin-rules">内置规则</a></li>
+              <li><a class="section-nav-link" data-nav-link href="#control-reference">控件参考</a></li>
+              <li><a class="section-nav-link" data-nav-link href="#recommended-flow">推荐流程</a></li>
+              <li><a class="section-nav-link" data-nav-link href="#common-issues">常见排查</a></li>
+              <li><a class="section-nav-link" data-nav-link href="#settings-status">运行状态</a></li>
+            </ul>
+          </nav>
+        </aside>
 
-      <form id="settings-form" class="settings-card">
-        <div class="sticky-actions">
-          <button id="save-btn" class="save-btn" type="submit">保存设置</button>
-          <button id="reset-btn" class="ghost-btn" type="button">恢复默认</button>
-        </div>
+        <div class="content-shell">
+          <section id="page-top" class="intro">
+            <p class="eyebrow">CloudPiOvt Plugin</p>
+            <h1>云枢开发助手</h1>
+          </section>
 
-        <section class="config-section">
+          <form id="settings-form" class="settings-card">
+            <div class="sticky-actions">
+              <button id="save-btn" class="save-btn" type="submit">保存设置</button>
+              <button id="reset-btn" class="ghost-btn" type="button">恢复默认</button>
+            </div>
+
+        <section id="editor-paths" class="config-section">
           <div class="section-copy">
-            <!-- <p class="section-kicker">Executable Paths</p> -->
             <h2>应用路径</h2>
-            <!-- <p class="section-desc">这里只配置本机编辑器的 exe 绝对路径。抓取行为、网页识别和文件映射全部使用代码默认值。</p> -->
           </div>
 
           <label class="field">
@@ -52,45 +67,95 @@
           </label>
         </section>
 
-        <section class="config-section">
+        <section id="builtin-rules" class="config-section">
           <div class="section-copy">
-            <!-- <p class="section-kicker">Readonly Defaults</p> -->
-            <h2>默认行为说明</h2>
-            <p class="section-desc">以下配置为代码内置默认值，只用于查看说明，不支持修改。内容已按当前最新目录选择、编辑器打开和回写逻辑同步更新。</p>
+            <h2>内置规则说明</h2>
           </div>
 
           <div id="native-host-status" class="native-host-status">正在检测原生助手...</div>
           <ul id="readonly-settings-list" class="readonly-list"></ul>
         </section>
 
-        <section class="config-section">
+        <section id="control-reference" class="config-section">
           <div class="section-copy">
-            <h2>使用文档</h2>
-            <p class="section-desc">首次配置和日常使用建议按下面顺序执行，能避免目录未绑定、编辑器打不开或回写命中错误页面。</p>
+            <h2>控件类型参考</h2>
+            <p class="section-desc"><code>FromCode.md</code> 中的“控件类型”会按这里的 HTML 标签和中文类型输出。四类选项控件会带出“控件选项”，关联控件会额外保留关联表单信息。</p>
+          </div>
+
+          <div class="reference-hints" aria-label="控件参考提示">
+            <span class="reference-hint-pill">选项控件会提取控件选项</span>
+            <span class="reference-hint-pill">关联控件会保留关联表单信息</span>
+          </div>
+
+          <div class="control-reference-table-wrap">
+            <table class="control-reference-table">
+              <thead>
+                <tr>
+                  <th scope="col">HTML 标签</th>
+                  <th scope="col">控件类型</th>
+                  <th scope="col">示例字段名</th>
+                  <th scope="col">说明</th>
+                </tr>
+              </thead>
+              <tbody id="control-type-reference-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section id="recommended-flow" class="config-section">
+          <div class="section-copy">
+            <h2>推荐流程</h2>
           </div>
 
           <div class="usage-doc">
             <article class="usage-item">
-              <h3>1. 初始化</h3>
-              <p>先配置 VS Code 与 IDEA 的 exe 路径，再回到弹窗点击“更新目标目录”，为当前页面类型绑定本地目标目录。</p>
+              <h3>1. 先配编辑器和原生助手</h3>
+              <p>先填写 VS Code 与 IDEA 的 exe 路径，并确认上面的原生助手状态可用。原生助手负责选择应用、返回目录绝对路径，以及直接拉起本地编辑器。</p>
             </article>
             <article class="usage-item">
-              <h3>2. 前端页面</h3>
-              <p>使用“前端抓取写入”把页面中的 html、css、javascript 写入目标目录；本地修改后，再用“前端回写”同步回页面。</p>
+              <h3>2. 再绑定当前页面目录</h3>
+              <p>回到弹窗点击“更新目标目录”，为当前页面类型建立目录快照。重新选择目录时，会影响当前页面和后续新页面默认值，但不会回头覆盖已经打开的旧页面。</p>
             </article>
             <article class="usage-item">
-              <h3>3. 业务规则</h3>
-              <p>使用“业务规则抓取写入”导出当前 Monaco 中的 .java 文件；本地修改后，用“业务规则回写”按同名文件回写到对应 Monaco model。</p>
+              <h3>3. 前端页面用抓取写入和前端回写</h3>
+              <p>在在线开发页面使用“前端抓取写入”，表单、列表和默认页面类型都会按各自固定文件名写入目标目录；本地修改后，再用“前端回写”同步回页面。</p>
             </article>
             <article class="usage-item">
-              <h3>4. 快捷操作</h3>
-              <p>弹窗顶部的 VS Code / IDEA 按钮会直接打开当前页面绑定的目标目录；“复制链接”和“复制路径”可复制完整值用于排查和分享。</p>
+              <h3>4. 业务规则页面单独处理</h3>
+              <p>在业务规则开发页面使用“业务规则抓取写入”和“业务规则回写”。插件会优先按 Monaco model URI 或 Java 类名解析 <code>.java</code> 文件名，并按同名 model 回写。</p>
+            </article>
+            <article class="usage-item">
+              <h3>5. 用复制和最近路径做排查</h3>
+              <p>弹窗顶部的 VS Code / IDEA 按钮会直接打开当前页面绑定的目标目录；“复制链接”“复制路径”和最近路径切换适合在排查目录命中、页面来源或多人协作时快速对齐上下文。</p>
             </article>
           </div>
         </section>
 
-        <pre id="settings-status" class="status-output">正在加载配置...</pre>
-      </form>
+        <section id="common-issues" class="config-section">
+          <div class="section-copy">
+            <h2>常见排查</h2>
+          </div>
+
+          <div class="usage-doc">
+            <article class="usage-item">
+              <h3>编辑器打不开</h3>
+              <p>优先检查应用路径是否配置正确、原生助手是否已连接，以及当前页面是否能拿到目录绝对路径。编辑器按钮依赖原生助手返回目标目录路径后再执行本地打开。</p>
+            </article>
+            <article class="usage-item">
+              <h3>最近路径为空或不更新</h3>
+              <p>最近路径只记录原生助手返回的绝对路径，不记录 File System Access 目录句柄。若本次目录选择没有拿到绝对路径，就不会出现在最近路径列表中。</p>
+            </article>
+            <article class="usage-item">
+              <h3>提示没有对应的 .java 文件</h3>
+              <p>这通常不一定是目录里真缺文件，更常见的原因是当前页面同时打开了多个业务规则，导致本次抓取或回写命中了错误的 Monaco model。先关闭多余业务规则再试一次。</p>
+            </article>
+          </div>
+        </section>
+
+            <pre id="settings-status" class="status-output">正在加载当前设置和运行状态...</pre>
+          </form>
+        </div>
+      </div>
     </main>
 
     <script type="module" src="options.js"></script>

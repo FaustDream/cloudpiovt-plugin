@@ -53,9 +53,27 @@
             <button id="refresh-handle-btn" class="icon-btn" type="button" title="更新目标目录" aria-label="更新目标目录">↻</button>
           </div>
         </div>
-        <div class="meta-row">
-          <span class="meta-label">绝对路径</span>
-          <button id="target-path" class="copy-chip" type="button" disabled>未保存</button>
+        <div id="target-path-section" class="meta-row-stack path-section">
+          <div class="meta-row">
+            <span class="meta-label">当前路径</span>
+            <button id="target-path-toggle" class="path-toggle-btn" type="button" aria-expanded="false" aria-controls="target-path-panel">
+              <span id="target-path-summary" class="path-toggle-summary">未保存</span>
+              <span class="path-toggle-arrow" aria-hidden="true">▾</span>
+            </button>
+          </div>
+          <div id="target-path-panel" class="path-panel" hidden>
+            <p id="target-path-full" class="path-full-value">未保存</p>
+            <div class="path-panel-actions">
+              <button id="target-path-copy-btn" class="copy-chip copy-chip-full" type="button" disabled>未保存</button>
+            </div>
+            <div class="recent-paths">
+              <div class="recent-paths-header">
+                <span class="meta-label">最近路径</span>
+              </div>
+              <p id="recent-paths-empty" class="recent-paths-empty">暂无最近路径</p>
+              <ul id="recent-paths-list" class="recent-paths-list" hidden></ul>
+            </div>
+          </div>
         </div>
       </section>
 

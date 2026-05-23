@@ -27,7 +27,7 @@ body {
 }
 
 .page-shell {
-  max-width: 860px;
+  max-width: 1180px;
   margin: 0 auto;
   padding: 40px 20px 56px;
 }
@@ -83,15 +83,6 @@ body {
   margin-bottom: 16px;
 }
 
-.section-kicker {
-  margin: 0 0 8px;
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-}
-
 .section-copy h2 {
   margin: 0;
   font-size: 28px;
@@ -105,9 +96,22 @@ body {
   line-height: 1.6;
 }
 
+.section-desc code {
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(48, 84, 74, 0.08);
+  color: var(--ink);
+  font-size: 0.9em;
+}
+
 .field + .field,
 .readonly-list,
 .status-output {
+  margin-top: 18px;
+}
+
+.reference-hints,
+.control-reference-table-wrap {
   margin-top: 18px;
 }
 
@@ -159,6 +163,72 @@ input:focus {
   font-size: 15px;
   line-height: 1.7;
   color: var(--ink);
+}
+
+.reference-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.reference-hint-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid rgba(48, 84, 74, 0.18);
+  border-radius: 999px;
+  background: rgba(48, 84, 74, 0.08);
+  color: var(--primary);
+  font-size: 14px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.control-reference-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(216, 204, 185, 0.92);
+  border-radius: 18px;
+  background: #fffdf9;
+}
+
+.control-reference-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 640px;
+}
+
+.control-reference-table th,
+.control-reference-table td {
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(216, 204, 185, 0.78);
+  text-align: left;
+  vertical-align: top;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.control-reference-table thead th {
+  position: sticky;
+  top: 0;
+  background: #f6efe4;
+  color: var(--primary);
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.control-reference-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.control-reference-table code {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f3ebdc;
+  color: var(--ink);
+  font-size: 13px;
 }
 
 .usage-doc {
@@ -236,4 +306,36 @@ button:disabled {
   word-break: break-word;
   line-height: 1.5;
   font-size: 15px;
+}
+
+@media (max-width: 720px) {
+  .page-shell {
+    padding: 28px 16px 44px;
+  }
+
+  .settings-card {
+    padding: 18px;
+    border-radius: 20px;
+  }
+
+  .sticky-actions,
+  .inline-action-row {
+    grid-template-columns: 1fr;
+  }
+
+  .sticky-actions {
+    display: grid;
+  }
+
+  .intro h1 {
+    font-size: 30px;
+  }
+
+  .section-copy h2 {
+    font-size: 24px;
+  }
+
+  .reference-hint-pill {
+    white-space: normal;
+  }
 }
