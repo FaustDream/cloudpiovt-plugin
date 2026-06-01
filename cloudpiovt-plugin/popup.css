@@ -66,6 +66,58 @@ body {
   color: var(--muted);
 }
 
+.platform-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 14px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.platform-tab {
+  min-height: 36px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.platform-tab.is-active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 8px 16px rgba(47, 93, 80, 0.18);
+}
+
+.platform-panel[hidden] {
+  display: none;
+}
+
+.h3yun-card {
+  display: grid;
+  gap: 12px;
+}
+
+.platform-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.platform-name {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.h3yun-card button:disabled {
+  cursor: default;
+}
+
 .card {
   margin-bottom: 12px;
   padding: 14px;
@@ -361,6 +413,10 @@ input:focus {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 10px;
+}
+
+.action-row-single {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 button {

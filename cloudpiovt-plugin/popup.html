@@ -3,14 +3,14 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>云枢开发助手</title>
+    <title>开发助手</title>
     <link rel="stylesheet" href="popup.css">
   </head>
   <body>
     <main class="popup-shell">
       <section class="hero">
         <div class="hero-header">
-          <h1>云枢开发助手</h1>
+          <h1>开发助手</h1>
           <div class="hero-launchers">
             <button id="open-vscode-btn" class="editor-launch-btn vscode-btn" type="button" aria-label="用 VS Code 打开目标目录">
               <span class="editor-launch-icon" aria-hidden="true">
@@ -38,6 +38,10 @@
               <span>IDEA</span>
             </button>
           </div>
+        </div>
+        <div class="platform-tabs" role="tablist" aria-label="开发平台">
+          <button id="cloudpivot-tab" class="platform-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="cloudpivot-panel" data-platform-tab="cloudpivot">云枢</button>
+          <button id="h3yun-tab" class="platform-tab" type="button" role="tab" aria-selected="false" aria-controls="h3yun-panel" data-platform-tab="h3yun">氚云</button>
         </div>
       </section>
 
@@ -77,16 +81,33 @@
         </div>
       </section>
 
-      <section class="actions">
-        <div class="action-row">
-          <button id="frontend-capture-write-btn" class="accent-btn" type="button">前端抓取写入</button>
-          <button id="frontend-writeback-btn" class="secondary-btn" type="button">前端回写</button>
-        </div>
+      <section id="cloudpivot-panel" class="platform-panel platform-panel-active" role="tabpanel" aria-labelledby="cloudpivot-tab" data-platform-panel="cloudpivot">
+        <section class="actions">
+          <div class="action-row">
+            <button id="frontend-capture-write-btn" class="accent-btn" type="button">前端抓取写入</button>
+            <button id="frontend-writeback-btn" class="secondary-btn" type="button">前端回写</button>
+          </div>
 
-        <div class="action-row">
-          <button id="bizrule-capture-write-btn" class="accent-btn" type="button">业务规则抓取写入</button>
-          <button id="bizrule-writeback-btn" class="secondary-btn" type="button">业务规则回写</button>
-        </div>
+          <div class="action-row">
+            <button id="bizrule-capture-write-btn" class="accent-btn" type="button">业务规则抓取写入</button>
+            <button id="bizrule-writeback-btn" class="secondary-btn" type="button">业务规则回写</button>
+          </div>
+        </section>
+      </section>
+
+      <section id="h3yun-panel" class="platform-panel" role="tabpanel" aria-labelledby="h3yun-tab" data-platform-panel="h3yun" hidden>
+        <section class="card h3yun-card">
+          <div class="platform-card-header">
+            <span class="platform-name">氚云</span>
+          </div>
+          <div class="action-row action-row-single">
+            <button id="h3yun-capture-all-btn" class="accent-btn" type="button">一键抓取写入</button>
+          </div>
+          <div class="action-row">
+            <button id="h3yun-frontend-writeback-btn" class="secondary-btn" type="button">前端代码回写</button>
+            <button id="h3yun-backend-writeback-btn" class="secondary-btn" type="button">后端代码回写</button>
+          </div>
+        </section>
       </section>
 
       <section class="card status-card">
