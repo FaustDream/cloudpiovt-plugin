@@ -4,7 +4,7 @@
 
 ## 云枢
 
-![](C:\Users\Lynn\AppData\Roaming\marktext\images\2026-05-15-17-23-11-image.png)
+![](docs/img/image11.png)
 
 1、点击选择文件存放地址。使用idea开发，方便业务规则和js一起进行开发使用。例如：
 
@@ -24,9 +24,9 @@
 
 同一页面同时只支持一个业务规则编辑器；若同时打开了多个不同表单或多个业务规则，请先关闭多余业务规则后再抓取或回写。若日志提示当前文件夹没有对应的 `.java` 文件，也请优先检查是否命中了错误的业务规则页面。
 
-![](C:\Users\Lynn\AppData\Roaming\marktext\images\2026-05-15-17-31-41-image.png)
+![](docs/img/image12.png)
 
-![](C:\Users\Lynn\AppData\Roaming\marktext\images\2026-05-15-17-32-01-image.png)
+![](docs/img/image13.png)
 
 ## 氚云
 
