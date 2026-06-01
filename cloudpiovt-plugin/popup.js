@@ -1,6 +1,7 @@
 ﻿import {
   DEFAULT_ALLOWED_ORIGINS,
   DEFAULT_SELECTION_STRATEGY,
+  PLATFORM_CONFIG,
   isOriginAllowed,
   loadConfig,
   resolvePageTypeConfig
@@ -28,6 +29,11 @@ import {
   removeRecentTargetDirectory
 } from "./lib/recent-target-directories.js";
 import { launchNativeEditor, pickNativeDirectory } from "./lib/native-host.js";
+import {
+  buildH3yunFromCodeContent,
+  resolveH3yunBackendFileName,
+  resolveH3yunFrontendFileName
+} from "./lib/h3yun-code.js";
 
 const pageOriginEl = document.querySelector("#page-origin");
 const targetHandleEl = document.querySelector("#target-handle");
@@ -48,12 +54,35 @@ const bizruleWritebackButton = document.querySelector("#bizrule-writeback-btn");
 const openVscodeButton = document.querySelector("#open-vscode-btn");
 const openIdeaButton = document.querySelector("#open-idea-btn");
 const openOptionsButton = document.querySelector("#open-options-btn");
+const platformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab]"));
+const platformPanels = Array.from(document.querySelectorAll("[data-platform-panel]"));
+const h3yunCaptureAllButton = document.querySelector("#h3yun-capture-all-btn");
+const h3yunFrontendWritebackButton = document.querySelector("#h3yun-frontend-writeback-btn");
+const h3yunBackendWritebackButton = document.querySelector("#h3yun-backend-writeback-btn");
 
 let currentPageContext = null;
 // 折叠状态只服务当前弹窗会话，避免把纯展示偏好写入业务配置。
 let isTargetPathExpanded = false;
 let currentTargetPath = "";
 let isPopupBusy = false;
+// 当前弹窗选中的平台标签，只影响 UI 展示，不直接决定页面实际适配类型。
+let activePlatformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
+
+const H3YUN_CODE_EDITOR_CONFIG = {
+  frontend: {
+    codeKind: "frontend",
+    label: "前端代码",
+    selector: "#jsText",
+    // 氚云 Monaco 编辑器未设置 language ID，需要匹配 undefined + 内容特征
+    modeIds: ["javascript", "typescript", undefined, ""]
+  },
+  backend: {
+    codeKind: "backend",
+    label: "后端代码",
+    selector: "#csText",
+    modeIds: ["alonesharp", "csharp", undefined, ""]
+  }
+};
 
 function syncRecentPathInteractionState() {
   for (const element of recentPathsListEl.querySelectorAll("button")) {
@@ -71,11 +100,56 @@ function setBusy(isBusy) {
   openVscodeButton.disabled = isBusy;
   openIdeaButton.disabled = isBusy;
   targetPathToggleButton.disabled = isBusy;
+  h3yunCaptureAllButton.disabled = isBusy;
+  h3yunFrontendWritebackButton.disabled = isBusy;
+  h3yunBackendWritebackButton.disabled = isBusy;
+  for (const button of platformTabButtons) {
+    button.disabled = isBusy;
+  }
   syncRecentPathInteractionState();
 }
 
 function setStatus(message) {
   statusOutput.textContent = Array.isArray(message) ? message.join("\n") : String(message || "");
+}
+
+function normalizePlatformKey(platformKey) {
+  return platformKey === PLATFORM_CONFIG.h3yun.platformKey
+    ? PLATFORM_CONFIG.h3yun.platformKey
+    : PLATFORM_CONFIG.cloudpivot.platformKey;
+}
+
+function getPlatformLabel(platformKey) {
+  const normalizedPlatformKey = normalizePlatformKey(platformKey);
+  return normalizedPlatformKey === PLATFORM_CONFIG.h3yun.platformKey
+    ? PLATFORM_CONFIG.h3yun.platformLabel
+    : PLATFORM_CONFIG.cloudpivot.platformLabel;
+}
+
+// 切换平台标签时只切换操作面板，页面识别仍以当前活动标签页 URL 为准。
+function setActivePlatform(platformKey, options = {}) {
+  activePlatformKey = normalizePlatformKey(platformKey);
+
+  for (const button of platformTabButtons) {
+    const isActive = button.dataset.platformTab === activePlatformKey;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+  }
+
+  for (const panel of platformPanels) {
+    const isActive = panel.dataset.platformPanel === activePlatformKey;
+    panel.classList.toggle("platform-panel-active", isActive);
+    panel.hidden = !isActive;
+  }
+
+  if (!options.silent) {
+    setStatus(`${getPlatformLabel(activePlatformKey)}标签已打开。`);
+  }
+}
+
+// 弹窗初始化或页面刷新后，用实际页面平台回填默认标签，减少用户误点错误平台入口。
+function syncActivePlatformFromPage(pageTypeConfig) {
+  setActivePlatform(pageTypeConfig?.platformKey, { silent: true });
 }
 
 function setCopyableValue(element, options) {
@@ -245,7 +319,7 @@ function renderCurrentPageUrl(tab) {
   });
 }
 
-async function updatePageInfo() {
+async function updatePageInfo(options = {}) {
   const tab = await getActiveTab();
   renderCurrentPageUrl(tab);
   const pageTypeConfig = resolvePageTypeConfig(tab?.url || "");
@@ -259,6 +333,9 @@ async function updatePageInfo() {
     pageTypeConfig,
     targetScope
   };
+  if (options.syncPlatform !== false) {
+    syncActivePlatformFromPage(pageTypeConfig);
+  }
   return currentPageContext;
 }
 
@@ -542,6 +619,17 @@ function getOriginError(tabUrl) {
   return "";
 }
 
+function assertCloudpivotOperation(pageContext, actionLabel) {
+  const platformKey = pageContext?.pageTypeConfig?.platformKey;
+  if (platformKey === PLATFORM_CONFIG.cloudpivot.platformKey) {
+    return;
+  }
+
+  // 云枢抓取依赖页面内的 data.codes 和 Monaco 业务规则模型，氚云结构未确认前不能复用这套写入逻辑。
+  const platformLabel = pageContext?.pageTypeConfig?.platformLabel || getPlatformLabel(platformKey);
+  throw new Error(`${actionLabel}仅支持云枢页面。当前识别为${platformLabel}，请使用氚云标签的页面探测。`);
+}
+
 function buildCodeExportPlan(data, pageTypeConfig) {
   const codes = data?.codes;
   if (!codes || typeof codes !== "object" || Array.isArray(codes)) {
@@ -712,6 +800,7 @@ async function handleCaptureAndWrite() {
   try {
     const pageContext = await updatePageInfo();
     const { tab, pageType, pageTypeConfig, targetScope } = pageContext;
+    assertCloudpivotOperation(pageContext, "前端抓取写入");
     const executableContextError = getExecutableContextError(tab);
     if (executableContextError) {
       throw new Error(executableContextError);
@@ -782,6 +871,7 @@ async function handleImportAndWriteBack() {
   try {
     const pageContext = await updatePageInfo();
     const { tab, pageType, pageTypeConfig, targetScope } = pageContext;
+    assertCloudpivotOperation(pageContext, "前端回写");
     const executableContextError = getExecutableContextError(tab);
     if (executableContextError) {
       throw new Error(executableContextError);
@@ -845,6 +935,7 @@ async function handleBizruleCaptureAndWrite() {
   try {
     const pageContext = await updatePageInfo();
     const { tab, pageType, targetScope } = pageContext;
+    assertCloudpivotOperation(pageContext, "业务规则抓取写入");
     const executableContextError = getExecutableContextError(tab);
     if (executableContextError) {
       throw new Error(executableContextError);
@@ -921,6 +1012,7 @@ async function handleBizruleWritebackInternal() {
   try {
     const pageContext = await updatePageInfo();
     const { tab, pageType, targetScope } = pageContext;
+    assertCloudpivotOperation(pageContext, "业务规则回写");
     const executableContextError = getExecutableContextError(tab);
     if (executableContextError) {
       throw new Error(executableContextError);
@@ -1004,6 +1096,493 @@ async function handleBizruleWritebackInternal() {
     setStatus(`业务规则回写失败。\n${error?.message || String(error)}`);
   } finally {
     setBusy(false);
+  }
+}
+
+function resolveH3yunCodeFileName(codeKind, result, pageUrl) {
+  return codeKind === "backend"
+    ? resolveH3yunBackendFileName({ sourceContent: result?.sourceContent, pageUrl })
+    : resolveH3yunFrontendFileName({ pageUrl });
+}
+
+// 氚云操作必须在 h3yun.com 页面执行；目录仍复用页面快照，保证和云枢目录状态隔离。
+async function getH3yunOperationContext(actionLabel) {
+  const pageContext = await updatePageInfo({ syncPlatform: false });
+  const { tab, pageTypeConfig } = pageContext;
+  if (pageTypeConfig.platformKey !== PLATFORM_CONFIG.h3yun.platformKey) {
+    throw new Error(`${actionLabel}仅支持氚云页面。当前页面：${describeOrigin(tab?.url || "")}`);
+  }
+  const executableContextError = getExecutableContextError(tab);
+  if (executableContextError) {
+    throw new Error(executableContextError);
+  }
+  return pageContext;
+}
+
+async function probeH3yunCodeEditor(tab, codeKind) {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: "MAIN",
+    func: h3yunCodeEditorProbeMain,
+    args: [H3YUN_CODE_EDITOR_CONFIG[codeKind]]
+  });
+  return result;
+}
+
+async function probeH3yunDesignerMetadata(tab) {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: "MAIN",
+    func: h3yunDesignerMetadataMain
+  });
+  return result;
+}
+
+// 回写前先探测当前编辑器，以当前页面 ID / 后端类名决定读取哪个本地文件。
+async function handleH3yunCodeWriteback(codeKind) {
+  const config = H3YUN_CODE_EDITOR_CONFIG[codeKind];
+  setBusy(true);
+  setStatus(`正在回写氚云${config.label}...`);
+  try {
+    const { tab, pageType, targetScope } = await getH3yunOperationContext(`氚云${config.label}回写`);
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "read", targetScope);
+    const probeResult = await probeH3yunCodeEditor(tab, codeKind);
+    if (!probeResult?.ok) {
+      throw new Error(probeResult?.details || `${config.selector} 未找到可回写编辑器`);
+    }
+    const fileName = resolveH3yunCodeFileName(codeKind, probeResult, probeResult.pageUrl || tab.url);
+    const importResult = await readCodeFileByName(directorySelection, fileName);
+    const writebackResult = await writeH3yunCodeEditor(tab, codeKind, importResult.content);
+    if (!writebackResult?.ok) {
+      const logExtra = writebackResult?.debugLog ? `\n--- 调试日志 ---\n${writebackResult.debugLog}` : "";
+      throw new Error(`${writebackResult?.details || "页面编辑器拒绝回写"}${logExtra}`);
+    }
+    await updateDirectoryInfo(pageType, targetScope);
+    const modelNote = writebackResult.writableCount > 1 ? `（已写入 ${writebackResult.writableCount} 个 model）` : "";
+    const logNote = writebackResult.debugLog ? `\n--- 调试日志 ---\n${writebackResult.debugLog}` : "";
+    setStatus([`氚云${config.label}回写成功。${modelNote}`, `文件名：${fileName}`, `源码长度：${writebackResult.sourceLength} 字符${logNote}`]);
+  } catch (error) {
+    setStatus(`氚云${config.label}回写失败。\n${error?.message || String(error)}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function readCodeFileByName(directorySelection, fileName) {
+  const [fileResult] = await readFilesFromSelection(directorySelection, [fileName]);
+  if (!fileResult?.exists) {
+    throw new Error(`目标目录中未找到 ${fileName}`);
+  }
+  return { fileName, content: normalizeExcessBlankLines(fileResult.content) };
+}
+
+async function writeH3yunCodeEditor(tab, codeKind, sourceContent) {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    world: "MAIN",
+    func: h3yunCodeEditorWritebackMain,
+    args: [{ ...H3YUN_CODE_EDITOR_CONFIG[codeKind], sourceContent }]
+  });
+  return result;
+}
+
+// 一键抓取写入：并行抓取控件信息、前端 JS、后端 C# 并写入。
+async function handleH3yunCaptureAllAndWrite() {
+  setBusy(true);
+  setStatus("正在一键抓取氚云页面...");
+  try {
+    const { tab, pageType, targetScope } = await getH3yunOperationContext("氚云一键抓取写入");
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite", targetScope);
+    const [metadata, frontendResult, backendResult] = await Promise.all([
+      probeH3yunDesignerMetadata(tab),
+      probeH3yunCodeEditor(tab, "frontend"),
+      probeH3yunCodeEditor(tab, "backend")
+    ]);
+    const filesToWrite = [];
+    const skipped = [];
+    if (metadata?.ok && metadata.controls?.length) {
+      filesToWrite.push({ fileName: "FromCode.md", content: buildH3yunFromCodeContent(metadata) });
+      const designExists = await fileExistsInSelection(directorySelection, "design.md");
+      if (!designExists) {
+        filesToWrite.push({ fileName: "design.md", content: buildDesignMdContent(metadata) });
+      }
+    } else { skipped.push("图形控件"); }
+    if (frontendResult?.ok && frontendResult.sourceContent) {
+      filesToWrite.push({ fileName: resolveH3yunFrontendFileName({ pageUrl: frontendResult.pageUrl || tab.url }), content: frontendResult.sourceContent });
+    } else { skipped.push("前端 JS"); }
+    if (backendResult?.ok && backendResult.sourceContent) {
+      filesToWrite.push({ fileName: resolveH3yunBackendFileName({ sourceContent: backendResult.sourceContent, pageUrl: backendResult.pageUrl || tab.url }), content: backendResult.sourceContent });
+    } else { skipped.push("后端 C#"); }
+    if (!filesToWrite.length) {
+      throw new Error("当前页面没有挂载图形控件、前端 JS 或后端 C# 编辑器。");
+    }
+    await writeFilesToSelection(directorySelection, filesToWrite);
+    await updateDirectoryInfo(pageType, targetScope);
+    setStatus(["氚云一键抓取写入完成。", `已写入：${filesToWrite.map((f) => f.fileName).join("、")}`, `未挂载：${skipped.join("、") || "无"}`]);
+  } catch (error) {
+    setStatus(`氚云一键抓取写入失败。\n${error?.message || String(error)}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+// 控件信息抓取写入时，同时生成 FromCode.md（控件结构）和 design.md（用户手写设计/任务，已存在时不覆盖）。
+function buildDesignMdContent(metadata) {
+  const appCode = String(metadata?.appCode || "");
+  const formId = String(metadata?.formId || "");
+  return [
+    "# 设计说明",
+    "",
+    "> 此文件用于记录表单设计思路和开发任务，不会被自动抓取覆盖。",
+    "> 请在此文件内自由编写内容。",
+    "",
+    "## 基本信息",
+    "",
+    `- 应用编码：${appCode}`,
+    `- 表单ID：${formId}`,
+    "",
+    "## 设计思路",
+    "",
+    "",
+    "",
+    "## 开发任务",
+    "",
+    "- [ ] ",
+    "",
+  ].join("\n");
+}
+
+function handlePlatformTabClick(event) {
+  setActivePlatform(event.currentTarget?.dataset?.platformTab);
+}
+
+function h3yunCodeEditorProbeMain(input = {}) {
+  const csPattern = /using\s+System|namespace\s+\w+|public\s+class\s+\w+|H3\.SmartForm/;
+  const jsPattern = /\/\*|\$\..*extend|function\s*\(|控件接口/;
+
+  function safeNumber(value, fallback = 0) {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : fallback;
+  }
+
+  function compareModelCandidates(left, right) {
+    const priorityKeys = ["isContainerModel", "isAttached", "versionId", "alternativeVersionId", "index", "length"];
+    for (const key of priorityKeys) {
+      const fallback = key === "index" ? -1 : 0;
+      const leftValue = safeNumber(left[key], fallback);
+      const rightValue = safeNumber(right[key], fallback);
+      if (leftValue !== rightValue) {
+        return leftValue - rightValue;
+      }
+    }
+    return 0;
+  }
+
+  // 氚云同页会残留模板 / 当前编辑等多个 JS model，候选评分优先“当前挂载和最近变更”，避免只按长度读到模板。
+  function createModelCandidate(model, index, containerModel) {
+    const sourceContent = String(model?.getValue?.() || "");
+    const snippet = sourceContent.substring(0, 2000);
+    const csHit = csPattern.test(snippet);
+    const jsHit = !csHit && jsPattern.test(snippet);
+    return {
+      model,
+      index,
+      csHit,
+      jsHit,
+      length: sourceContent.length,
+      isContainerModel: model === containerModel ? 1 : 0,
+      isAttached: typeof model?.isAttachedToEditor === "function" && model.isAttachedToEditor() ? 1 : 0,
+      versionId: safeNumber(model?.getVersionId?.()),
+      alternativeVersionId: safeNumber(model?.getAlternativeVersionId?.())
+    };
+  }
+
+  // DOM 兜底：从 .view-lines 读取代码行，按 linenumber 排序拼接。
+  // 受 Monaco 虚拟滚动限制，仅能读取当前视口 + 缓冲区内的行，大文件可能不完整。
+  function readFromViewLines(container) {
+    const viewLinesContainer = container.querySelector(".view-lines");
+    if (!viewLinesContainer) {
+      return null;
+    }
+    // 先尝试强制滚动到底部再回到顶部，触发更多行渲染
+    const scrollable = container.querySelector(".monaco-scrollable-element");
+    if (scrollable) {
+      scrollable.scrollTop = scrollable.scrollHeight;
+      scrollable.scrollTop = 0;
+    }
+    const lineElements = viewLinesContainer.querySelectorAll(".view-line");
+    if (!lineElements.length) {
+      return null;
+    }
+    // 按 linenumber 属性排序确保行顺序正确（虚拟滚动时 DOM 顺序可能乱）
+    const lines = Array.from(lineElements)
+      .sort((a, b) => (parseInt(a.getAttribute("linenumber") || "0", 10)) - (parseInt(b.getAttribute("linenumber") || "0", 10)))
+      .map((el) => el.textContent || "");
+    return lines.join("\n");
+  }
+
+  // 查找 Monaco model：容器 editor 匹配 → 内容特征匹配 → 唯一 model 兜底。
+  // 氚云 Monaco editor 的 model 语言 ID 全部为 undefined，不可依赖语言匹配。
+  function findModel(log) {
+    log.push(`[findModel] selector=${input.selector}, codeKind=${input.codeKind || "?"}`);
+    const container = document.querySelector(input.selector);
+    const monaco = window.monaco;
+
+    if (!container) {
+      log.push("[findModel] ❌ 容器未挂载");
+      return { error: `页面未挂载 ${input.selector}`, diagnostic: "container-missing" };
+    }
+    log.push(`[findModel] 容器存在, 内有 .monaco-editor=${container.querySelectorAll(".monaco-editor").length}个, .view-lines=${container.querySelectorAll(".view-lines").length}个`);
+
+    if (!monaco?.editor) {
+      log.push("[findModel] ❌ window.monaco.editor 不存在");
+      return { error: "window.monaco.editor 不存在", diagnostic: "monaco-missing" };
+    }
+
+    const editors = typeof monaco.editor.getEditors === "function" ? monaco.editor.getEditors().filter(Boolean) : [];
+    const models = typeof monaco.editor.getModels === "function" ? monaco.editor.getModels().filter(Boolean) : [];
+    log.push(`[findModel] editors=${editors.length}个, models=${models.length}个`);
+
+    // 输出每个 model 的摘要
+    for (let i = 0; i < models.length; i++) {
+      const m = models[i];
+      const lang = m?.getLanguageId?.() || "undefined";
+      const len = m?.getValue?.()?.length || 0;
+      const head = (m?.getValue?.() || "").substring(0, 60).replace(/\n/g, "\\n");
+      log.push(`[findModel]   model[${i}]: lang=${lang}, len=${len}, head="${head}..."`);
+    }
+
+    let editor = null;
+    let model = null;
+    // 策略1：容器 DOM 内找 editor
+    editor = editors.find((item) => container.contains(item?.getDomNode?.()));
+    model = editor?.getModel?.();
+    log.push(editor ? "[findModel] 策略1: 容器内找到 editor ✓" : "[findModel] 策略1: 容器内无 editor");
+
+    // 策略2：内容特征匹配；多个 model 同时命中时按挂载状态、版本号和创建顺序评分。
+    if (!model && models.length > 0) {
+      if (models.length === 1) {
+        model = models[0];
+        log.push("[findModel] 策略2: 唯一 model 直接取用 ✓");
+      } else {
+        const isFrontend = input.codeKind === "frontend";
+        log.push(`[findModel] 策略2: isFrontend=${isFrontend}, 内容正则匹配 + Monaco 状态评分中...`);
+        const matchedModels = models
+          .map((m, index) => createModelCandidate(m, index, model))
+          .filter((candidate) => {
+            if (isFrontend) {
+              if (candidate.csHit) {
+                log.push(`[findModel]   model[${candidate.index}]: 跳过(C#), len=${candidate.length}`);
+                return false;
+              }
+              log.push(`[findModel]   model[${candidate.index}]: jsHit=${candidate.jsHit}, len=${candidate.length}, attached=${candidate.isAttached}, version=${candidate.versionId}, alt=${candidate.alternativeVersionId}`);
+              return candidate.jsHit;
+            }
+            log.push(`[findModel]   model[${candidate.index}]: csHit=${candidate.csHit}, len=${candidate.length}, attached=${candidate.isAttached}, version=${candidate.versionId}, alt=${candidate.alternativeVersionId}`);
+            return candidate.csHit;
+          });
+        log.push(`[findModel] 匹配到 ${matchedModels.length} 个 model`);
+        // 多个命中时不再取最长：用户删除模板注释后，真实编辑内容可能比模板更短。
+        if (matchedModels.length > 0) {
+          const selected = matchedModels.reduce((best, current) => (compareModelCandidates(best, current) >= 0 ? best : current));
+          model = selected.model;
+          log.push(`[findModel] 策略2: 取评分最高 model[${selected.index}], len=${selected.length}, attached=${selected.isAttached}, version=${selected.versionId}, alt=${selected.alternativeVersionId} ✓`);
+        }
+      }
+    }
+
+    const diagnostic = model
+      ? `found: editors=${editors.length}, models=${models.length}, codeKind=${input.codeKind || "?"}`
+      : `no-model: editors=${editors.length}, models=${models.length}`;
+
+    log.push(`[findModel] 结果: ${model ? "找到 model ✓" : "未找到 ✗"}`);
+
+    return { container, editor, model, editors, models, diagnostic };
+  }
+
+  try {
+    const log = [];
+    log.push(`[h3yunProbe] 开始抓取, codeKind=${input.codeKind}, selector=${input.selector}`);
+    const state = findModel(log);
+
+    // Monaco API 路径失败时，尝试通过 .view-lines DOM 兜底读取
+    if (state.error || !state.model || typeof state.model.getValue !== "function") {
+      log.push("[h3yunProbe] Monaco API 路径失败，尝试 DOM 兜底...");
+      const container = state.container || document.querySelector(input.selector);
+      if (!container) {
+        log.push("[h3yunProbe] ❌ 容器不存在");
+        return { ok: false, errorCode: "H3YUN_CODE_EDITOR_NOT_FOUND", details: state.error || `页面未挂载 ${input.selector}`, debugLog: log.join("\n") };
+      }
+      const domContent = readFromViewLines(container);
+      if (domContent === null) {
+        log.push("[h3yunProbe] ❌ DOM 兜底也失败");
+        const details = state.error || state.diagnostic || `${input.selector} 未找到 Monaco model 且 .view-lines DOM 也未挂载`;
+        return { ok: false, errorCode: "H3YUN_CODE_EDITOR_NOT_FOUND", details, debugLog: log.join("\n") };
+      }
+      log.push(`[h3yunProbe] DOM 兜底成功, ${domContent.length} 字符`);
+      return {
+        ok: true, pageUrl: window.location.href, selector: input.selector,
+        language: container.getAttribute("data-mode-id") || "", uri: "",
+        sourceContent: domContent, sourceLength: domContent.length,
+        editorCount: 0, modelCount: 0, readMethod: "view-lines-dom",
+        diagnostic: state.diagnostic || "monaco-unavailable", debugLog: log.join("\n")
+      };
+    }
+
+    // Monaco API 主路径
+    const sourceContent = String(state.model.getValue() || "");
+    log.push(`[h3yunProbe] Monaco API 成功, ${sourceContent.length} 字符`);
+    log.push(`[h3yunProbe] 内容头部: "${sourceContent.substring(0, 100).replace(/\n/g, "\\n")}"`);
+    log.push(`[h3yunProbe] 内容尾部: "${sourceContent.substring(sourceContent.length - 80).replace(/\n/g, "\\n")}"`);
+    // 额外输出所有匹配 JS model 的模型诊断
+    for (let i = 0; i < (state.models || []).length; i++) {
+      const m = state.models[i];
+      const val = m?.getValue?.() || "";
+      const snippet = val.substring(0, 2000);
+      const csHit = csPattern.test(snippet);
+      const jsHit = !csHit && jsPattern.test(snippet);
+      if (!csHit && jsHit) {
+        log.push(`[h3yunProbe] JS model[${i}] head: "${val.substring(0, 80).replace(/\n/g, "\\n")}", tail: "${val.substring(val.length-40).replace(/\n/g, "\\n")}", total=${val.length}`);
+      }
+    }
+    return {
+      ok: true, pageUrl: window.location.href, selector: input.selector,
+      language: state.model.getLanguageId?.() || state.container.getAttribute("data-mode-id") || "",
+      uri: state.model.uri?.toString?.() || "",
+      sourceContent, sourceLength: sourceContent.length,
+      editorCount: state.editors.length, modelCount: state.models.length,
+      readMethod: "monaco-api", diagnostic: state.diagnostic, debugLog: log.join("\n")
+    };
+  } catch (error) {
+    return { ok: false, errorCode: "H3YUN_CODE_PROBE_FAILED", details: error?.message || String(error) };
+  }
+}
+
+function h3yunCodeEditorWritebackMain(input = {}) {
+  // C#: using System / H3.SmartForm / public class
+  // JS: /* 控件接口说明 / $.extend($.JForm / OnLoad:function
+  function findModel(log) {
+    log.push(`[writeback] selector=${input.selector}, codeKind=${input.codeKind || "?"}`);
+    const container = document.querySelector(input.selector);
+    const monaco = window.monaco;
+    if (!container || !monaco?.editor) {
+      log.push(`[writeback] ❌ ${!container ? "容器未挂载" : "monaco.editor 不存在"}`);
+      return { error: !container ? `页面未挂载 ${input.selector}` : "window.monaco.editor 不存在" };
+    }
+    const editors = typeof monaco.editor.getEditors === "function" ? monaco.editor.getEditors().filter(Boolean) : [];
+    const models = typeof monaco.editor.getModels === "function" ? monaco.editor.getModels().filter(Boolean) : [];
+    log.push(`[writeback] editors=${editors.length}, models=${models.length}`);
+    for (let i = 0; i < models.length; i++) {
+      const m = models[i];
+      log.push(`[writeback]   model[${i}]: lang=${m?.getLanguageId?.() || "undefined"}, len=${m?.getValue?.()?.length || 0}`);
+    }
+    let editor = editors.find((item) => container.contains(item?.getDomNode?.()));
+    let model = editor?.getModel?.();
+    log.push(editor ? "[writeback] 容器内找到 editor" : "[writeback] 容器内无 editor");
+    if (!model && models.length === 1) { model = models[0]; log.push("[writeback] 唯一 model 取用"); }
+    return { container, model, editors, models };
+  }
+
+  try {
+    const log = [];
+    log.push(`[writeback] 开始, codeKind=${input.codeKind}, sourceLength=${(input.sourceContent || "").length}`);
+    const state = findModel(log);
+    if (state.error) {
+      return { ok: false, errorCode: "H3YUN_CODE_EDITOR_NOT_FOUND", details: state.error, debugLog: log.join("\n") };
+    }
+
+    const csPattern = /using\s+System|namespace\s+\w+|public\s+class\s+\w+|H3\.SmartForm/;
+    const isFrontend = input.codeKind === "frontend";
+    log.push(`[writeback] 筛选可写 model: isFrontend=${isFrontend}`);
+    const writableModels = (state.models || []).filter((m, i) => {
+      if (typeof m?.setValue !== "function") { log.push(`[writeback]   model[${i}]: 跳过(无setValue)`); return false; }
+      const snippet = (m.getValue?.() || "").substring(0, 500);
+      if (isFrontend) {
+        if (csPattern.test(snippet)) { log.push(`[writeback]   model[${i}]: 跳过(C#特征)`); return false; }
+        const jsHit = /\/\*|\$\..*extend|function\s*\(/.test(snippet);
+        log.push(`[writeback]   model[${i}]: jsHit=${jsHit}`);
+        return jsHit;
+      }
+      const csHit = csPattern.test(snippet);
+      log.push(`[writeback]   model[${i}]: csHit=${csHit}`);
+      return csHit;
+    });
+    log.push(`[writeback] 匹配到 ${writableModels.length} 个可写 model`);
+
+    if (!writableModels.length) {
+      if (!state.model || typeof state.model.setValue !== "function") {
+        log.push("[writeback] ❌ 无可写 model");
+        return { ok: false, errorCode: "H3YUN_CODE_MODEL_NOT_WRITABLE", details: `${input.selector} 未找到可写 Monaco model`, debugLog: log.join("\n") };
+      }
+      log.push("[writeback] 回退到 findModel model");
+      writableModels.push(state.model);
+    }
+
+    const sourceContent = String(input.sourceContent ?? "");
+    for (const m of writableModels) {
+      m.setValue(sourceContent);
+    }
+    log.push(`[writeback] 成功, 写入 ${writableModels.length} 个 model`);
+    return {
+      ok: true, pageUrl: window.location.href, selector: input.selector,
+      language: writableModels[0]?.getLanguageId?.() || state.container?.getAttribute("data-mode-id") || "",
+      sourceLength: sourceContent.length,
+      editorCount: state.editors.length, modelCount: state.models.length,
+      writableCount: writableModels.length, debugLog: log.join("\n")
+    };
+  } catch (error) {
+    return { ok: false, errorCode: "H3YUN_CODE_WRITEBACK_FAILED", details: error?.message || String(error) };
+  }
+}
+
+function h3yunDesignerMetadataMain() {
+  function text(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
+  function pageParams() {
+    const url = new URL(window.location.href);
+    const hashQuery = url.hash.includes("?") ? url.hash.slice(url.hash.indexOf("?") + 1) : "";
+    return Object.assign(Object.fromEntries(url.searchParams.entries()), Object.fromEntries(new URLSearchParams(hashQuery).entries()));
+  }
+  // 氚云子表内控件的读取逻辑：子表容器有 data-sheet='true'，内部控件是 .sheet-control
+  function childrenOf(container) {
+    return Array.from(container.querySelectorAll("[data-sheet='true'] .sheet-control")).map((item) => ({
+      code: text(item.dataset.code),
+      controlKey: text(item.dataset.controlkey) || "SheetControl",
+      displayName: text(item.getAttribute("title") || item.querySelector(".title")?.textContent),
+      index: text(item.getAttribute("index"))
+    }));
+  }
+
+  try {
+    const params = pageParams();
+    // 氚云设计器主表控件有两种常见结构：
+    // 1. 早期版本：.control-container[data-code]
+    // 2. 当前版本（如图）：.layout-control__item[data-code]
+    // 为避免遗漏，使用 .designer.web [data-code] 并排除已知的非表单控件元素（如左侧工具栏）
+    const designerRoot = document.querySelector(".designer.web");
+    if (!designerRoot) {
+      return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls: [] };
+    }
+    const allDataCodeElements = Array.from(designerRoot.querySelectorAll("[data-code]"));
+    // 只取主表控件元素（排除左侧工具栏、拖拽面板等非画布控件）：
+    // - control-container：早期氚云版本
+    // - layout-control__item：当前氚云版本
+    // 子表控件 .sheet-control 不要在此处获取，由 childrenOf() 按子表容器递归获取，避免重复
+    const controlElements = allDataCodeElements.filter((el) => {
+      const className = String(el.className || "");
+      return className.includes("control-container") ||
+             className.includes("layout-control__item");
+    });
+    const controls = controlElements.map((item) => ({
+      code: text(item.dataset.code),
+      controlKey: text(item.dataset.controlkey),
+      displayName: text(item.dataset.displayname || item.getAttribute("title")),
+      children: childrenOf(item)
+    }));
+    return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls };
+  } catch (error) {
+    return { ok: false, errorCode: "H3YUN_DESIGNER_METADATA_FAILED", details: error?.message || String(error), controls: [] };
   }
 }
 function getReadableAttribute(element, names) {
@@ -2528,6 +3107,12 @@ bizruleWritebackButton.addEventListener("click", handleBizruleWriteback);
 openVscodeButton.addEventListener("click", () => handleOpenEditor("vscode"));
 openIdeaButton.addEventListener("click", () => handleOpenEditor("idea"));
 openOptionsButton.addEventListener("click", () => chrome.runtime.openOptionsPage());
+h3yunCaptureAllButton.addEventListener("click", handleH3yunCaptureAllAndWrite);
+h3yunFrontendWritebackButton.addEventListener("click", () => handleH3yunCodeWriteback("frontend"));
+h3yunBackendWritebackButton.addEventListener("click", () => handleH3yunCodeWriteback("backend"));
+for (const button of platformTabButtons) {
+  button.addEventListener("click", handlePlatformTabClick);
+}
 pageOriginEl.addEventListener("click", handleCopyValue);
 targetPathToggleButton.addEventListener("click", handleToggleTargetPathPanel);
 targetPathCopyButton.addEventListener("click", handleCopyValue);

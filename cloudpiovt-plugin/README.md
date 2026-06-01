@@ -1,4 +1,8 @@
-# 云枢开发助手
+# 开发助手
+
+弹窗按平台拆成“云枢”和“氚云”两个标签。现有抓取写入、回写、业务规则和编辑器打开能力都属于云枢标签；氚云标签独立扫描图形控件、前端 JS 和后端 C#，不会复用云枢抓取逻辑。
+
+## 云枢
 
 ![](C:\Users\Lynn\AppData\Roaming\marktext\images\2026-05-15-17-23-11-image.png)
 
@@ -23,3 +27,25 @@
 ![](C:\Users\Lynn\AppData\Roaming\marktext\images\2026-05-15-17-31-41-image.png)
 
 ![](C:\Users\Lynn\AppData\Roaming\marktext\images\2026-05-15-17-32-01-image.png)
+
+## 氚云
+
+氚云和云枢设计器结构不同，当前不会复用云枢的 `data.codes` 或 Monaco 业务规则抓取逻辑。打开氚云表单设计器后，可在“氚云”标签执行“页面探测”，插件会读取页面地址、hash 路由参数、`appcode`、对象 ID、`isBeta`、框架线索和少量 DOM 命名线索。
+
+氚云一键抓取会扫描当前已挂载的三类区域：图形设计页 `.designer.web .control-container[data-code]` 写入 `FromCode.md`，前端代码编辑器 `#jsText` 写入同表单 ID 的 `.js` 文件，后端代码编辑器 `#csText` 写入 C# 类名对应的 `.cs` 文件。弹窗不再提供控件、前端、后端的单独抓取按钮，统一通过一键抓取写入；前端和后端仍保留独立回写按钮。若某个区域是懒加载且当前未挂载，一键抓取会跳过该项并写入已抓到的内容。
+
+## Edge 原生助手
+
+Edge 使用本扩展时也需要注册 Native Messaging Host。默认安装脚本会同时写入 Chrome 和 Edge 注册表项：
+
+```powershell
+pwsh .\scripts\install-native-host.ps1 -Browser all
+```
+
+如果 Edge 中显示“原生助手未连接”，先在 `edge://extensions` 打开开发人员模式，复制当前扩展 ID，然后重新安装并把 Edge 的扩展 ID 传给脚本：
+
+```powershell
+pwsh .\scripts\install-native-host.ps1 -Browser edge -ExtensionId <Edge扩展ID>
+```
+
+脚本会把 manifest key 推导出的 ID 和手动传入的 Edge ID 一起写入 `.native-host/com.cloudpiovt.editor_helper.json` 的 `allowed_origins`。

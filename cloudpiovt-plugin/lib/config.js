@@ -1,14 +1,21 @@
-import {
-  BIZ_RULE_MISSING_FILE_TROUBLESHOOTING_NOTICE,
-  BIZ_RULE_USAGE_NOTICE
-} from "./bizrule-constraints.js";
-
 export const DEFAULT_ALLOWED_ORIGINS = [];
 export const DEFAULT_SELECTION_STRATEGY = "visible-first";
 export const DEFAULT_OUTPUT_MODE = "codes-multi-file-export";
 
+export const PLATFORM_CONFIG = {
+  cloudpivot: {
+    platformKey: "cloudpivot",
+    platformLabel: "云枢"
+  },
+  h3yun: {
+    platformKey: "h3yun",
+    platformLabel: "氚云"
+  }
+};
+
 export const PAGE_TYPE_CONFIG = {
   form: {
+    ...PLATFORM_CONFIG.cloudpivot,
     pageType: "form",
     pageLabel: "表单在线开发",
     componentName: "editor",
@@ -19,6 +26,7 @@ export const PAGE_TYPE_CONFIG = {
     ]
   },
   list: {
+    ...PLATFORM_CONFIG.cloudpivot,
     pageType: "list",
     pageLabel: "列表在线开发",
     componentName: "ListEditor",
@@ -29,6 +37,7 @@ export const PAGE_TYPE_CONFIG = {
     ]
   },
   default: {
+    ...PLATFORM_CONFIG.cloudpivot,
     pageType: "default",
     pageLabel: "默认页面",
     componentName: "editor",
@@ -37,26 +46,48 @@ export const PAGE_TYPE_CONFIG = {
       { key: "css", fileName: "style.css" },
       { key: "javascript", fileName: "script.js" }
     ]
+  },
+  h3yunForm: {
+    ...PLATFORM_CONFIG.h3yun,
+    pageType: "h3yun-form",
+    pageLabel: "氚云表单设计",
+    componentName: "",
+    fileMappings: []
+  },
+  h3yunDefault: {
+    ...PLATFORM_CONFIG.h3yun,
+    pageType: "h3yun-default",
+    pageLabel: "氚云页面",
+    componentName: "",
+    fileMappings: []
   }
 };
 
+export const CLOUDPIVOT_READONLY_SETTINGS = [
+  "前端抓取写入：按页面类型写入固定文件名（form-index.html / form-style.css / form-script.js 等）",
+  "前端回写：将本地 HTML / CSS / JS 通过 data.codes 同步回在线编辑器",
+  "业务规则抓取写入：通过 Monaco API 读取 Java 源码，按 model URI 或类名写入 .java 文件",
+  "业务规则回写：同页多开业务规则时按同名 model 回写，单页仅支持一个业务规则编辑器",
+  "页面类型：form-design → 表单在线开发，list-design → 列表在线开发，其余 → 默认页面",
+  "文档同步：前端抓取会按需补建 README.MD / FromCode.md，回写不会覆盖说明文档",
+  "目录规则：更新目标目录会同步当前页面快照和后续新页面默认值，旧页面保持原绑定",
+  "Edge 兼容：若 Edge 提示原生助手未连接，请用 Edge 当前扩展 ID 重新运行 native host 安装脚本"
+];
+
+export const H3YUN_READONLY_SETTINGS = [
+  "一键抓取写入：读取控件信息、#jsText 前端 JS、#csText 后端 C#，分别写入 FromCode.md、{表单ID}.js、C# 类名 .cs",
+  "design.md：首次一键抓取时自动创建模板（基本信息+设计思路+任务），已存在时保留不覆盖",
+  "前端代码回写：将本地 {表单ID}.js 通过 Monaco model API 回写到 #jsText",
+  "后端代码回写：将本地 C# 类名 .cs 通过 Monaco model API 回写到 #csText",
+  "模型匹配：氚云 Monaco model 语言 ID 为 undefined，先按内容正则区分 JS/C#，多 model 命中时按容器挂载、Monaco 版本号、创建顺序和长度评分，避免读到残留模板",
+  "懒加载处理：图形区、前端或后端编辑器未挂载时，一键抓取会跳过缺失项并保留已抓到的文件",
+  "目录规则：h3yun.com 使用独立页面类型和目录快照，不复用云枢 form-design 规则",
+  "Edge 兼容：若 Edge 提示原生助手未连接，请用 Edge 当前扩展 ID 重新运行 native host 安装脚本"
+];
+
 export const READONLY_SETTINGS = [
-  "网页抓取范围：使用代码内置范围，不在设置页额外开放选择器开关",
-  "读取策略：visible-first，默认优先命中当前可见编辑区域",
-  "输出模式：codes-multi-file-export，前端代码会按页面类型拆分写入固定文件名",
-  "页面识别：form-design -> 表单在线开发，list-design -> 列表在线开发，其余页面走默认类型",
-  "目标目录：点击“更新目标目录”后会同步更新当前页面快照和后续新页面默认值，旧页面快照不会被自动覆盖",
-  "最近路径：只记录 Native Host 返回的绝对路径；点击历史路径会复用当前目录保存流程，移除历史不会清空当前绑定",
-  "表单文件映射：html -> form-index.html，css -> form-style.css，javascript -> form-script.js",
-  "列表文件映射：html -> list-index.html，css -> list-style.css，javascript -> list-script.js",
-  "业务规则文件：抓取时按 Monaco model URI 或 Java 类名解析 .java 文件名，回写时优先匹配同名 model",
-  BIZ_RULE_USAGE_NOTICE,
-  BIZ_RULE_MISSING_FILE_TROUBLESHOOTING_NOTICE,
-  "FromCode 解析规则：页面地址中 model 后第一段是应用编码，下一段是表单编码，表单编码同时作为主表编码",
-  "文档 HTML 规则：a-title 表示表单名称，只读取名称；普通控件使用 data-name 和 key；a-sheet 表示子表并归组控件；四类选项控件会从 data-options.custom 提取中文控件选项；关联控件会额外保留关联表单信息",
-  "控件类型参考：设置页会展示 HTML 标签、中文控件类型和示例字段名，便于核对 FromCode.md 中的控件类型输出",
-  "打开方式：只支持 VS Code 和 IDEA；点击弹窗顶部按钮时会直接打开当前页面绑定的目标目录",
-  "README.MD / FromCode.md：README.MD 会在前端抓取写入时按需补建，存在时保留人工内容；FromCode.md 会在每次前端抓取写入时同步更新，前端回写与业务规则回写不会改动文档"
+  ...CLOUDPIVOT_READONLY_SETTINGS,
+  ...H3YUN_READONLY_SETTINGS
 ];
 
 export const DEFAULT_CONFIG = {
@@ -148,8 +179,29 @@ export function isOriginAllowed(pageUrl, allowedOrigins = DEFAULT_ALLOWED_ORIGIN
   }
 }
 
+export function resolvePlatformKey(pageUrl) {
+  try {
+    const hostname = new URL(pageUrl).hostname.toLowerCase();
+    // 氚云页面的 hash 中也包含 form-design，必须先按域名切开平台，避免误命中云枢表单逻辑。
+    if (hostname === "h3yun.com" || hostname.endsWith(".h3yun.com")) {
+      return PLATFORM_CONFIG.h3yun.platformKey;
+    }
+  } catch (_error) {
+    // 无法解析的页面继续沿用旧云枢兼容分支，避免扩展弹窗在 chrome:// 等页面初始化失败。
+  }
+
+  return PLATFORM_CONFIG.cloudpivot.platformKey;
+}
+
 export function resolvePageTypeConfig(pageUrl) {
   const normalizedUrl = String(pageUrl || "").toLowerCase();
+  if (resolvePlatformKey(pageUrl) === PLATFORM_CONFIG.h3yun.platformKey) {
+    if (normalizedUrl.includes("form-designer.html") || normalizedUrl.includes("form-design")) {
+      return PAGE_TYPE_CONFIG.h3yunForm;
+    }
+    return PAGE_TYPE_CONFIG.h3yunDefault;
+  }
+
   if (normalizedUrl.includes("list-design")) {
     return PAGE_TYPE_CONFIG.list;
   }

@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>云枢开发助手 - 设置</title>
+    <title>开发助手 - 设置</title>
     <link rel="stylesheet" href="options.css">
     <link rel="stylesheet" href="options-layout.css">
   </head>
@@ -16,11 +16,8 @@
             <ul class="section-nav-list">
               <li><a class="section-nav-link" data-nav-link href="#page-top">设置说明</a></li>
               <li><a class="section-nav-link" data-nav-link href="#editor-paths">应用路径</a></li>
-              <li><a class="section-nav-link" data-nav-link href="#builtin-rules">内置规则</a></li>
-              <li><a class="section-nav-link" data-nav-link href="#control-reference">控件参考</a></li>
-              <li><a class="section-nav-link" data-nav-link href="#recommended-flow">推荐流程</a></li>
-              <li><a class="section-nav-link" data-nav-link href="#common-issues">常见排查</a></li>
-              <li><a class="section-nav-link" data-nav-link href="#settings-status">运行状态</a></li>
+              <li><a class="section-nav-link" data-nav-link href="#platform-rules">平台规则</a></li>
+              <li><a class="section-nav-link" data-nav-link href="#settings-runtime">运行状态</a></li>
             </ul>
           </nav>
         </aside>
@@ -28,7 +25,7 @@
         <div class="content-shell">
           <section id="page-top" class="intro">
             <p class="eyebrow">CloudPiOvt Plugin</p>
-            <h1>云枢开发助手</h1>
+            <h1>开发助手</h1>
           </section>
 
           <form id="settings-form" class="settings-card">
@@ -37,122 +34,176 @@
               <button id="reset-btn" class="ghost-btn" type="button">恢复默认</button>
             </div>
 
-        <section id="editor-paths" class="config-section">
-          <div class="section-copy">
-            <h2>应用路径</h2>
-          </div>
+            <section id="editor-paths" class="config-section">
+              <div class="section-copy">
+                <h2>应用路径</h2>
+              </div>
 
-          <label class="field">
-            <span class="field-label">VS Code 应用路径</span>
-            <div class="inline-action-row">
-              <input
-                id="vscode-executable-path"
-                type="text"
-                placeholder="例如：C:\\Users\\Lynn\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
-              >
-              <button id="pick-vscode-btn" class="ghost-btn" type="button">选择应用</button>
-            </div>
-          </label>
+              <label class="field">
+                <span class="field-label">VS Code 应用路径</span>
+                <div class="inline-action-row">
+                  <input
+                    id="vscode-executable-path"
+                    type="text"
+                    placeholder="例如：C:\\Users\\Lynn\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
+                  >
+                  <button id="pick-vscode-btn" class="ghost-btn" type="button">选择应用</button>
+                </div>
+              </label>
 
-          <label class="field">
-            <span class="field-label">IDEA 应用路径</span>
-            <div class="inline-action-row">
-              <input
-                id="idea-executable-path"
-                type="text"
-                placeholder="例如：C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe"
-              >
-              <button id="pick-idea-btn" class="ghost-btn" type="button">选择应用</button>
-            </div>
-          </label>
-        </section>
+              <label class="field">
+                <span class="field-label">IDEA 应用路径</span>
+                <div class="inline-action-row">
+                  <input
+                    id="idea-executable-path"
+                    type="text"
+                    placeholder="例如：C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe"
+                  >
+                  <button id="pick-idea-btn" class="ghost-btn" type="button">选择应用</button>
+                </div>
+              </label>
+            </section>
 
-        <section id="builtin-rules" class="config-section">
-          <div class="section-copy">
-            <h2>内置规则说明</h2>
-          </div>
+            <section id="platform-rules" class="config-section">
+              <div class="section-copy">
+                <h2>平台规则</h2>
+              </div>
 
-          <div id="native-host-status" class="native-host-status">正在检测原生助手...</div>
-          <ul id="readonly-settings-list" class="readonly-list"></ul>
-        </section>
+              <div class="platform-switch" role="tablist" aria-label="平台规则">
+                <button id="cloudpivot-options-tab" class="platform-switch-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="cloudpivot-options-panel" data-options-platform-tab="cloudpivot">云枢</button>
+                <button id="h3yun-options-tab" class="platform-switch-tab" type="button" role="tab" aria-selected="false" aria-controls="h3yun-options-panel" data-options-platform-tab="h3yun">氚云</button>
+              </div>
 
-        <section id="control-reference" class="config-section">
-          <div class="section-copy">
-            <h2>控件类型参考</h2>
-            <p class="section-desc"><code>FromCode.md</code> 中的“控件类型”会按这里的 HTML 标签和中文类型输出。四类选项控件会带出“控件选项”，关联控件会额外保留关联表单信息。</p>
-          </div>
+              <section id="cloudpivot-options-panel" class="platform-options-panel is-active" role="tabpanel" aria-labelledby="cloudpivot-options-tab" data-options-platform-panel="cloudpivot">
+                <div class="platform-hero cloudpivot-hero">
+                  <div>
+                    <p class="platform-kicker">CloudPivot</p>
+                    <h3>云枢</h3>
+                  </div>
+                  <span class="platform-summary">在线前端 + Java 业务规则</span>
+                </div>
 
-          <div class="reference-hints" aria-label="控件参考提示">
-            <span class="reference-hint-pill">选项控件会提取控件选项</span>
-            <span class="reference-hint-pill">关联控件会保留关联表单信息</span>
-          </div>
+                <div class="platform-section-grid">
+                  <article class="platform-info-card">
+                    <h4>内置规则说明</h4>
+                    <ul id="cloudpivot-readonly-settings-list" class="readonly-list"></ul>
+                  </article>
 
-          <div class="control-reference-table-wrap">
-            <table class="control-reference-table">
-              <thead>
-                <tr>
-                  <th scope="col">HTML 标签</th>
-                  <th scope="col">控件类型</th>
-                  <th scope="col">示例字段名</th>
-                  <th scope="col">说明</th>
-                </tr>
-              </thead>
-              <tbody id="control-type-reference-body"></tbody>
-            </table>
-          </div>
-        </section>
+                  <article class="platform-info-card">
+                    <h4>推荐流程</h4>
+                    <div class="usage-doc compact-usage">
+                      <article class="usage-item">
+                        <h5>1. 绑定当前页面目录</h5>
+                        <p>在云枢表单、列表或业务规则页面打开弹窗，点击“更新目标目录”，为当前页面类型建立独立目录快照。</p>
+                      </article>
+                      <article class="usage-item">
+                        <h5>2. 前端先抓取再回写</h5>
+                        <p>表单页写入 form-index.html / form-style.css / form-script.js；列表页写入 list-index.html / list-style.css / list-script.js。本地修改后用“前端回写”同步。</p>
+                      </article>
+                      <article class="usage-item">
+                        <h5>3. 业务规则保持单页单 model</h5>
+                        <p>进入业务规则页后先抓取 .java 文件，本地改完再回写；同一页面不要同时打开多个业务规则，避免命中错误 Monaco model。</p>
+                      </article>
+                      <article class="usage-item">
+                        <h5>4. 用 README.MD 和 FromCode.md 对齐上下文</h5>
+                        <p>前端抓取会同步项目说明和控件编码文档，回写不会覆盖这些说明文件。</p>
+                      </article>
+                    </div>
+                  </article>
+                </div>
 
-        <section id="recommended-flow" class="config-section">
-          <div class="section-copy">
-            <h2>推荐流程</h2>
-          </div>
+                <article class="platform-info-card full-width-card">
+                  <h4>云枢字段控件说明</h4>
+                  <div class="reference-hints" aria-label="云枢控件参考提示">
+                    <span class="reference-hint-pill cloudpivot-pill">来源：在线开发 HTML 标签</span>
+                    <span class="reference-hint-pill cloudpivot-pill">用于核对 FromCode.md 字段控件输出</span>
+                  </div>
 
-          <div class="usage-doc">
-            <article class="usage-item">
-              <h3>1. 先配编辑器和原生助手</h3>
-              <p>先填写 VS Code 与 IDEA 的 exe 路径，并确认上面的原生助手状态可用。原生助手负责选择应用、返回目录绝对路径，以及直接拉起本地编辑器。</p>
-            </article>
-            <article class="usage-item">
-              <h3>2. 再绑定当前页面目录</h3>
-              <p>回到弹窗点击“更新目标目录”，为当前页面类型建立目录快照。重新选择目录时，会影响当前页面和后续新页面默认值，但不会回头覆盖已经打开的旧页面。</p>
-            </article>
-            <article class="usage-item">
-              <h3>3. 前端页面用抓取写入和前端回写</h3>
-              <p>在在线开发页面使用“前端抓取写入”，表单、列表和默认页面类型都会按各自固定文件名写入目标目录；本地修改后，再用“前端回写”同步回页面。</p>
-            </article>
-            <article class="usage-item">
-              <h3>4. 业务规则页面单独处理</h3>
-              <p>在业务规则开发页面使用“业务规则抓取写入”和“业务规则回写”。插件会优先按 Monaco model URI 或 Java 类名解析 <code>.java</code> 文件名，并按同名 model 回写。</p>
-            </article>
-            <article class="usage-item">
-              <h3>5. 用复制和最近路径做排查</h3>
-              <p>弹窗顶部的 VS Code / IDEA 按钮会直接打开当前页面绑定的目标目录；“复制链接”“复制路径”和最近路径切换适合在排查目录命中、页面来源或多人协作时快速对齐上下文。</p>
-            </article>
-          </div>
-        </section>
+                  <div class="control-reference-table-wrap">
+                    <table class="control-reference-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">HTML 标签</th>
+                          <th scope="col">控件类型</th>
+                          <th scope="col">示例字段名</th>
+                          <th scope="col">说明</th>
+                        </tr>
+                      </thead>
+                      <tbody id="cloudpivot-control-type-reference-body"></tbody>
+                    </table>
+                  </div>
+                </article>
+              </section>
 
-        <section id="common-issues" class="config-section">
-          <div class="section-copy">
-            <h2>常见排查</h2>
-          </div>
+              <section id="h3yun-options-panel" class="platform-options-panel" role="tabpanel" aria-labelledby="h3yun-options-tab" data-options-platform-panel="h3yun" hidden>
+                <div class="platform-hero h3yun-hero">
+                  <div>
+                    <p class="platform-kicker">H3Yun</p>
+                    <h3>氚云</h3>
+                  </div>
+                  <span class="platform-summary">控件信息 + 前端 JS + 后端 C#</span>
+                </div>
 
-          <div class="usage-doc">
-            <article class="usage-item">
-              <h3>编辑器打不开</h3>
-              <p>优先检查应用路径是否配置正确、原生助手是否已连接，以及当前页面是否能拿到目录绝对路径。编辑器按钮依赖原生助手返回目标目录路径后再执行本地打开。</p>
-            </article>
-            <article class="usage-item">
-              <h3>最近路径为空或不更新</h3>
-              <p>最近路径只记录原生助手返回的绝对路径，不记录 File System Access 目录句柄。若本次目录选择没有拿到绝对路径，就不会出现在最近路径列表中。</p>
-            </article>
-            <article class="usage-item">
-              <h3>提示没有对应的 .java 文件</h3>
-              <p>这通常不一定是目录里真缺文件，更常见的原因是当前页面同时打开了多个业务规则，导致本次抓取或回写命中了错误的 Monaco model。先关闭多余业务规则再试一次。</p>
-            </article>
-          </div>
-        </section>
+                <div class="platform-section-grid">
+                  <article class="platform-info-card">
+                    <h4>内置规则说明</h4>
+                    <ul id="h3yun-readonly-settings-list" class="readonly-list"></ul>
+                  </article>
 
-            <pre id="settings-status" class="status-output">正在加载当前设置和运行状态...</pre>
+                  <article class="platform-info-card">
+                    <h4>推荐流程</h4>
+                    <div class="usage-doc compact-usage">
+                      <article class="usage-item">
+                        <h5>1. 打开氚云表单设计器</h5>
+                        <p>进入 h3yun.com 表单设计页面后切到弹窗“氚云”标签，先确认页面已经加载图形控件、前端 JS 或后端 C# 区域。</p>
+                      </article>
+                      <article class="usage-item">
+                        <h5>2. 使用一键抓取写入</h5>
+                        <p>一次写入 FromCode.md、表单 ID 对应的 .js 文件和 C# 类名对应的 .cs 文件；未挂载区域会跳过，不阻断已抓到的内容。</p>
+                      </article>
+                      <article class="usage-item">
+                        <h5>3. 在本地维护设计与代码</h5>
+                        <p>design.md 只在首次缺失时创建，后续保留人工内容；FromCode.md 用于核对字段编码、控件名称和控件类型。</p>
+                      </article>
+                      <article class="usage-item">
+                        <h5>4. 分别回写前端和后端</h5>
+                        <p>前端代码回写读取同表单 ID 的 .js 文件，后端代码回写读取 C# 类名 .cs 文件，按当前页面 Monaco model 写回。</p>
+                      </article>
+                    </div>
+                  </article>
+                </div>
+
+                <article class="platform-info-card full-width-card">
+                  <h4>氚云控件类型参考</h4>
+                  <div class="reference-hints" aria-label="氚云控件参考提示">
+                    <span class="reference-hint-pill">来源：FromCode.md 控件类型</span>
+                    <span class="reference-hint-pill">用于核对控件名称 / 编码 / 类型</span>
+                  </div>
+
+                  <div class="control-reference-table-wrap">
+                    <table class="control-reference-table">
+                      <thead>
+                        <tr>
+                          <th scope="col">氚云控件类型</th>
+                          <th scope="col">中文名称</th>
+                          <th scope="col">样例字段</th>
+                          <th scope="col">说明</th>
+                        </tr>
+                      </thead>
+                      <tbody id="h3yun-control-type-reference-body"></tbody>
+                    </table>
+                  </div>
+                </article>
+              </section>
+            </section>
+
+            <section id="settings-runtime" class="config-section">
+              <div class="section-copy">
+                <h2>运行状态</h2>
+              </div>
+              <div id="native-host-status" class="native-host-status">正在检测原生助手...</div>
+              <pre id="settings-status" class="status-output">正在加载当前设置和运行状态...</pre>
+            </section>
           </form>
         </div>
       </div>

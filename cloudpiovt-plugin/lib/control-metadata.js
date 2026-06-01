@@ -36,6 +36,30 @@ export const CONTROL_TYPE_REFERENCE = RAW_CONTROL_TYPE_REFERENCE.map((item) => O
   ...item
 }));
 
+const RAW_H3YUN_CONTROL_TYPE_REFERENCE = [
+  { typeCode: "FormGridView", typeName: "子表", exampleName: "子表", notes: "承载明细行，子表内控件会继续按子控件编码输出" },
+  { typeCode: "FormTextBox", typeName: "单行文本", exampleName: "单行文本", notes: "普通短文本输入" },
+  { typeCode: "FormTextArea", typeName: "多行文本", exampleName: "多行文本", notes: "多行长文本输入" },
+  { typeCode: "FormDateTime", typeName: "日期", exampleName: "日期", notes: "日期或日期时间字段" },
+  { typeCode: "FormNumber", typeName: "数字", exampleName: "数字", notes: "整数、小数、金额等数值输入" },
+  { typeCode: "FormRadioButtonList", typeName: "单选框", exampleName: "单选框", notes: "从预设选项中选择一个值" },
+  { typeCode: "FormCheckboxList", typeName: "复选框", exampleName: "复选框", notes: "从预设选项中选择多个值" },
+  { typeCode: "FormDropDownList", typeName: "下拉框", exampleName: "下拉框", notes: "下拉单选类字段" },
+  { typeCode: "FormCheckbox", typeName: "是/否", exampleName: "是/否", notes: "布尔开关类字段" },
+  { typeCode: "FormAttachment", typeName: "附件", exampleName: "附件", notes: "文件上传字段" },
+  { typeCode: "FormPhoto", typeName: "图片", exampleName: "图片", notes: "图片上传字段" },
+  { typeCode: "FormAreaSelect", typeName: "地址", exampleName: "地址", notes: "省市区等区域地址选择" },
+  { typeCode: "FormMap", typeName: "位置", exampleName: "位置", notes: "地图定位字段" },
+  { typeCode: "FormUser", typeName: "人员单选", exampleName: "人员单选", notes: "选择一个组织人员" },
+  { typeCode: "FormMultiUser", typeName: "人员多选", exampleName: "人员多选", notes: "选择多个组织人员" },
+  { typeCode: "FormDepartment", typeName: "部门单选", exampleName: "部门单选", notes: "选择一个组织部门" },
+  { typeCode: "FormMultiDepartment", typeName: "部门多选", exampleName: "部门多选", notes: "选择多个组织部门" }
+];
+
+export const H3YUN_CONTROL_TYPE_REFERENCE = RAW_H3YUN_CONTROL_TYPE_REFERENCE.map((item) => Object.freeze({
+  ...item
+}));
+
 const CONTROL_TYPE_MAP = new Map(
   CONTROL_TYPE_REFERENCE.map((item) => [item.tagName, item])
 );

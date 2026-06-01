@@ -1,6 +1,8 @@
 param(
   [ValidateSet("all", "chrome", "edge")]
-  [string]$Browser = "all"
+  [string]$Browser = "all",
+
+  [string[]]$ExtensionId = @()
 )
 
 $ErrorActionPreference = "Stop"
@@ -54,7 +56,18 @@ function Register-HostManifest {
 
 $manifestPath = Join-Path $extensionRoot "manifest.json"
 $extensionId = Get-ExtensionIdFromManifestKey -ManifestPath $manifestPath
-$allowedOrigin = "chrome-extension://$extensionId/"
+$extensionIds = @($extensionId) + @($ExtensionId | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+$extensionIds = $extensionIds |
+  ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } |
+  Where-Object { $_ -match '^[a-p]{32}$' } |
+  Select-Object -Unique
+
+if (-not $extensionIds.Count) {
+  throw "No valid extension IDs were resolved."
+}
+
+# Edge 从商店安装或重新加载解压扩展时可能得到不同扩展 ID；Native Host 必须显式允许所有会调用它的扩展来源。
+$allowedOrigins = $extensionIds | ForEach-Object { "chrome-extension://$_/" }
 
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
@@ -70,7 +83,7 @@ $hostManifest = @{
   description = "CloudPiOvt native editor bridge"
   path = $exePath
   type = "stdio"
-  allowed_origins = @($allowedOrigin)
+  allowed_origins = @($allowedOrigins)
 }
 
 $hostManifest | ConvertTo-Json -Depth 4 | Set-Content -Path $hostManifestPath -Encoding UTF8
@@ -84,6 +97,7 @@ if ($Browser -in @("all", "edge")) {
 }
 
 Write-Output "Native host installed."
-Write-Output "Extension ID: $extensionId"
-Write-Output "Allowed origin: $allowedOrigin"
+Write-Output "Manifest extension ID: $extensionId"
+Write-Output "Allowed origins:"
+$allowedOrigins | ForEach-Object { Write-Output "  $_" }
 Write-Output "Host manifest: $hostManifestPath"

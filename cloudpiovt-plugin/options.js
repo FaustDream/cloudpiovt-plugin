@@ -1,5 +1,14 @@
-import { DEFAULT_CONFIG, READONLY_SETTINGS, loadConfig, saveConfig } from "./lib/config.js";
-import { CONTROL_TYPE_REFERENCE } from "./lib/control-metadata.js";
+import {
+  CLOUDPIVOT_READONLY_SETTINGS,
+  DEFAULT_CONFIG,
+  H3YUN_READONLY_SETTINGS,
+  loadConfig,
+  saveConfig
+} from "./lib/config.js";
+import {
+  CONTROL_TYPE_REFERENCE,
+  H3YUN_CONTROL_TYPE_REFERENCE
+} from "./lib/control-metadata.js";
 import { pickNativeEditor, probeNativeHost } from "./lib/native-host.js";
 
 const form = document.querySelector("#settings-form");
@@ -9,11 +18,15 @@ const vscodePathField = document.querySelector("#vscode-executable-path");
 const ideaPathField = document.querySelector("#idea-executable-path");
 const pickVscodeButton = document.querySelector("#pick-vscode-btn");
 const pickIdeaButton = document.querySelector("#pick-idea-btn");
-const readonlyList = document.querySelector("#readonly-settings-list");
-const controlTypeReferenceBody = document.querySelector("#control-type-reference-body");
+const cloudpivotReadonlyList = document.querySelector("#cloudpivot-readonly-settings-list");
+const h3yunReadonlyList = document.querySelector("#h3yun-readonly-settings-list");
+const cloudpivotControlTypeReferenceBody = document.querySelector("#cloudpivot-control-type-reference-body");
+const h3yunControlTypeReferenceBody = document.querySelector("#h3yun-control-type-reference-body");
 const nativeHostStatus = document.querySelector("#native-host-status");
 const statusOutput = document.querySelector("#settings-status");
 const sectionNavLinks = Array.from(document.querySelectorAll("[data-nav-link]"));
+const platformTabButtons = Array.from(document.querySelectorAll("[data-options-platform-tab]"));
+const platformPanels = Array.from(document.querySelectorAll("[data-options-platform-panel]"));
 
 function setStatus(message) {
   statusOutput.textContent = message;
@@ -73,9 +86,27 @@ function bindSectionNavigation() {
   }
 }
 
-function renderReadonlySettings() {
-  readonlyList.replaceChildren(
-    ...READONLY_SETTINGS.map((text) => {
+function setActivePlatform(platformKey) {
+  const normalizedPlatformKey = platformKey === "h3yun" ? "h3yun" : "cloudpivot";
+
+  // 设置页的平台标签只控制说明数据的显示，避免云枢规则、氚云规则和控件参考混在同一屏里。
+  for (const button of platformTabButtons) {
+    const isActive = button.dataset.optionsPlatformTab === normalizedPlatformKey;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+  }
+
+  for (const panel of platformPanels) {
+    const isActive = panel.dataset.optionsPlatformPanel === normalizedPlatformKey;
+    panel.classList.toggle("is-active", isActive);
+    panel.hidden = !isActive;
+  }
+}
+
+function renderReadonlyList(listElement, settings) {
+  // 内置规则按平台分别渲染，后续调整某个平台说明时不会影响另一侧的维护语境。
+  listElement.replaceChildren(
+    ...settings.map((text) => {
       const item = document.createElement("li");
       item.className = "readonly-list-item";
       item.textContent = text;
@@ -84,12 +115,34 @@ function renderReadonlySettings() {
   );
 }
 
-function renderControlTypeReference() {
-  controlTypeReferenceBody.replaceChildren(
+function renderReadonlySettings() {
+  renderReadonlyList(cloudpivotReadonlyList, CLOUDPIVOT_READONLY_SETTINGS);
+  renderReadonlyList(h3yunReadonlyList, H3YUN_READONLY_SETTINGS);
+}
+
+function renderCloudpivotControlTypeReference() {
+  // 云枢字段控件说明来自在线开发 HTML 标签映射，服务云枢 FromCode.md 的字段控件核对。
+  cloudpivotControlTypeReferenceBody.replaceChildren(
     ...CONTROL_TYPE_REFERENCE.map((controlType) => {
       const row = document.createElement("tr");
       row.innerHTML = `
         <td><code>${controlType.tagName}</code></td>
+        <td>${controlType.typeName}</td>
+        <td>${controlType.exampleName || "-"}</td>
+        <td>${controlType.notes || "-"}</td>
+      `;
+      return row;
+    })
+  );
+}
+
+function renderH3yunControlTypeReference() {
+  // 氚云控件参考来自 FromCode.md 的控件类型字段，用于核对抓取后的控件编码和类型是否一致。
+  h3yunControlTypeReferenceBody.replaceChildren(
+    ...H3YUN_CONTROL_TYPE_REFERENCE.map((controlType) => {
+      const row = document.createElement("tr");
+      row.innerHTML = `
+        <td><code>${controlType.typeCode}</code></td>
         <td>${controlType.typeName}</td>
         <td>${controlType.exampleName || "-"}</td>
         <td>${controlType.notes || "-"}</td>
@@ -160,7 +213,9 @@ async function handleReset() {
 async function init() {
   bindSectionNavigation();
   renderReadonlySettings();
-  renderControlTypeReference();
+  renderCloudpivotControlTypeReference();
+  renderH3yunControlTypeReference();
+  setActivePlatform("cloudpivot");
   renderConfig(await loadConfig());
   const hostStatus = await probeNativeHost();
   setNativeHostStatus(
@@ -193,6 +248,10 @@ pickIdeaButton.addEventListener("click", async () => {
     pickIdeaButton.disabled = false;
   }
 });
+
+for (const button of platformTabButtons) {
+  button.addEventListener("click", () => setActivePlatform(button.dataset.optionsPlatformTab));
+}
 
 form.addEventListener("submit", handleSubmit);
 resetButton.addEventListener("click", handleReset);
