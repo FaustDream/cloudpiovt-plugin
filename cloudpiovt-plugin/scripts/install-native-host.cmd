@@ -2,14 +2,14 @@
 setlocal
 set "SCRIPT_DIR=%~dp0"
 
-where pwsh >nul 2>nul
+where powershell.exe >nul 2>nul
 if errorlevel 1 (
-  echo 未找到 PowerShell 7 pwsh.exe，请联系开发维护人员提供完整安装包。
+  echo 未找到 Windows PowerShell powershell.exe，无法继续安装原生助手。
   pause
   exit /b 1
 )
 
-pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%install-native-host.ps1" -Browser all
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_DIR%install-native-host.ps1" -Browser all
 set "EXIT_CODE=%ERRORLEVEL%"
 if not "%EXIT_CODE%"=="0" (
   echo.
