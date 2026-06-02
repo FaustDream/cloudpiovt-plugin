@@ -1,9 +1,9 @@
-{
-  "allowed_origins": [
-    "chrome-extension://paonfcdlmkhjmemkjfflfoblkgdiecap/"
-  ],
-  "path": "D:\\gitHub\\chrome-plugin\\cloudpiovt-plugin\\.native-host\\publish\\CloudPiOvt.NativeHost.exe",
-  "name": "com.cloudpiovt.editor_helper",
-  "type": "stdio",
-  "description": "CloudPiOvt native editor bridge"
+﻿{
+    "allowed_origins":  [
+                            "chrome-extension://paonfcdlmkhjmemkjfflfoblkgdiecap/"
+                        ],
+    "path":  "<REPO_ROOT>/.native-host/publish/CloudPiOvt.NativeHost.exe",
+    "name":  "com.cloudpiovt.editor_helper",
+    "type":  "stdio",
+    "description":  "CloudPiOvt native editor bridge"
 }

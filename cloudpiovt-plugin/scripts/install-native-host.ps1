@@ -70,13 +70,11 @@ if (-not $extensionIds.Count) {
   throw "No valid extension IDs were resolved."
 }
 
-# Edge 从商店安装或重新加载解压扩展时可能得到不同扩展 ID；Native Host 必须显式允许所有会调用它的扩展来源。
 $allowedOrigins = $extensionIds | ForEach-Object { "chrome-extension://$_/" }
 
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
 if ($Build) {
-  # 开发者构建入口：发布为 win-x64 自包含运行目录，避免普通用户机器缺少 .NET Runtime。
   dotnet publish $projectPath `
     -c Release `
     -r win-x64 `
@@ -111,7 +109,11 @@ if (-not $SkipRegister) {
   }
 }
 
-Write-Output ($SkipRegister ? "Native host release files prepared." : "Native host installed for current user.")
+if ($SkipRegister) {
+  Write-Output "Native host release files prepared."
+} else {
+  Write-Output "Native host installed for current user."
+}
 Write-Output "Manifest extension ID: $extensionId"
 Write-Output "Allowed origins:"
 $allowedOrigins | ForEach-Object { Write-Output "  $_" }
