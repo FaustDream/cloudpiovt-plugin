@@ -71,7 +71,7 @@ export const CLOUDPIVOT_READONLY_SETTINGS = [
   "页面类型：form-design → 表单在线开发，list-design → 列表在线开发，其余 → 默认页面",
   "文档同步：前端抓取会按需补建 README.MD / FromCode.md，回写不会覆盖说明文档",
   "目录规则：更新目标目录会同步当前页面快照和后续新页面默认值，旧页面保持原绑定",
-  "Edge 兼容：若 Edge 提示原生助手未连接，请用 Edge 当前扩展 ID 重新运行 native host 安装脚本"
+  "原生助手：绝对路径历史、选择应用和一键打开编辑器依赖 Native Host；发布包内置自包含运行目录"
 ];
 
 export const H3YUN_READONLY_SETTINGS = [
@@ -82,7 +82,7 @@ export const H3YUN_READONLY_SETTINGS = [
   "模型匹配：氚云 Monaco model 语言 ID 为 undefined，先按内容正则区分 JS/C#，多 model 命中时按容器挂载、Monaco 版本号、创建顺序和长度评分，避免读到残留模板",
   "懒加载处理：图形区、前端或后端编辑器未挂载时，一键抓取会跳过缺失项并保留已抓到的文件",
   "目录规则：h3yun.com 使用独立页面类型和目录快照，不复用云枢 form-design 规则",
-  "Edge 兼容：若 Edge 提示原生助手未连接，请用 Edge 当前扩展 ID 重新运行 native host 安装脚本"
+  "原生助手：绝对路径历史、选择应用和一键打开编辑器依赖 Native Host；发布包内置自包含运行目录"
 ];
 
 export const READONLY_SETTINGS = [
