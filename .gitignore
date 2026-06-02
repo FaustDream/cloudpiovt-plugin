@@ -4,7 +4,7 @@ node_modules/
 # Environment files
 .env
 .env.local
-
+AGENTS.md
 # IDE
 .idea/
 .vscode/
@@ -15,22 +15,6 @@ node_modules/
 .DS_Store
 Thumbs.db
 
-# Build output
-dist/
-build/
-*.zip
-*.crx
-
-# .NET build artifacts
-bin/
-obj/
-*.publish/
-publish/
-
-# Compiled binaries (track source only)
-*.dll
-*.exe
-*.pdb
 
 # NuGet
 *.nupkg
@@ -45,3 +29,7 @@ npm-debug.log*
 
 # Rust Native Host build artifacts
 native-host-rust/target/
+
+.codebuddy/
+docs/architecture.md
+docs/changelog-ai.md
