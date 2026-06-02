@@ -12,11 +12,40 @@ param(
 $ErrorActionPreference = "Stop"
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
+$rustProjectDir = Join-Path $repoRoot "native-host-rust"
+$rustExePath = Join-Path $rustProjectDir "target\release\cloudpiovt_native_host.exe"
 $extensionRoot = $repoRoot
-$projectPath = Join-Path $extensionRoot "native-host\CloudPiOvt.NativeHost\CloudPiOvt.NativeHost.csproj"
 $publishDir = Join-Path $extensionRoot ".native-host\publish"
+$hostExePath = Join-Path $publishDir "cloudpiovt_native_host.exe"
 $hostManifestPath = Join-Path $extensionRoot ".native-host\com.cloudpiovt.editor_helper.json"
 $hostName = "com.cloudpiovt.editor_helper"
+
+if ($Build) {
+  if (-not (Test-Path $rustProjectDir)) {
+    throw "Rust project directory not found: $rustProjectDir"
+  }
+
+  # 开发联调或发布构建时才编译 Rust；普通用户安装包直接使用 publish 内的 exe。
+  Write-Output "Building Rust Native Host..."
+  & cargo build --manifest-path (Join-Path $rustProjectDir "Cargo.toml") --release
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to build Rust Native Host."
+  }
+
+  if (-not (Test-Path $rustExePath)) {
+    throw "Rust Native Host executable was not produced: $rustExePath"
+  }
+
+  New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
+  Copy-Item -LiteralPath $rustExePath -Destination $hostExePath -Force
+  Write-Output "Rust Native Host built successfully: $hostExePath"
+}
+
+if ((-not (Test-Path $hostExePath)) -and (Test-Path $rustExePath)) {
+  # 源码联调场景可能已手动 cargo build --release；复制到 publish 后再注册，避免 manifest 指向 Cargo target。
+  New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
+  Copy-Item -LiteralPath $rustExePath -Destination $hostExePath -Force
+}
 
 function Get-ExtensionIdFromManifestKey {
   param([string]$ManifestPath)
@@ -72,32 +101,22 @@ if (-not $extensionIds.Count) {
 
 $allowedOrigins = $extensionIds | ForEach-Object { "chrome-extension://$_/" }
 
-New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
-
-if ($Build) {
-  dotnet publish $projectPath `
-    -c Release `
-    -r win-x64 `
-    --self-contained true `
-    -p:PublishSingleFile=true `
-    -p:EnableCompressionInSingleFile=true `
-    -o $publishDir
-}
-
-$exePath = Join-Path $publishDir "CloudPiOvt.NativeHost.exe"
-if (-not (Test-Path $exePath)) {
-  throw "Native host executable was not found: $exePath. Use scripts\build-native-host-release.ps1 before packaging the extension, or run this script with -Build on a developer machine."
+if (-not (Test-Path $hostExePath)) {
+  throw "Rust Native Host executable was not found: $hostExePath. Release packages should include .native-host\publish; developers can run scripts\install-native-host.cmd -Build."
 }
 
 $hostManifest = [ordered]@{
   allowed_origins = @($allowedOrigins)
-  path = $exePath
+  path = $hostExePath
   name = $hostName
   type = "stdio"
-  description = "CloudPiOvt native editor bridge"
+  description = "CloudPiOvt native editor bridge (Rust)"
 }
 
-$hostManifest | ConvertTo-Json -Depth 4 | Set-Content -Path $hostManifestPath -Encoding UTF8
+New-Item -ItemType Directory -Force -Path (Split-Path -Parent $hostManifestPath) | Out-Null
+$hostManifestJson = $hostManifest | ConvertTo-Json -Depth 4
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($hostManifestPath, $hostManifestJson + [Environment]::NewLine, $utf8NoBom)
 
 if (-not $SkipRegister) {
   if ($Browser -in @("all", "chrome")) {
