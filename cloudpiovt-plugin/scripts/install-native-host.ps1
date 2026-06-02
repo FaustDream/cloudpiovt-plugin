@@ -2,7 +2,11 @@ param(
   [ValidateSet("all", "chrome", "edge")]
   [string]$Browser = "all",
 
-  [string[]]$ExtensionId = @()
+  [string[]]$ExtensionId = @(),
+
+  [switch]$Build,
+
+  [switch]$SkipRegister
 )
 
 $ErrorActionPreference = "Stop"
@@ -71,32 +75,43 @@ $allowedOrigins = $extensionIds | ForEach-Object { "chrome-extension://$_/" }
 
 New-Item -ItemType Directory -Force -Path $publishDir | Out-Null
 
-dotnet publish $projectPath -c Release -r win-x64 --self-contained false -o $publishDir
+if ($Build) {
+  # 开发者构建入口：发布为 win-x64 自包含运行目录，避免普通用户机器缺少 .NET Runtime。
+  dotnet publish $projectPath `
+    -c Release `
+    -r win-x64 `
+    --self-contained true `
+    -p:PublishSingleFile=true `
+    -p:EnableCompressionInSingleFile=true `
+    -o $publishDir
+}
 
 $exePath = Join-Path $publishDir "CloudPiOvt.NativeHost.exe"
 if (-not (Test-Path $exePath)) {
-  throw "Published native host executable was not found: $exePath"
+  throw "Native host executable was not found: $exePath. Use scripts\build-native-host-release.ps1 before packaging the extension, or run this script with -Build on a developer machine."
 }
 
-$hostManifest = @{
-  name = $hostName
-  description = "CloudPiOvt native editor bridge"
-  path = $exePath
-  type = "stdio"
+$hostManifest = [ordered]@{
   allowed_origins = @($allowedOrigins)
+  path = $exePath
+  name = $hostName
+  type = "stdio"
+  description = "CloudPiOvt native editor bridge"
 }
 
 $hostManifest | ConvertTo-Json -Depth 4 | Set-Content -Path $hostManifestPath -Encoding UTF8
 
-if ($Browser -in @("all", "chrome")) {
-  Register-HostManifest -RegistryPath "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName" -ManifestPathValue $hostManifestPath
+if (-not $SkipRegister) {
+  if ($Browser -in @("all", "chrome")) {
+    Register-HostManifest -RegistryPath "HKCU:\Software\Google\Chrome\NativeMessagingHosts\$hostName" -ManifestPathValue $hostManifestPath
+  }
+
+  if ($Browser -in @("all", "edge")) {
+    Register-HostManifest -RegistryPath "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$hostName" -ManifestPathValue $hostManifestPath
+  }
 }
 
-if ($Browser -in @("all", "edge")) {
-  Register-HostManifest -RegistryPath "HKCU:\Software\Microsoft\Edge\NativeMessagingHosts\$hostName" -ManifestPathValue $hostManifestPath
-}
-
-Write-Output "Native host installed."
+Write-Output ($SkipRegister ? "Native host release files prepared." : "Native host installed for current user.")
 Write-Output "Manifest extension ID: $extensionId"
 Write-Output "Allowed origins:"
 $allowedOrigins | ForEach-Object { Write-Output "  $_" }

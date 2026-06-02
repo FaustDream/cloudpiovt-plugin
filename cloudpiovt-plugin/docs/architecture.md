@@ -12,7 +12,7 @@
 
 设置页按“云枢 / 氚云”两个标签隔离平台说明：云枢标签展示云枢内置规则、推荐流程和基于在线开发 HTML 标签的字段控件说明；氚云标签展示氚云内置规则、推荐流程和基于 `FromCode.md` 的氚云控件类型参考。两套控件说明分别维护，避免把云枢 HTML 标签和氚云 `Form*` 控件类型混用。
 
-Chrome 与 Edge 共用同一个 Native Host 可执行文件，但浏览器分别从 `HKCU\Software\Google\Chrome\NativeMessagingHosts` 与 `HKCU\Software\Microsoft\Edge\NativeMessagingHosts` 查找 host manifest。host manifest 的 `allowed_origins` 必须列出实际调用扩展的 `chrome-extension://<扩展ID>/` 来源；Edge 侧若扩展 ID 和 manifest key 推导 ID 不一致，需要重新运行 `scripts/install-native-host.ps1 -Browser edge -ExtensionId <Edge扩展ID>`。
+Native Host 承载绝对路径历史、系统文件选择器定位 VS Code / IDEA 可执行文件、通过弹窗一键启动编辑器三项必须能力。发布流程通过 `scripts/package-extension-release.ps1` 先生成 win-x64 自包含原生助手运行目录，普通用户只需双击 `scripts/install-native-host.cmd` 注册当前用户的 host manifest，不需要安装 .NET SDK / Runtime。Chrome 与 Edge 分别从 `HKCU\Software\Google\Chrome\NativeMessagingHosts` 与 `HKCU\Software\Microsoft\Edge\NativeMessagingHosts` 查找 host manifest；Edge 若使用不同扩展 ID，发布构建时需要追加 `-ExtensionId <Edge扩展ID>`。
 
 ## 目标目录状态
 

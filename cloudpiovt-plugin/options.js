@@ -165,6 +165,14 @@ function renderConfig(config) {
 }
 
 async function pickEditorPath(targetField, defaultHint) {
+  // “选择应用”依赖原生助手；未安装时保留手动粘贴路径，避免用户被单个按钮卡住。
+  const hostStatus = await probeNativeHost();
+  if (!hostStatus.available) {
+    setStatus("当前未安装原生助手，请先双击 scripts\\install-native-host.cmd；也可以临时手动粘贴应用路径后保存。");
+    targetField.focus();
+    return;
+  }
+
   const response = await pickNativeEditor(targetField.value || defaultHint);
   if (!response?.ok) {
     if (response?.cancelled) {
@@ -221,7 +229,7 @@ async function init() {
   setNativeHostStatus(
     hostStatus.available
       ? `原生助手已连接：${hostStatus.hostName} ${hostStatus.version}`
-      : `原生助手未连接：${hostStatus.error || "未连接"}`
+      : "原生助手未安装；绝对路径历史、选择应用和一键打开编辑器需要先双击 scripts\\install-native-host.cmd。"
   );
 }
 

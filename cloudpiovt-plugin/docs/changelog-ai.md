@@ -1,5 +1,12 @@
 # AI 变更记录
 
+## 2026-06-02
+
+- 将扩展版本调整为 `1.1.0`，同步 manifest、使用文档和发布包默认版本。
+- 将 Native Host 安装改为自包含用户级方案：开发维护人员通过 `scripts/package-extension-release.ps1` 生成 win-x64 原生助手运行目录和发布 zip，普通用户双击 `scripts/install-native-host.cmd` 注册，不需要 .NET SDK / Runtime。
+- 同步 README 和使用手册：绝对路径历史、选择应用和一键打开编辑器作为必须能力保留，安装入口改成双击 `.cmd`，Edge ID 差异由发布构建时的 `-ExtensionId` 处理。
+- 设置页“选择应用”在未启用 Native Host 时改为提示手动粘贴路径，避免普通用户被缺少 .NET / 注册表环境阻断。
+
 ## 2026-05-29
 
 - 恢复设置页云枢字段控件说明：云枢标签展示 HTML 标签控件参考，氚云标签展示 `Form*` 控件类型参考，两套说明独立维护。
