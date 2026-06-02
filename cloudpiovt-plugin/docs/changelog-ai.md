@@ -2,6 +2,7 @@
 
 ## 2026-06-02
 
+- 将 `scripts/install-native-host.cmd` 改为调用 `powershell.exe`，兼容 Windows PowerShell 5，普通用户安装原生助手不再依赖 PowerShell 7；README 和使用手册同步补充安装/排查说明。
 - 将扩展版本调整为 `1.1.0`，同步 manifest、使用文档和发布包默认版本。
 - 将 Native Host 安装改为自包含用户级方案：开发维护人员通过 `scripts/package-extension-release.ps1` 生成 win-x64 原生助手运行目录和发布 zip，普通用户双击 `scripts/install-native-host.cmd` 注册，不需要 .NET SDK / Runtime。
 - 同步 README 和使用手册：绝对路径历史、选择应用和一键打开编辑器作为必须能力保留，安装入口改成双击 `.cmd`，Edge ID 差异由发布构建时的 `-ExtensionId` 处理。
