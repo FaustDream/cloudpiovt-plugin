@@ -1,5 +1,5 @@
 param(
-  [string]$Version = "1.1.0",
+  [string]$Version = "1.2.0",
 
   [ValidateSet("all", "chrome", "edge")]
   [string]$Browser = "all",
@@ -10,7 +10,8 @@ param(
 $ErrorActionPreference = "Stop"
 
 $extensionRoot = Split-Path -Parent $PSScriptRoot
-$repoRoot = Split-Path -Parent $extensionRoot
+# 扩展根目录即仓库根目录，不再有中间层子目录
+$repoRoot = $extensionRoot
 $releaseDir = Join-Path $repoRoot "release"
 $zipPath = Join-Path $releaseDir "cloudpiovt-plugin-v$Version.zip"
 $buildScript = Join-Path $PSScriptRoot "build-native-host-release.ps1"
@@ -21,11 +22,11 @@ $buildArgs = @{
 }
 
 if ($ExtensionId.Count) {
-  # 只有明确传入 Edge 扩展 ID 时才写入 allowed_origins，普通 Chrome 包使用 manifest key 推导 ID。
+  # Edge 扩展 ID 只在发布包需要兼容特定 Edge 安装时传入，避免空数组被转成缺少参数值。
   $buildArgs.ExtensionId = $ExtensionId
 }
 
-# 发布包必须先生成自包含 Native Host，保证普通用户双击安装时不需要 .NET SDK/Runtime。
+# 发布包先生成 Rust Native Host 运行产物，普通用户双击 .cmd 注册时不需要 Rust/Cargo 环境。
 & pwsh -NoLogo -NoProfile -ExecutionPolicy Bypass -File $buildScript @buildArgs
 
 New-Item -ItemType Directory -Force -Path $releaseDir | Out-Null
@@ -38,10 +39,10 @@ if (Test-Path -LiteralPath $stagingRoot) {
 
 New-Item -ItemType Directory -Force -Path $stagingRoot | Out-Null
 
-$excludeDirectoryNames = @(".git", "bin", "obj", "node_modules")
+$excludeDirectoryNames = @(".git", "bin", "obj", "node_modules", "target")
 $excludeFilePatterns = @("*.pdb")
 
-# 使用 staging 目录生成发布包，避免把 native-host/bin、obj 等开发产物混入用户 zip。
+# 使用 staging 目录生成发布包，保留 .native-host/publish 运行产物，排除 Cargo target 等开发缓存。
 Copy-Item -LiteralPath $extensionRoot -Destination $stagingRoot -Recurse -Force
 
 Get-ChildItem -LiteralPath $stagingExtensionRoot -Directory -Recurse -Force |

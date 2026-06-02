@@ -12,7 +12,7 @@
 
 设置页按“云枢 / 氚云”两个标签隔离平台说明：云枢标签展示云枢内置规则、推荐流程和基于在线开发 HTML 标签的字段控件说明；氚云标签展示氚云内置规则、推荐流程和基于 `FromCode.md` 的氚云控件类型参考。两套控件说明分别维护，避免把云枢 HTML 标签和氚云 `Form*` 控件类型混用。
 
-Native Host 承载绝对路径历史、系统文件选择器定位 VS Code / IDEA 可执行文件、通过弹窗一键启动编辑器三项必须能力。发布流程通过 `scripts/package-extension-release.ps1` 先生成 win-x64 自包含原生助手运行目录，普通用户只需双击 `scripts/install-native-host.cmd` 注册当前用户的 host manifest，不需要安装 .NET SDK / Runtime。Chrome 与 Edge 分别从 `HKCU\Software\Google\Chrome\NativeMessagingHosts` 与 `HKCU\Software\Microsoft\Edge\NativeMessagingHosts` 查找 host manifest；Edge 若使用不同扩展 ID，发布构建时需要追加 `-ExtensionId <Edge扩展ID>`。
+Native Host 承载绝对路径历史、系统文件选择器定位 VS Code / IDEA 可执行文件、通过弹窗一键启动编辑器三项必须能力。发布流程通过 `scripts/package-extension-release.ps1` 编译 Rust Native Host，并把运行 exe 复制到 `.native-host/publish/cloudpiovt_native_host.exe`；普通用户只需双击 `scripts/install-native-host.cmd` 注册当前用户的 host manifest，不需要安装 Rust / Cargo。Chrome 与 Edge 分别从 `HKCU\Software\Google\Chrome\NativeMessagingHosts` 与 `HKCU\Software\Microsoft\Edge\NativeMessagingHosts` 查找 host manifest；Edge 若使用不同扩展 ID，发布构建时需要追加 `-ExtensionId <Edge扩展ID>`。
 
 ## 目标目录状态
 
