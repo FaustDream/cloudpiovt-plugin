@@ -51,30 +51,23 @@
           <button id="page-origin" class="copy-chip" type="button" disabled>检测中...</button>
         </div>
         <div class="meta-row">
-          <span class="meta-label">目录句柄</span>
+          <span class="meta-label">当前路径</span>
           <div class="meta-value meta-value-inline">
-            <span id="target-handle">未授权</span>
-            <button id="refresh-handle-btn" class="icon-btn" type="button" title="更新目标目录" aria-label="更新目标目录">↻</button>
+            <span id="target-handle">未选择目录</span>
+            <button id="refresh-handle-btn" class="icon-btn" type="button" title="更新当前路径" aria-label="更新当前路径">↻</button>
           </div>
         </div>
-        <div id="target-path-section" class="meta-row-stack path-section">
+        <div id="target-path-section" class="meta-row-stack path-section" hidden>
           <div class="meta-row">
-            <span class="meta-label">当前路径</span>
+            <span class="meta-label">历史目录</span>
             <button id="target-path-toggle" class="path-toggle-btn" type="button" aria-expanded="false" aria-controls="target-path-panel">
-              <span id="target-path-summary" class="path-toggle-summary">未保存</span>
+              <span id="target-path-summary" class="path-toggle-summary">暂无历史目录</span>
               <span class="path-toggle-arrow" aria-hidden="true">▾</span>
             </button>
           </div>
           <div id="target-path-panel" class="path-panel" hidden>
-            <p id="target-path-full" class="path-full-value">未保存</p>
-            <div class="path-panel-actions">
-              <button id="target-path-copy-btn" class="copy-chip copy-chip-full" type="button" disabled>未保存</button>
-            </div>
-            <div class="recent-paths">
-              <div class="recent-paths-header">
-                <span class="meta-label">最近路径</span>
-              </div>
-              <p id="recent-paths-empty" class="recent-paths-empty">暂无最近路径</p>
+            <div id="recent-paths" class="recent-paths">
+              <p id="recent-paths-empty" class="recent-paths-empty" hidden>暂无历史目录</p>
               <ul id="recent-paths-list" class="recent-paths-list" hidden></ul>
             </div>
           </div>
@@ -113,7 +106,11 @@
       <section class="card status-card">
         <div class="status-header">
           <span>执行状态</span>
-          <button id="open-options-btn" class="link-btn" type="button">设置</button>
+          <div class="status-actions">
+            <button id="copy-log-btn" class="link-btn" type="button">复制日志</button>
+            <button id="export-log-btn" class="link-btn" type="button">导出日志</button>
+            <button id="open-options-btn" class="link-btn" type="button">设置</button>
+          </div>
         </div>
         <pre id="status-output" class="status-output">等待操作。</pre>
       </section>

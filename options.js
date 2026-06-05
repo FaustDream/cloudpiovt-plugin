@@ -10,6 +10,7 @@ import {
   H3YUN_CONTROL_TYPE_REFERENCE
 } from "./lib/control-metadata.js";
 import { pickNativeEditor, probeNativeHost } from "./lib/native-host.js";
+import { CURRENT_EXTENSION_VERSION, RELEASE_NOTES } from "./lib/release-notes.js";
 
 const form = document.querySelector("#settings-form");
 const saveButton = document.querySelector("#save-btn");
@@ -18,6 +19,10 @@ const vscodePathField = document.querySelector("#vscode-executable-path");
 const ideaPathField = document.querySelector("#idea-executable-path");
 const pickVscodeButton = document.querySelector("#pick-vscode-btn");
 const pickIdeaButton = document.querySelector("#pick-idea-btn");
+const currentVersionEl = document.querySelector("#current-version");
+const overviewVersionEl = document.querySelector("#overview-version");
+const pathSummaryEl = document.querySelector("#path-summary");
+const releaseNotesList = document.querySelector("#release-notes-list");
 const cloudpivotReadonlyList = document.querySelector("#cloudpivot-readonly-settings-list");
 const h3yunReadonlyList = document.querySelector("#h3yun-readonly-settings-list");
 const cloudpivotControlTypeReferenceBody = document.querySelector("#cloudpivot-control-type-reference-body");
@@ -25,8 +30,12 @@ const h3yunControlTypeReferenceBody = document.querySelector("#h3yun-control-typ
 const nativeHostStatus = document.querySelector("#native-host-status");
 const statusOutput = document.querySelector("#settings-status");
 const sectionNavLinks = Array.from(document.querySelectorAll("[data-nav-link]"));
-const platformTabButtons = Array.from(document.querySelectorAll("[data-options-platform-tab]"));
-const platformPanels = Array.from(document.querySelectorAll("[data-options-platform-panel]"));
+const docsTabButtons = Array.from(document.querySelectorAll("[data-docs-tab]"));
+const docsPanels = Array.from(document.querySelectorAll("[data-docs-panel]"));
+const platformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab][data-platform-group]"));
+const platformPanels = Array.from(document.querySelectorAll("[data-platform-panel][data-platform-group]"));
+
+let activeDocsTabKey = "reference";
 
 function setStatus(message) {
   statusOutput.textContent = message;
@@ -36,9 +45,34 @@ function setNativeHostStatus(message) {
   nativeHostStatus.textContent = message;
 }
 
+function setVersionLabels() {
+  currentVersionEl.textContent = CURRENT_EXTENSION_VERSION;
+  overviewVersionEl.textContent = CURRENT_EXTENSION_VERSION;
+}
+
+function renderPathSummary(config) {
+  const configuredCount = [config.vscodeExecutablePath, config.ideaExecutablePath].filter(Boolean).length;
+  pathSummaryEl.textContent = configuredCount ? `已配置 ${configuredCount} 个` : "未配置";
+}
+
+// 设置页涉及保存配置和原生助手选择应用，按钮运行态用于提示用户当前动作仍在处理。
+async function runWithButtonBusy(button, task) {
+  button?.classList.add("is-running");
+  button?.setAttribute("aria-busy", "true");
+  try {
+    return await task();
+  } finally {
+    button?.classList.remove("is-running");
+    button?.removeAttribute("aria-busy");
+  }
+}
+
 function setActiveNavLink(sectionId) {
   for (const link of sectionNavLinks) {
-    const isActive = link.getAttribute("href") === `#${sectionId}`;
+    const docsTarget = link.dataset.docsTarget || "";
+    const isSameSection = link.getAttribute("href") === `#${sectionId}`;
+    const isSameDocsTarget = !docsTarget || docsTarget === activeDocsTabKey;
+    const isActive = isSameSection && isSameDocsTarget;
     link.classList.toggle("is-active", isActive);
     if (isActive) {
       link.setAttribute("aria-current", "true");
@@ -56,14 +90,27 @@ function bindSectionNavigation() {
   const sections = sectionNavLinks
     .map((link) => document.querySelector(link.getAttribute("href")))
     .filter(Boolean);
+  const uniqueSections = Array.from(new Set(sections));
 
-  if (!sections.length) {
+  if (!uniqueSections.length) {
     return;
   }
 
-  setActiveNavLink(sections[0].id);
+  for (const link of sectionNavLinks) {
+    link.addEventListener("click", () => {
+      if (link.dataset.docsTarget) {
+        setActiveDocsTab(link.dataset.docsTarget);
+      }
+      const targetSectionId = link.getAttribute("href")?.slice(1);
+      if (targetSectionId) {
+        setActiveNavLink(targetSectionId);
+      }
+    });
+  }
 
-  // 使用可见区块驱动导航高亮，避免长页面滚动时用户丢失当前位置。
+  setActiveNavLink(uniqueSections[0].id);
+
+  // 使用可见区块驱动导航高亮，让用户在重点区块和说明中心之间切换时保留位置感。
   if (!("IntersectionObserver" in window)) {
     return;
   }
@@ -81,23 +128,52 @@ function bindSectionNavigation() {
     threshold: [0.15, 0.35, 0.6]
   });
 
-  for (const section of sections) {
+  for (const section of uniqueSections) {
     observer.observe(section);
   }
 }
 
-function setActivePlatform(platformKey) {
+function setActiveDocsTab(tabKey, shouldSyncNav = true) {
+  const normalizedTabKey = ["flow", "release"].includes(tabKey) ? tabKey : "reference";
+  activeDocsTabKey = normalizedTabKey;
+
+  // 说明中心用标签页承载说明内容，避免控件表格、流程和版本记录同时拉长设置页。
+  for (const button of docsTabButtons) {
+    const isActive = button.dataset.docsTab === normalizedTabKey;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+  }
+
+  for (const panel of docsPanels) {
+    const isActive = panel.dataset.docsPanel === normalizedTabKey;
+    panel.classList.toggle("is-active", isActive);
+    panel.hidden = !isActive;
+  }
+
+  if (shouldSyncNav) {
+    setActiveNavLink("docs-center");
+  }
+}
+
+function setActivePlatform(groupKey, platformKey) {
+  const normalizedGroupKey = groupKey === "flow" ? "flow" : "reference";
   const normalizedPlatformKey = platformKey === "h3yun" ? "h3yun" : "cloudpivot";
 
-  // 设置页的平台标签只控制说明数据的显示，避免云枢规则、氚云规则和控件参考混在同一屏里。
+  // 平台标签按说明分组独立切换，控件参考和推荐流程可以各自保留用户最近查看的平台。
   for (const button of platformTabButtons) {
-    const isActive = button.dataset.optionsPlatformTab === normalizedPlatformKey;
+    if (button.dataset.platformGroup !== normalizedGroupKey) {
+      continue;
+    }
+    const isActive = button.dataset.platformTab === normalizedPlatformKey;
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-selected", isActive ? "true" : "false");
   }
 
   for (const panel of platformPanels) {
-    const isActive = panel.dataset.optionsPlatformPanel === normalizedPlatformKey;
+    if (panel.dataset.platformGroup !== normalizedGroupKey) {
+      continue;
+    }
+    const isActive = panel.dataset.platformPanel === normalizedPlatformKey;
     panel.classList.toggle("is-active", isActive);
     panel.hidden = !isActive;
   }
@@ -118,6 +194,24 @@ function renderReadonlyList(listElement, settings) {
 function renderReadonlySettings() {
   renderReadonlyList(cloudpivotReadonlyList, CLOUDPIVOT_READONLY_SETTINGS);
   renderReadonlyList(h3yunReadonlyList, H3YUN_READONLY_SETTINGS);
+}
+
+function renderReleaseNotes() {
+  // 版本更新记录前置展示，用户无需翻提交历史就能判断当前版本是否包含目标修复。
+  releaseNotesList.replaceChildren(
+    ...RELEASE_NOTES.map((release) => {
+      const article = document.createElement("article");
+      article.className = "release-card";
+      article.innerHTML = `
+        <div class="release-card-head">
+          <span class="release-version">v${release.version}</span>
+          <h3>${release.title}</h3>
+        </div>
+        <ul>${release.items.map((item) => `<li>${item}</li>`).join("")}</ul>
+      `;
+      return article;
+    })
+  );
 }
 
 function renderCloudpivotControlTypeReference() {
@@ -155,6 +249,7 @@ function renderH3yunControlTypeReference() {
 function renderConfig(config) {
   vscodePathField.value = config.vscodeExecutablePath;
   ideaPathField.value = config.ideaExecutablePath;
+  renderPathSummary(config);
   setStatus(
     [
       "配置已加载",
@@ -220,20 +315,29 @@ async function handleReset() {
 
 async function init() {
   bindSectionNavigation();
+  setVersionLabels();
   renderReadonlySettings();
+  renderReleaseNotes();
   renderCloudpivotControlTypeReference();
   renderH3yunControlTypeReference();
-  setActivePlatform("cloudpivot");
+  setActiveDocsTab("reference", false);
+  setActivePlatform("reference", "cloudpivot");
+  setActivePlatform("flow", "cloudpivot");
   renderConfig(await loadConfig());
   const hostStatus = await probeNativeHost();
   setNativeHostStatus(
     hostStatus.available
-      ? `原生助手已连接：${hostStatus.hostName} ${hostStatus.version}`
-      : "原生助手未安装；绝对路径历史、选择应用和一键打开编辑器需要先双击 scripts\\install-native-host.cmd。"
+      ? "已连接"
+      : "未安装"
+  );
+  setStatus(
+    hostStatus.available
+      ? `配置已加载。\n原生助手已连接：${hostStatus.hostName} ${hostStatus.version}`
+      : "配置已加载。\n原生助手未安装；绝对路径历史、选择应用和一键打开编辑器需要先双击 scripts\\install-native-host.cmd。"
   );
 }
 
-pickVscodeButton.addEventListener("click", async () => {
+pickVscodeButton.addEventListener("click", () => runWithButtonBusy(pickVscodeButton, async () => {
   pickVscodeButton.disabled = true;
   try {
     await pickEditorPath(vscodePathField, "Code.exe");
@@ -243,9 +347,9 @@ pickVscodeButton.addEventListener("click", async () => {
   } finally {
     pickVscodeButton.disabled = false;
   }
-});
+}));
 
-pickIdeaButton.addEventListener("click", async () => {
+pickIdeaButton.addEventListener("click", () => runWithButtonBusy(pickIdeaButton, async () => {
   pickIdeaButton.disabled = true;
   try {
     await pickEditorPath(ideaPathField, "idea64.exe");
@@ -255,14 +359,18 @@ pickIdeaButton.addEventListener("click", async () => {
   } finally {
     pickIdeaButton.disabled = false;
   }
-});
+}));
 
-for (const button of platformTabButtons) {
-  button.addEventListener("click", () => setActivePlatform(button.dataset.optionsPlatformTab));
+for (const button of docsTabButtons) {
+  button.addEventListener("click", () => setActiveDocsTab(button.dataset.docsTab));
 }
 
-form.addEventListener("submit", handleSubmit);
-resetButton.addEventListener("click", handleReset);
+for (const button of platformTabButtons) {
+  button.addEventListener("click", () => setActivePlatform(button.dataset.platformGroup, button.dataset.platformTab));
+}
+
+form.addEventListener("submit", (event) => runWithButtonBusy(saveButton, () => handleSubmit(event)));
+resetButton.addEventListener("click", () => runWithButtonBusy(resetButton, handleReset));
 
 init().catch((error) => {
   setStatus(`配置加载失败。\n${error?.message || String(error)}`);

@@ -20,6 +20,7 @@ import {
 import {
   createTargetDirectoryPageScope,
   ensureTargetDirectorySnapshot,
+  getStoredDirectoryPath,
   getStoredTargetDirectorySelection,
   saveNativeTargetDirectorySelection
 } from "./lib/target-directory-state.js";
@@ -41,12 +42,13 @@ const targetPathSectionEl = document.querySelector("#target-path-section");
 const targetPathToggleButton = document.querySelector("#target-path-toggle");
 const targetPathSummaryEl = document.querySelector("#target-path-summary");
 const targetPathPanelEl = document.querySelector("#target-path-panel");
-const targetPathFullEl = document.querySelector("#target-path-full");
-const targetPathCopyButton = document.querySelector("#target-path-copy-btn");
+const recentPathsEl = document.querySelector("#recent-paths");
 const recentPathsEmptyEl = document.querySelector("#recent-paths-empty");
 const recentPathsListEl = document.querySelector("#recent-paths-list");
 const refreshHandleButton = document.querySelector("#refresh-handle-btn");
 const statusOutput = document.querySelector("#status-output");
+const copyLogButton = document.querySelector("#copy-log-btn");
+const exportLogButton = document.querySelector("#export-log-btn");
 const frontendCaptureWriteButton = document.querySelector("#frontend-capture-write-btn");
 const frontendWritebackButton = document.querySelector("#frontend-writeback-btn");
 const bizruleCaptureWriteButton = document.querySelector("#bizrule-capture-write-btn");
@@ -65,6 +67,10 @@ let currentPageContext = null;
 let isTargetPathExpanded = false;
 let currentTargetPath = "";
 let isPopupBusy = false;
+// 运行日志只保存在当前弹窗会话中，便于用户复制/导出给作者排查，不持久化业务数据。
+const runtimeLogs = [];
+// 弹窗生命周期很短，限制最近 80 条可以保留完整排查上下文，同时避免日志撑爆弹窗内存。
+const RUNTIME_LOG_LIMIT = 80;
 // 当前弹窗选中的平台标签，只影响 UI 展示，不直接决定页面实际适配类型。
 let activePlatformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
 
@@ -83,6 +89,9 @@ const H3YUN_CODE_EDITOR_CONFIG = {
     modeIds: ["alonesharp", "csharp", undefined, ""]
   }
 };
+// 氚云设计文档是人工维护入口；新建时统一使用大写文件名，旧版小写文件只用于存在性兼容判断。
+const H3YUN_DESIGN_FILE_NAME = "DESIGN.md";
+const H3YUN_LEGACY_DESIGN_FILE_NAME = "design.md";
 
 function syncRecentPathInteractionState() {
   for (const element of recentPathsListEl.querySelectorAll("button")) {
@@ -109,8 +118,162 @@ function setBusy(isBusy) {
   syncRecentPathInteractionState();
 }
 
-function setStatus(message) {
-  statusOutput.textContent = Array.isArray(message) ? message.join("\n") : String(message || "");
+// 长任务按钮只标记触发源，禁用其它操作仍由 setBusy 统一控制，避免多个抓取/回写任务并发写文件。
+async function runWithButtonBusy(button, task) {
+  button?.classList.add("is-running");
+  button?.setAttribute("aria-busy", "true");
+  try {
+    return await task();
+  } finally {
+    button?.classList.remove("is-running");
+    button?.removeAttribute("aria-busy");
+  }
+}
+
+// 将数组、字符串和空值统一成日志行，后续级别判断和导出都基于同一份结构化内容。
+function normalizeStatusLines(message) {
+  return Array.isArray(message) ? message.map((item) => String(item || "")) : String(message || "").split(/\r?\n/);
+}
+
+// 每条日志都带上页面和目录上下文，方便作者从导出文件定位用户当时操作的位置。
+function getCurrentLogContext() {
+  const pageContext = currentPageContext || {};
+  return {
+    platform: getPlatformLabel(pageContext.pageTypeConfig?.platformKey || activePlatformKey),
+    pageType: pageContext.pageType || "unknown",
+    pageUrl: pageContext.tab?.url || "",
+    targetPath: currentTargetPath || ""
+  };
+}
+
+// 根据状态文案推断展示级别，避免每个业务分支都重复维护 info/warn/error。
+function inferStatusLevel(lines) {
+  const text = lines.join("\n")
+    .replace(/未挂载：无/g, "")
+    .replace(/缺失：无/g, "");
+  if (/失败|错误|未找到|拒绝|异常|读取失败|写入失败|回写失败|failed|error|exception|denied/i.test(text)) return "error";
+  if (/取消|跳过|缺失|未挂载|未选择|无法/.test(text)) return "warn";
+  if (/成功|完成|已写入|已复制|已打开|已更新/.test(text)) return "success";
+  return "info";
+}
+
+// 将常见失败归类为用户可执行的处理建议；无法归类时再提示导出日志给作者排查插件适配。
+function inferTroubleshooting(lines) {
+  const text = lines.join("\n");
+  if (/Native Host|原生助手|native/i.test(text)) {
+    return "处理建议：打开设置页检查原生助手状态；若未安装或扩展 ID 不匹配，请重新运行安装脚本。";
+  }
+  if (/目标目录|当前路径|文件夹|目录|尚未选择|权限|folder|directory|permission|denied|open folder dialog|implementation reports error/i.test(text)) {
+    return "处理建议：点击当前路径旁的刷新按钮重新选择目录；确认浏览器或原生助手有读写该目录的权限。";
+  }
+  if (/Monaco|model|编辑器|未挂载|#jsText|#csText/.test(text)) {
+    return "处理建议：确认氚云页面已完全加载，并切到对应前端/后端代码区域后重试；若仍失败，请导出日志联系作者适配页面结构。";
+  }
+  if (/子表控件编码缺失/.test(text)) {
+    return "处理建议：若缺失数量不为 0，请导出日志，并附带问题子表 DOM 快照发给作者补充适配规则。";
+  }
+  if (/当前页面|平台|云枢|氚云|不支持/.test(text)) {
+    return "处理建议：确认当前标签页是云枢在线开发页或氚云表单设计页，并选择匹配的平台标签。";
+  }
+  if (/未找到 .*\.java|目标目录中未找到/.test(text)) {
+    return "处理建议：确认当前路径中存在要回写的同名源码文件；业务规则同页多开时请先关闭多余编辑器。";
+  }
+  if (/插件|扩展|适配/.test(text)) {
+    return "处理建议：可能是插件适配不足，请复制或导出日志联系作者修改插件。";
+  }
+  if (/失败|错误|异常|拒绝|未找到/i.test(text)) {
+    return "处理建议：按日志中的页面地址、页面类型和当前路径逐项确认；若页面和目录都正常但仍复现，请导出日志联系作者修改插件适配。";
+  }
+  return "";
+}
+
+// 单条日志的展示和导出保持同一格式，避免用户看到的信息与发给作者的信息不一致。
+function formatLogEntry(entry) {
+  const contextLines = [
+    `平台：${entry.context.platform}`,
+    `页面类型：${entry.context.pageType}`,
+    entry.context.pageUrl ? `页面地址：${entry.context.pageUrl}` : "",
+    entry.context.targetPath ? `当前路径：${entry.context.targetPath}` : ""
+  ].filter(Boolean);
+
+  return [
+    `[${entry.time}] ${entry.level.toUpperCase()}`,
+    ...contextLines,
+    "状态：",
+    ...entry.lines,
+    entry.suggestion || "",
+    entry.level === "error" ? "插件原因提示：若页面已加载、目录权限正常但仍失败，请导出日志联系作者排查插件适配。" : ""
+  ].filter(Boolean).join("\n");
+}
+
+// 生成可直接发给作者的完整日志文本，包含扩展版本和浏览器环境，便于复现版本差异。
+function buildRuntimeLogText() {
+  const manifest = globalThis.chrome?.runtime?.getManifest?.() || {};
+  return [
+    "开发助手运行日志",
+    `导出时间：${new Date().toLocaleString()}`,
+    `扩展名称：${manifest.name || "unknown"}`,
+    `扩展版本：${manifest.version || "unknown"}`,
+    `浏览器环境：${globalThis.navigator?.userAgent || "unknown"}`,
+    `日志条数：${runtimeLogs.length}`,
+    "",
+    ...runtimeLogs.map(formatLogEntry)
+  ].join("\n\n---\n\n");
+}
+
+// 统一状态入口：既更新弹窗展示，也把同一条记录写入当前会话运行日志。
+function setStatus(message, options = {}) {
+  const lines = normalizeStatusLines(message);
+  const level = options.level || inferStatusLevel(lines);
+  const suggestion = options.suggestion || inferTroubleshooting(lines);
+  const entry = {
+    time: new Date().toLocaleString(),
+    level,
+    lines,
+    suggestion,
+    context: getCurrentLogContext()
+  };
+  runtimeLogs.push(entry);
+  if (runtimeLogs.length > RUNTIME_LOG_LIMIT) {
+    runtimeLogs.shift();
+  }
+
+  statusOutput.textContent = formatLogEntry(entry);
+}
+
+// 复制完整运行日志用于即时沟通；失败时保留当前错误并提示改用导出文件。
+async function handleCopyRuntimeLog() {
+  try {
+    await navigator.clipboard.writeText(buildRuntimeLogText());
+    setStatus("运行日志已复制，可直接发给作者排查。", { level: "success" });
+  } catch (error) {
+    setStatus(`复制运行日志失败。\n${error?.message || String(error)}`, {
+      level: "error",
+      suggestion: "处理建议：请手动选中执行状态区域内容复制，或点击导出日志保存文件。"
+    });
+  }
+}
+
+// 导出 UTF-8 文本日志文件，用户可以直接把文件发给作者定位页面、目录或插件适配问题。
+function handleExportRuntimeLog() {
+  try {
+    const blob = new Blob([buildRuntimeLogText()], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    link.href = url;
+    link.download = `cloudpiovt-plugin-log-${timestamp}.txt`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    setStatus("运行日志已导出，请将日志文件发给作者排查。", { level: "success" });
+  } catch (error) {
+    setStatus(`导出运行日志失败。\n${error?.message || String(error)}`, {
+      level: "error",
+      suggestion: "处理建议：点击复制日志，或手动复制执行状态内容发给作者。"
+    });
+  }
 }
 
 function normalizePlatformKey(platformKey) {
@@ -214,21 +377,22 @@ function setTargetPathExpanded(isExpanded) {
   targetPathPanelEl.hidden = !isTargetPathExpanded;
   targetPathToggleButton.setAttribute("aria-expanded", isTargetPathExpanded ? "true" : "false");
   const actionLabel = isTargetPathExpanded ? "收起" : "展开";
-  const titleSuffix = currentTargetPath ? `\n${currentTargetPath}` : "";
-  targetPathToggleButton.title = `点击${actionLabel}路径详情${titleSuffix}`;
+  targetPathToggleButton.title = `点击${actionLabel}历史目录`;
 }
 
-function renderTargetPathSummary(directoryPath) {
-  const normalizedPath = String(directoryPath || "").trim();
-  targetPathSummaryEl.textContent = getDirectoryName(normalizedPath) || "未保存";
+function renderTargetPathSummary(historyCount = 0) {
+  targetPathSummaryEl.textContent = historyCount ? "历史目录" : "暂无历史目录";
 }
 
 /**
- * 最近路径只是 Native 绝对路径的快捷入口，点击时仍会回到统一的保存流程更新页面快照。
+ * 历史目录只是 Native 绝对路径的快捷入口，点击时仍会回到统一的保存流程更新页面快照。
  */
 async function renderRecentTargetDirectories(activePath = "") {
   const recentTargetDirectories = await getRecentTargetDirectories();
   recentPathsListEl.replaceChildren();
+  targetPathSectionEl.hidden = !recentTargetDirectories.length;
+  recentPathsEl.classList.toggle("recent-paths-has-items", Boolean(recentTargetDirectories.length));
+  renderTargetPathSummary(recentTargetDirectories.length);
 
   if (!recentTargetDirectories.length) {
     recentPathsEmptyEl.hidden = false;
@@ -267,8 +431,8 @@ async function renderRecentTargetDirectories(activePath = "") {
     removeButton.type = "button";
     removeButton.className = "recent-path-remove";
     removeButton.dataset.removeRecentPath = entry.path;
-    removeButton.title = `移除最近路径：${getDirectoryName(entry.path) || entry.path}`;
-    removeButton.setAttribute("aria-label", `移除最近路径 ${getDirectoryName(entry.path) || entry.path}`);
+    removeButton.title = `移除历史目录：${getDirectoryName(entry.path) || entry.path}`;
+    removeButton.setAttribute("aria-label", `移除历史目录 ${getDirectoryName(entry.path) || entry.path}`);
     removeButton.textContent = "×";
 
     listItem.append(useButton, removeButton);
@@ -281,15 +445,6 @@ async function renderRecentTargetDirectories(activePath = "") {
 
 async function renderTargetPathSection(directoryPath) {
   currentTargetPath = String(directoryPath || "").trim();
-  renderTargetPathSummary(currentTargetPath);
-  targetPathFullEl.textContent = currentTargetPath || "未保存";
-  targetPathFullEl.title = currentTargetPath || "未保存";
-  setCopyableValue(targetPathCopyButton, {
-    fullValue: currentTargetPath,
-    shortLabel: "复制路径",
-    emptyLabel: "未保存",
-    copyLabel: "绝对路径"
-  });
   await renderRecentTargetDirectories(currentTargetPath);
   setTargetPathExpanded(isTargetPathExpanded);
 }
@@ -352,27 +507,26 @@ async function updateDirectoryInfo(pageType, targetScope = "") {
   try {
     const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
     const targetPath = selection.kind === "native-path" ? selection.directoryPath : "";
-    const pathHandleLabel = targetPath ? getDirectoryName(targetPath) : "未授权";
-    targetHandleEl.textContent = targetPath ? pathHandleLabel : (selection.handle?.name || "未授权");
+    const selectedLabel = targetPath
+      ? getDirectoryName(targetPath)
+      : (selection.handle?.name || "未选择目录");
+    targetHandleEl.textContent = selectedLabel;
+    targetHandleEl.title = targetPath || selectedLabel;
     await renderTargetPathSection(targetPath);
+    return true;
   } catch (error) {
     currentTargetPath = "";
     targetHandleEl.textContent = "读取失败";
-    renderTargetPathSummary("");
-    targetPathFullEl.textContent = "读取失败";
-    targetPathFullEl.title = "读取失败";
-    setCopyableValue(targetPathCopyButton, {
-      fullValue: "",
-      shortLabel: "复制路径",
-      emptyLabel: "读取失败",
-      copyLabel: "绝对路径"
-    });
+    targetHandleEl.title = "读取失败";
+    targetPathSectionEl.hidden = true;
+    renderTargetPathSummary(0);
     recentPathsEmptyEl.hidden = false;
     recentPathsListEl.hidden = true;
     recentPathsListEl.replaceChildren();
     setTargetPathExpanded(isTargetPathExpanded);
     setStatus(`读取目标目录失败。
 ${error?.message || String(error)}`);
+    return false;
   }
 }
 
@@ -397,7 +551,8 @@ async function ensureLaunchTargetPath(pageType, targetScope) {
     return existingPath;
   }
 
-  const response = await pickNativeDirectory("");
+  const initialPath = await getStoredDirectoryPath(pageType, targetScope);
+  const response = await pickNativeDirectory(initialPath);
   if (!response?.ok) {
     if (response?.cancelled) {
       const error = new Error("已取消选择目标目录。");
@@ -418,12 +573,13 @@ async function ensureLaunchTargetPath(pageType, targetScope) {
 }
 
 async function refreshDirectoryHandle(pageType, targetScope) {
-  const selection = await refreshTargetDirectorySelection(pageType, targetScope);
+  // 刷新按钮应优先从弹窗正在展示的当前路径打开系统目录选择框，避免用户被带到未知默认目录。
+  const selection = await refreshTargetDirectorySelection(pageType, targetScope, currentTargetPath);
   await updateDirectoryInfo(pageType, targetScope);
   return {
     handleLabel:
       selection.kind === "handle"
-        ? (selection.label || "未授权")
+        ? (selection.label || "未选择目录")
         : getDirectoryName(selection.directoryPath),
     directoryPath: selection.kind === "native-path" ? selection.directoryPath : ""
   };
@@ -431,22 +587,22 @@ async function refreshDirectoryHandle(pageType, targetScope) {
 
 async function handleRefreshDirectoryHandle() {
   setBusy(true);
-  setStatus("正在更新目标目录...");
+  setStatus("正在更新当前路径...");
 
   try {
     const { pageType, targetScope } = await updatePageInfo();
     const selection = await refreshDirectoryHandle(pageType, targetScope);
     setStatus([
-      "目标目录已更新。",
-      `目录句柄：${selection.handleLabel || "未授权"}`,
-      `绝对路径：${selection.directoryPath || "未保存"}`
+      "当前路径已更新。",
+      `当前路径：${selection.handleLabel || "未选择目录"}`,
+      `绝对路径：${selection.directoryPath || "未选择目录"}`
     ]);
   } catch (error) {
     if (error?.name === "AbortError") {
-      setStatus("已取消更新目标目录。");
+      setStatus("已取消更新当前路径。");
       return;
     }
-    setStatus(`更新目标目录失败。
+    setStatus(`更新当前路径失败。
 ${error?.message || String(error)}`);
   } finally {
     setBusy(false);
@@ -462,7 +618,7 @@ function handleToggleTargetPathPanel() {
 }
 
 /**
- * 点击最近路径时直接复用 Native 路径保存流程，避免分叉出另一套目录状态更新逻辑。
+ * 点击历史目录时直接复用 Native 路径保存流程，避免分叉出另一套目录状态更新逻辑。
  */
 async function handleUseRecentPath(directoryPath) {
   const normalizedPath = String(directoryPath || "").trim();
@@ -471,7 +627,7 @@ async function handleUseRecentPath(directoryPath) {
   }
 
   setBusy(true);
-  setStatus("正在切换最近路径...");
+  setStatus("正在切换历史目录...");
 
   try {
     const { pageType, targetScope } = await updatePageInfo();
@@ -481,7 +637,7 @@ async function handleUseRecentPath(directoryPath) {
     if (activePath === normalizedPath) {
       setStatus([
         "当前路径已在使用。",
-        `目标目录：${normalizedPath}`
+        `当前路径：${normalizedPath}`
       ]);
       return;
     }
@@ -489,11 +645,11 @@ async function handleUseRecentPath(directoryPath) {
     await saveNativeTargetDirectorySelection(pageType, normalizedPath, targetScope);
     await updateDirectoryInfo(pageType, targetScope);
     setStatus([
-      "已切换到最近路径。",
-      `目标目录：${normalizedPath}`
+      "已切换到历史目录。",
+      `当前路径：${normalizedPath}`
     ]);
   } catch (error) {
-    setStatus(`切换最近路径失败。\n${error?.message || String(error)}`);
+    setStatus(`切换历史目录失败。\n${error?.message || String(error)}`);
   } finally {
     setBusy(false);
   }
@@ -506,7 +662,7 @@ async function handleRemoveRecentPath(directoryPath) {
   }
 
   setBusy(true);
-  setStatus("正在移除最近路径...");
+  setStatus("正在移除历史目录...");
 
   try {
     // 删除历史记录只影响快捷入口，不能反向清空当前页面已经绑定的目录状态。
@@ -514,12 +670,12 @@ async function handleRemoveRecentPath(directoryPath) {
     const pageContext = currentPageContext || await updatePageInfo();
     await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);
     setStatus([
-      "已移除最近路径。",
-      "当前目标目录绑定保持不变。",
+      "已移除历史目录。",
+      "当前路径绑定保持不变。",
       normalizedPath
     ]);
   } catch (error) {
-    setStatus(`移除最近路径失败。\n${error?.message || String(error)}`);
+    setStatus(`移除历史目录失败。\n${error?.message || String(error)}`);
   } finally {
     setBusy(false);
   }
@@ -530,14 +686,14 @@ async function handleRecentPathsClick(event) {
   if (removeButton) {
     event.preventDefault();
     event.stopPropagation();
-    await handleRemoveRecentPath(removeButton.dataset.removeRecentPath);
+    await runWithButtonBusy(removeButton, () => handleRemoveRecentPath(removeButton.dataset.removeRecentPath));
     return;
   }
 
   const useButton = event.target.closest("[data-recent-path]");
   if (useButton) {
     event.preventDefault();
-    await handleUseRecentPath(useButton.dataset.recentPath);
+    await runWithButtonBusy(useButton, () => handleUseRecentPath(useButton.dataset.recentPath));
   }
 }
 
@@ -829,14 +985,20 @@ async function handleCaptureAndWrite() {
 
     if (!result?.ok) {
       setStatus(`抓取失败。
-${result?.details || result?.errorCode || "未知错误"}`);
+${result?.details || result?.errorCode || "未知错误"}`, {
+        level: "error",
+        suggestion: "处理建议：确认当前云枢页面已完全加载在线开发编辑器；若页面结构已变化，请导出日志联系作者适配插件。"
+      });
       return;
     }
 
     const exportPlan = buildCodeExportPlan(result.data, pageTypeConfig);
     if (!exportPlan.ok) {
       setStatus(`写入失败。
-${exportPlan.details || exportPlan.errorCode || "未知错误"}`);
+${exportPlan.details || exportPlan.errorCode || "未知错误"}`, {
+        level: "error",
+        suggestion: "处理建议：页面未返回可导出的 HTML/CSS/JS 内容，请确认编辑器已加载；若确认页面正常，请导出日志联系作者。"
+      });
       return;
     }
 
@@ -886,7 +1048,10 @@ async function handleImportAndWriteBack() {
     const importPlan = await readCodeFilesFromDirectory(directorySelection, pageTypeConfig);
     if (!importPlan.ok) {
       setStatus(`回写失败。
-${importPlan.details || importPlan.errorCode || "未知错误"}`);
+${importPlan.details || importPlan.errorCode || "未知错误"}`, {
+        level: "error",
+        suggestion: "处理建议：确认当前路径中存在该页面类型对应的本地代码文件，再重新回写。"
+      });
       return;
     }
 
@@ -906,7 +1071,10 @@ ${importPlan.details || importPlan.errorCode || "未知错误"}`);
 
     if (!result?.ok) {
       setStatus(`回写失败。
-${result?.details || result?.errorCode || "未知错误"}`);
+${result?.details || result?.errorCode || "未知错误"}`, {
+        level: "error",
+        suggestion: "处理建议：确认在线编辑器可编辑且页面未刷新；若页面正常但仍失败，请导出日志联系作者适配回写逻辑。"
+      });
       return;
     }
 
@@ -1162,7 +1330,10 @@ async function handleH3yunCodeWriteback(codeKind) {
     const logNote = writebackResult.debugLog ? `\n--- 调试日志 ---\n${writebackResult.debugLog}` : "";
     setStatus([`氚云${config.label}回写成功。${modelNote}`, `文件名：${fileName}`, `源码长度：${writebackResult.sourceLength} 字符${logNote}`]);
   } catch (error) {
-    setStatus(`氚云${config.label}回写失败。\n${error?.message || String(error)}`);
+    setStatus(`氚云${config.label}回写失败。\n${error?.message || String(error)}`, {
+      level: "error",
+      suggestion: "处理建议：确认氚云页面已切到对应前端/后端代码区域并完全加载；若仍失败，请导出日志发给作者排查 Monaco model 匹配。"
+    });
   } finally {
     setBusy(false);
   }
@@ -1186,6 +1357,24 @@ async function writeH3yunCodeEditor(tab, codeKind, sourceContent) {
   return result;
 }
 
+// 一键抓取不能覆盖用户维护的设计文档；同时兼容旧版小写 design.md，避免重复生成模板文件。
+async function hasH3yunDesignDocument(directorySelection) {
+  const hasDesignFile = await fileExistsInSelection(directorySelection, H3YUN_DESIGN_FILE_NAME);
+  if (hasDesignFile) {
+    return true;
+  }
+
+  return fileExistsInSelection(directorySelection, H3YUN_LEGACY_DESIGN_FILE_NAME);
+}
+
+// 统计子表字段编码缺失数量，便于氚云 DOM 结构变化时快速判断本次抓取是否仍需补适配。
+function countMissingH3yunChildCodes(metadata) {
+  return (Array.isArray(metadata?.controls) ? metadata.controls : []).reduce((total, control) => {
+    const children = Array.isArray(control?.children) ? control.children : [];
+    return total + children.filter((child) => !String(child?.code || "").trim()).length;
+  }, 0);
+}
+
 // 一键抓取写入：并行抓取控件信息、前端 JS、后端 C# 并写入。
 async function handleH3yunCaptureAllAndWrite() {
   setBusy(true);
@@ -1202,9 +1391,9 @@ async function handleH3yunCaptureAllAndWrite() {
     const skipped = [];
     if (metadata?.ok && metadata.controls?.length) {
       filesToWrite.push({ fileName: "FromCode.md", content: buildH3yunFromCodeContent(metadata) });
-      const designExists = await fileExistsInSelection(directorySelection, "design.md");
+      const designExists = await hasH3yunDesignDocument(directorySelection);
       if (!designExists) {
-        filesToWrite.push({ fileName: "design.md", content: buildDesignMdContent(metadata) });
+        filesToWrite.push({ fileName: H3YUN_DESIGN_FILE_NAME, content: buildDesignMdContent(metadata) });
       }
     } else { skipped.push("图形控件"); }
     if (frontendResult?.ok && frontendResult.sourceContent) {
@@ -1218,15 +1407,24 @@ async function handleH3yunCaptureAllAndWrite() {
     }
     await writeFilesToSelection(directorySelection, filesToWrite);
     await updateDirectoryInfo(pageType, targetScope);
-    setStatus(["氚云一键抓取写入完成。", `已写入：${filesToWrite.map((f) => f.fileName).join("、")}`, `未挂载：${skipped.join("、") || "无"}`]);
+    const missingChildCodeCount = countMissingH3yunChildCodes(metadata);
+    setStatus([
+      "氚云一键抓取写入完成。",
+      `已写入：${filesToWrite.map((f) => f.fileName).join("、")}`,
+      `未挂载：${skipped.join("、") || "无"}`,
+      missingChildCodeCount ? `子表控件编码缺失：${missingChildCodeCount} 个` : "子表控件编码缺失：无"
+    ]);
   } catch (error) {
-    setStatus(`氚云一键抓取写入失败。\n${error?.message || String(error)}`);
+    setStatus(`氚云一键抓取写入失败。\n${error?.message || String(error)}`, {
+      level: "error",
+      suggestion: "处理建议：确认图形设计区、前端 JS、后端 C# 至少有一个区域已加载；若页面已加载但抓不到内容，请导出日志和问题 DOM 发给作者。"
+    });
   } finally {
     setBusy(false);
   }
 }
 
-// 控件信息抓取写入时，同时生成 FromCode.md（控件结构）和 design.md（用户手写设计/任务，已存在时不覆盖）。
+// 控件信息抓取写入时，同时生成 FromCode.md（控件结构）和 DESIGN.md（用户手写设计/任务，已存在时不覆盖）。
 function buildDesignMdContent(metadata) {
   const appCode = String(metadata?.appCode || "");
   const formId = String(metadata?.formId || "");
@@ -1544,14 +1742,258 @@ function h3yunDesignerMetadataMain() {
     const hashQuery = url.hash.includes("?") ? url.hash.slice(url.hash.indexOf("?") + 1) : "";
     return Object.assign(Object.fromEntries(url.searchParams.entries()), Object.fromEntries(new URLSearchParams(hashQuery).entries()));
   }
-  // 氚云子表内控件的读取逻辑：子表容器有 data-sheet='true'，内部控件是 .sheet-control
-  function childrenOf(container) {
-    return Array.from(container.querySelectorAll("[data-sheet='true'] .sheet-control")).map((item) => ({
-      code: text(item.dataset.code),
-      controlKey: text(item.dataset.controlkey) || "SheetControl",
-      displayName: text(item.getAttribute("title") || item.querySelector(".title")?.textContent),
-      index: text(item.getAttribute("index"))
-    }));
+  function readAttribute(element, names) {
+    for (const name of names) {
+      const value = text(element.getAttribute(name) || element.getAttribute(`data-${name}`));
+      if (value) return value;
+    }
+    return "";
+  }
+  function readObjectValue(source, keyHints, excludeValue = "") {
+    if (!source || typeof source !== "object") return "";
+    for (const [key, rawValue] of Object.entries(source)) {
+      const normalizedKey = String(key || "").toLowerCase();
+      if (!keyHints.some((hint) => normalizedKey === hint || normalizedKey.includes(hint))) continue;
+      const value = text(typeof rawValue === "object" ? rawValue?.zh || rawValue?.name || rawValue?.value : rawValue);
+      if (value && value !== excludeValue) return value;
+    }
+    return "";
+  }
+  function readObjectValues(source, keyHints = []) {
+    if (!source || typeof source !== "object") return [];
+    const values = [];
+    for (const [key, rawValue] of Object.entries(source)) {
+      const normalizedKey = String(key || "").toLowerCase();
+      if (keyHints.length && !keyHints.some((hint) => normalizedKey === hint || normalizedKey.includes(hint))) continue;
+      if (["string", "number", "boolean"].includes(typeof rawValue)) {
+        values.push({ key: normalizedKey, value: text(rawValue) });
+      }
+    }
+    return values.filter((item) => item.value);
+  }
+  function vueSources(element) {
+    const sources = [];
+    for (let node = element; node && sources.length < 24; node = node.parentElement) {
+      if (node.__vue__) sources.push(node.__vue__, node.__vue__.$props, node.__vue__._data);
+      const component = node.__vueParentComponent;
+      if (component) sources.push(component.proxy, component.ctx, component.props, component.vnode?.props);
+    }
+    return sources.filter(Boolean);
+  }
+  function collectObjects(root) {
+    const objects = [];
+    const queue = [{ value: root, depth: 0 }];
+    const seen = new WeakSet();
+    while (queue.length && objects.length < 800) {
+      const { value, depth } = queue.shift();
+      if (!value || typeof value !== "object" || seen.has(value)) continue;
+      seen.add(value);
+      if (value instanceof Element || value instanceof Window) continue;
+      objects.push(value);
+      if (depth >= 5) continue;
+      for (const key of Object.keys(value).slice(0, 80)) {
+        try {
+          const child = value[key];
+          if (child && typeof child === "object") queue.push({ value: child, depth: depth + 1 });
+        } catch (_error) {}
+      }
+    }
+    return objects;
+  }
+  function vueControlMetadata(element, displayName, index) {
+    const labelHints = ["displayname", "label", "title", "fieldname", "controlname", "name"];
+    const codeHints = ["controlcode", "fieldcode", "propertycode", "schemacode", "datacode", "code"];
+    const typeHints = ["controlkey", "controltype", "widgettype", "componentname", "component", "type"];
+    const normalizedName = text(displayName);
+    const normalizedIndex = text(index);
+    for (const source of vueSources(element)) {
+      for (const object of collectObjects(source)) {
+        const objectName = readObjectValue(object, labelHints);
+        const objectIndex = readObjectValue(object, ["index", "sort", "order"]);
+        const nameMatched = objectName && (objectName === normalizedName || objectName.includes(normalizedName) || normalizedName.includes(objectName));
+        const indexMatched = normalizedIndex && objectIndex === normalizedIndex;
+        if (!nameMatched && !indexMatched) continue;
+        const code = readObjectValue(object, codeHints, normalizedName);
+        const controlKey = readObjectValue(object, typeHints, normalizedName);
+        if (code || controlKey) return { code, controlKey, displayName: objectName };
+      }
+    }
+    return {};
+  }
+  function inferSheetControlType(item) {
+    if (item.querySelector("textarea")) return "FormTextArea";
+    if (item.querySelector(".dropdown")) return "FormDropDown";
+    if (item.querySelector("input")) return "FormTextBox";
+    return "SheetControl";
+  }
+  function normalizeSheetFieldCode(value) {
+    const match = text(value).match(/\b(D[A-Za-z0-9]+)\.(F[A-Za-z0-9]+)\b/);
+    return match ? `${match[1]}.${match[2]}` : "";
+  }
+  function extractSheetFieldCodes(value) {
+    const source = text(value);
+    const codes = [];
+    const pattern = /\b(D[A-Za-z0-9]+)\.(F[A-Za-z0-9]+)\b/g;
+    let match = pattern.exec(source);
+    while (match) {
+      codes.push(`${match[1]}.${match[2]}`);
+      match = pattern.exec(source);
+    }
+    return codes;
+  }
+  function sheetCodeFromFieldCode(value) {
+    return normalizeSheetFieldCode(value).split(".")[0] || "";
+  }
+  function isFieldCode(value) {
+    return /^F[A-Za-z0-9]+$/.test(text(value));
+  }
+  function isSheetCode(value) {
+    return /^D[A-Za-z0-9]+$/.test(text(value));
+  }
+  function namesMatch(left, right) {
+    const leftName = text(left);
+    const rightName = text(right);
+    return Boolean(leftName && rightName && (leftName === rightName || leftName.includes(rightName) || rightName.includes(leftName)));
+  }
+  // 子表字段完整编码通常只出现在设计器全局状态中，格式为“子表编码.F字段编码”，不在具体 .sheet-control 节点上。
+  function buildSheetFieldCodeCatalog(root) {
+    const groups = new Map();
+    const groupOrder = [];
+    let sourceOrder = 0;
+
+    function ensureGroup(sheetCode, sourceName = "") {
+      const normalizedSheetCode = text(sheetCode);
+      if (!normalizedSheetCode) return null;
+      if (!groups.has(normalizedSheetCode)) {
+        groups.set(normalizedSheetCode, { sheetCode: normalizedSheetCode, entries: [], names: [], order: groupOrder.length });
+        groupOrder.push(normalizedSheetCode);
+      }
+      const group = groups.get(normalizedSheetCode);
+      if (sourceName && !group.names.some((name) => namesMatch(name, sourceName))) {
+        group.names.push(sourceName);
+      }
+      return group;
+    }
+
+    function register(fullCode, sourceName = "") {
+      const normalizedFullCode = normalizeSheetFieldCode(fullCode);
+      if (!normalizedFullCode) return;
+      const group = ensureGroup(sheetCodeFromFieldCode(normalizedFullCode), sourceName);
+      if (!group) return;
+      const existing = group.entries.find((entry) => entry.code === normalizedFullCode);
+      if (existing) {
+        if (sourceName && !existing.displayName) existing.displayName = sourceName;
+        return;
+      }
+      group.entries.push({ code: normalizedFullCode, displayName: sourceName, order: sourceOrder++ });
+    }
+
+    function uniqueVueSources(nodes) {
+      const sources = [];
+      const seen = new WeakSet();
+      for (const node of nodes) {
+        for (const source of vueSources(node)) {
+          if (!source || typeof source !== "object" || seen.has(source)) continue;
+          seen.add(source);
+          sources.push(source);
+        }
+      }
+      return sources;
+    }
+
+    const domElements = Array.from(root.querySelectorAll("*")).slice(0, 5000);
+    for (const element of [root, ...domElements]) {
+      const sourceName = text(element.getAttribute?.("title") || element.dataset?.displayname || "");
+      for (const attribute of Array.from(element.attributes || [])) {
+        for (const fullCode of extractSheetFieldCodes(attribute.value)) {
+          register(fullCode, sourceName);
+        }
+      }
+    }
+    for (const fullCode of extractSheetFieldCodes(root.innerHTML)) {
+      register(fullCode);
+    }
+
+    // 编码原始数据可能挂在任意子表/字段组件的 Vue 状态上，采集关键节点祖先链比只读根节点更稳。
+    const vueSourceNodes = [
+      root,
+      ...domElements.filter((element) => (
+        element.__vue__ ||
+        element.__vueParentComponent ||
+        element.matches?.("[data-code], .sheet-control, [data-sheet='true'], .grid-view-title")
+      ))
+    ].slice(0, 1200);
+
+    for (const source of uniqueVueSources(vueSourceNodes)) {
+      for (const object of collectObjects(source)) {
+        const sourceName = readObjectValue(object, ["displayname", "label", "title", "fieldname", "controlname", "name"]);
+        const primitiveValues = readObjectValues(object);
+        for (const item of primitiveValues) {
+          for (const fullCode of extractSheetFieldCodes(item.value)) {
+            register(fullCode, sourceName);
+          }
+        }
+
+        const sheetCodes = primitiveValues
+          .filter((item) => isSheetCode(item.value) && /(sheet|table|grid|parent|schema|data|code)/.test(item.key))
+          .map((item) => item.value);
+        const fieldCodes = primitiveValues
+          .filter((item) => isFieldCode(item.value) && /(field|control|property|schema|data|code)/.test(item.key))
+          .map((item) => item.value);
+        for (const sheetCode of sheetCodes) {
+          ensureGroup(sheetCode, sourceName);
+        }
+        if (sheetCodes.length === 1 && fieldCodes.length) {
+          for (const fieldCode of fieldCodes) {
+            register(`${sheetCodes[0]}.${fieldCode}`, sourceName);
+          }
+        }
+      }
+    }
+
+    return groupOrder.map((sheetCode) => {
+      const group = groups.get(sheetCode);
+      group.entries.sort((left, right) => left.order - right.order);
+      return group;
+    });
+  }
+  function resolveSheetFieldGroup(catalog, control) {
+    const children = Array.isArray(control.children) ? control.children : [];
+    const controlCode = text(control.code);
+    if (controlCode) {
+      const byControlCode = catalog.find((group) => group.sheetCode === controlCode);
+      if (byControlCode) return byControlCode;
+    }
+
+    const directSheetCode = children.map((child) => sheetCodeFromFieldCode(child.code)).find(Boolean);
+    if (directSheetCode) {
+      return catalog.find((group) => group.sheetCode === directSheetCode) || null;
+    }
+
+    const byName = catalog.find((group) => group.names.some((name) => namesMatch(name, control.displayName)));
+    if (byName) return byName;
+
+    const childCount = children.length;
+    const bySize = catalog.filter((group) => group.entries.length >= childCount);
+    return bySize.length === 1 ? bySize[0] : null;
+  }
+  // 氚云子表内控件在当前 DOM 中常缺少 data-code；最终按“子表编码.F字段编码”的全局顺序回填。
+  function childrenOf(container, sheetFieldGroup = null) {
+    return Array.from(container.querySelectorAll("[data-sheet='true'] .sheet-control")).map((item, position) => {
+      const displayName = text(readAttribute(item, ["title"]) || item.querySelector(".title")?.textContent);
+      const index = text(item.getAttribute("index"));
+      const vueMetadata = vueControlMetadata(item, displayName, index);
+      const rawCode = text(readAttribute(item, ["code", "control-code", "field-code"]) || vueMetadata.code);
+      const fieldIndex = Number(index);
+      const orderedIndex = Number.isInteger(fieldIndex) && fieldIndex >= 0 ? fieldIndex : position;
+      const orderedCode = sheetFieldGroup?.entries?.[orderedIndex]?.code || "";
+      return {
+        code: text(normalizeSheetFieldCode(rawCode) || orderedCode || rawCode),
+        controlKey: text(readAttribute(item, ["controlkey", "control-key", "control-type"]) || vueMetadata.controlKey || inferSheetControlType(item)),
+        displayName: text(displayName || vueMetadata.displayName),
+        index
+      };
+    });
   }
 
   try {
@@ -1574,12 +2016,20 @@ function h3yunDesignerMetadataMain() {
       return className.includes("control-container") ||
              className.includes("layout-control__item");
     });
-    const controls = controlElements.map((item) => ({
-      code: text(item.dataset.code),
-      controlKey: text(item.dataset.controlkey),
-      displayName: text(item.dataset.displayname || item.getAttribute("title")),
-      children: childrenOf(item)
-    }));
+    const sheetFieldCatalog = buildSheetFieldCodeCatalog(designerRoot);
+    const controls = controlElements.map((item) => {
+      const control = {
+        code: text(item.dataset.code),
+        controlKey: text(item.dataset.controlkey),
+        displayName: text(item.dataset.displayname || item.getAttribute("title")),
+        children: []
+      };
+      const rawChildren = childrenOf(item);
+      const sheetFieldGroup = resolveSheetFieldGroup(sheetFieldCatalog, { ...control, children: rawChildren });
+      control.sheetCode = sheetFieldGroup?.sheetCode || rawChildren.map((child) => sheetCodeFromFieldCode(child.code)).find(Boolean) || "";
+      control.children = childrenOf(item, sheetFieldGroup);
+      return control;
+    });
     return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls };
   } catch (error) {
     return { ok: false, errorCode: "H3YUN_DESIGNER_METADATA_FAILED", details: error?.message || String(error), controls: [] };
@@ -3099,30 +3549,33 @@ function bizRuleWritebackMain(input) {
   }
 }
 
-refreshHandleButton.addEventListener("click", handleRefreshDirectoryHandle);
-frontendCaptureWriteButton.addEventListener("click", handleCaptureAndWrite);
-frontendWritebackButton.addEventListener("click", handleImportAndWriteBack);
-bizruleCaptureWriteButton.addEventListener("click", handleBizruleCaptureAndWrite);
-bizruleWritebackButton.addEventListener("click", handleBizruleWriteback);
-openVscodeButton.addEventListener("click", () => handleOpenEditor("vscode"));
-openIdeaButton.addEventListener("click", () => handleOpenEditor("idea"));
+refreshHandleButton.addEventListener("click", () => runWithButtonBusy(refreshHandleButton, handleRefreshDirectoryHandle));
+frontendCaptureWriteButton.addEventListener("click", () => runWithButtonBusy(frontendCaptureWriteButton, handleCaptureAndWrite));
+frontendWritebackButton.addEventListener("click", () => runWithButtonBusy(frontendWritebackButton, handleImportAndWriteBack));
+bizruleCaptureWriteButton.addEventListener("click", () => runWithButtonBusy(bizruleCaptureWriteButton, handleBizruleCaptureAndWrite));
+bizruleWritebackButton.addEventListener("click", () => runWithButtonBusy(bizruleWritebackButton, handleBizruleWriteback));
+openVscodeButton.addEventListener("click", () => runWithButtonBusy(openVscodeButton, () => handleOpenEditor("vscode")));
+openIdeaButton.addEventListener("click", () => runWithButtonBusy(openIdeaButton, () => handleOpenEditor("idea")));
 openOptionsButton.addEventListener("click", () => chrome.runtime.openOptionsPage());
-h3yunCaptureAllButton.addEventListener("click", handleH3yunCaptureAllAndWrite);
-h3yunFrontendWritebackButton.addEventListener("click", () => handleH3yunCodeWriteback("frontend"));
-h3yunBackendWritebackButton.addEventListener("click", () => handleH3yunCodeWriteback("backend"));
+h3yunCaptureAllButton.addEventListener("click", () => runWithButtonBusy(h3yunCaptureAllButton, handleH3yunCaptureAllAndWrite));
+h3yunFrontendWritebackButton.addEventListener("click", () => runWithButtonBusy(h3yunFrontendWritebackButton, () => handleH3yunCodeWriteback("frontend")));
+h3yunBackendWritebackButton.addEventListener("click", () => runWithButtonBusy(h3yunBackendWritebackButton, () => handleH3yunCodeWriteback("backend")));
 for (const button of platformTabButtons) {
   button.addEventListener("click", handlePlatformTabClick);
 }
 pageOriginEl.addEventListener("click", handleCopyValue);
 targetPathToggleButton.addEventListener("click", handleToggleTargetPathPanel);
-targetPathCopyButton.addEventListener("click", handleCopyValue);
 recentPathsListEl.addEventListener("click", handleRecentPathsClick);
+copyLogButton.addEventListener("click", handleCopyRuntimeLog);
+exportLogButton.addEventListener("click", handleExportRuntimeLog);
 
 async function init() {
   const pageContext = await updatePageInfo();
   renderCurrentPageUrl(pageContext.tab);
-  await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);
-  setStatus("等待操作。");
+  const isDirectoryInfoReady = await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);
+  if (isDirectoryInfoReady) {
+    setStatus("等待操作。");
+  }
 }
 
 init().catch((error) => {
