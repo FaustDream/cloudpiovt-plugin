@@ -169,6 +169,16 @@ body {
   word-break: break-word;
 }
 
+#target-handle {
+  min-width: 0;
+  max-width: 184px;
+  overflow: hidden;
+  color: var(--primary);
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .meta-value-full {
   max-width: none;
   text-align: left;
@@ -243,31 +253,16 @@ body {
 
 .path-panel {
   display: grid;
-  gap: 10px;
+  gap: 8px;
   margin-top: 2px;
-  padding: 10px;
-  border: 1px solid rgba(217, 204, 182, 0.78);
-  border-radius: 12px;
-  background: rgba(255, 253, 248, 0.72);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
 }
 
 .path-section:not(.is-expanded) .path-panel {
   display: none;
-}
-
-.path-full-value {
-  margin: 0;
-  font-size: 12px;
-  line-height: 1.6;
-  color: var(--text);
-  word-break: break-word;
-}
-
-.path-panel-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
-  align-items: center;
 }
 
 .recent-paths {
@@ -275,10 +270,11 @@ body {
   gap: 8px;
 }
 
-.recent-paths-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+.recent-paths-has-items {
+  padding: 10px;
+  border: 1px solid rgba(217, 204, 182, 0.78);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.72);
 }
 
 .recent-paths-empty {
@@ -443,9 +439,62 @@ button:disabled {
 .launch-btn,
 .ghost-launch-btn,
 .editor-launch-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   padding: 12px 14px;
   font-size: 14px;
   font-weight: 700;
+}
+
+.primary-btn.is-running::before,
+.accent-btn.is-running::before,
+.secondary-btn.is-running::before,
+.launch-btn.is-running::before,
+.ghost-launch-btn.is-running::before,
+.editor-launch-btn.is-running::before,
+.icon-btn.is-running::before,
+.recent-path-btn.is-running::before,
+.recent-path-remove.is-running::before {
+  content: "";
+  width: 11px;
+  height: 11px;
+  flex: 0 0 11px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: button-spin 720ms linear infinite;
+}
+
+.icon-btn.is-running {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--primary);
+}
+
+.icon-btn.is-running {
+  font-size: 0;
+}
+
+.recent-path-btn.is-running,
+.recent-path-remove.is-running {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.recent-path-remove.is-running {
+  font-size: 0;
+}
+
+@keyframes button-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .action-block {
@@ -500,9 +549,6 @@ button:disabled {
 }
 
 .editor-launch-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
   min-width: 104px;
   padding: 10px 12px;
   border: 1px solid rgba(35, 32, 27, 0.1);
@@ -554,9 +600,18 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   margin-bottom: 10px;
   font-size: 13px;
   font-weight: 700;
+}
+
+.status-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .link-btn {
@@ -586,13 +641,15 @@ button:disabled {
 
 .status-output {
   margin: 0;
-  min-height: 84px;
+  min-height: 108px;
+  max-height: 260px;
   padding: 10px;
   background: #1d1f21;
   color: #f2f0ea;
   border-radius: 12px;
   font-size: 12px;
   line-height: 1.6;
+  overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
 }

@@ -3,10 +3,7 @@ html {
 }
 
 .page-layout {
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr);
-  gap: 24px;
-  align-items: start;
+  display: block;
 }
 
 .content-shell {
@@ -14,24 +11,23 @@ html {
 }
 
 .section-nav {
-  position: sticky;
-  top: 24px;
-  padding: 16px;
-  background: rgba(255, 250, 242, 0.92);
+  margin-bottom: 18px;
+  padding: 12px;
+  background: var(--panel-soft);
   border: 1px solid var(--border);
-  border-radius: 20px;
-  box-shadow: 0 16px 40px var(--shadow);
+  border-radius: 14px;
 }
 
 .section-nav-title {
-  margin: 0 0 12px;
+  margin: 0 0 10px;
   color: var(--muted);
   font-size: 13px;
   font-weight: 800;
 }
 
 .section-nav-list {
-  display: grid;
+  display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -40,11 +36,12 @@ html {
 
 .section-nav-link {
   display: block;
-  padding: 10px 12px;
-  border-radius: 12px;
+  padding: 8px 11px;
+  border-radius: 999px;
   color: var(--muted);
   text-decoration: none;
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 800;
   line-height: 1.5;
 }
 
@@ -56,23 +53,21 @@ html {
 
 .config-section,
 .status-output {
-  scroll-margin-top: 24px;
+  scroll-margin-top: 20px;
 }
 
 @media (max-width: 720px) {
-  .page-layout {
-    grid-template-columns: 1fr;
-  }
-
   .section-nav {
-    position: static;
     padding: 14px;
   }
 
   .section-nav-list {
-    grid-auto-flow: column;
-    grid-auto-columns: max-content;
+    flex-wrap: nowrap;
     overflow-x: auto;
     padding-bottom: 4px;
+  }
+
+  .section-nav-link {
+    white-space: nowrap;
   }
 }
