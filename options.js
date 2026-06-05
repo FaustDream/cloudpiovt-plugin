@@ -11,7 +11,7 @@ import {
 } from "./lib/control-metadata.js";
 import { pickNativeEditor, probeNativeHost } from "./lib/native-host.js";
 import { CURRENT_EXTENSION_VERSION, RELEASE_NOTES } from "./lib/release-notes.js";
-import { checkForUpdate } from "./lib/update-check.js";
+import { checkForUpdate, syncFromGit } from "./lib/update-check.js";
 
 const form = document.querySelector("#settings-form");
 const saveButton = document.querySelector("#save-btn");
@@ -19,10 +19,9 @@ const resetButton = document.querySelector("#reset-btn");
 const vscodePathField = document.querySelector("#vscode-executable-path");
 const ideaPathField = document.querySelector("#idea-executable-path");
 const autoCheckUpdatesField = document.querySelector("#auto-check-updates");
-const updateManifestUrlField = document.querySelector("#update-manifest-url");
 const checkUpdateButton = document.querySelector("#check-update-btn");
+const syncUpdateButton = document.querySelector("#sync-update-btn");
 const updateStatusOutput = document.querySelector("#update-status");
-const downloadUpdateLink = document.querySelector("#download-update-link");
 const pickVscodeButton = document.querySelector("#pick-vscode-btn");
 const pickIdeaButton = document.querySelector("#pick-idea-btn");
 const currentVersionEl = document.querySelector("#current-version");
@@ -77,8 +76,9 @@ function formatUpdateCheckTime(value) {
 }
 
 function renderUpdateResult(result) {
-  downloadUpdateLink.hidden = true;
-  downloadUpdateLink.removeAttribute("href");
+  if (syncUpdateButton) {
+    syncUpdateButton.hidden = true;
+  }
 
   if (!result) {
     setUpdateStatus("尚未检查更新。");
@@ -90,38 +90,36 @@ function renderUpdateResult(result) {
       [
         "检查更新失败。",
         `时间：${formatUpdateCheckTime(result.checkedAt)}`,
-        `地址：${result.manifestUrl}`,
         `原因：${result.error || "未知错误"}`
       ].join("\n")
     );
     return;
   }
 
-  if (result.updateAvailable && result.downloadUrl) {
-    downloadUpdateLink.href = result.downloadUrl;
-    downloadUpdateLink.hidden = false;
+  // 同步完成提示：扩展文件已更新，需要重新加载才能生效
+  if (result.synced) {
+    setUpdateStatus(
+      [
+        "已从 Git 远程同步到最新版本。",
+        `当前版本：${result.currentVersion || CURRENT_EXTENSION_VERSION}`,
+        `同步时间：${formatUpdateCheckTime(result.checkedAt)}`,
+        "请在 chrome://extensions 重新加载扩展以生效。"
+      ].join("\n")
+    );
+    return;
   }
 
   const lines = [
-    result.updateAvailable ? "发现新版本。" : "当前已是最新版本。",
+    result.updateAvailable ? "发现新版本，可点击按钮同步更新。" : "当前已是最新版本。",
     `当前版本：${result.currentVersion || CURRENT_EXTENSION_VERSION}`,
-    `仓库版本：${result.latestVersion || "未知"}`,
-    `检查时间：${formatUpdateCheckTime(result.checkedAt)}`,
-    `配置地址：${result.manifestUrl}`
+    `远程版本：${result.latestVersion || "未知"}`,
+    `检查时间：${formatUpdateCheckTime(result.checkedAt)}`
   ];
 
-  if (result.title) {
-    lines.push(`版本标题：${result.title}`);
+  if (result.updateAvailable && syncUpdateButton) {
+    syncUpdateButton.hidden = false;
   }
-  if (result.downloadUrl) {
-    lines.push(`下载地址：${result.downloadUrl}`);
-  }
-  if (result.notes?.length) {
-    lines.push("更新说明：");
-    for (const note of result.notes) {
-      lines.push(`- ${note}`);
-    }
-  }
+
   setUpdateStatus(lines.join("\n"));
 }
 
@@ -320,7 +318,6 @@ function renderConfig(config) {
   vscodePathField.value = config.vscodeExecutablePath;
   ideaPathField.value = config.ideaExecutablePath;
   autoCheckUpdatesField.checked = config.autoCheckUpdates === true;
-  updateManifestUrlField.value = config.updateManifestUrl || DEFAULT_CONFIG.updateManifestUrl;
   renderPathSummary(config);
   renderUpdateResult(config.lastUpdateCheckResult);
   setStatus(
@@ -361,8 +358,7 @@ async function handleSubmit(event) {
     const nextConfig = await saveConfig({
       vscodeExecutablePath: vscodePathField.value,
       ideaExecutablePath: ideaPathField.value,
-      autoCheckUpdates: autoCheckUpdatesField.checked,
-      updateManifestUrl: updateManifestUrlField.value
+      autoCheckUpdates: autoCheckUpdatesField.checked
     });
     renderConfig(nextConfig);
     setStatus("保存成功。");
@@ -380,7 +376,6 @@ async function handleReset() {
       vscodeExecutablePath: DEFAULT_CONFIG.vscodeExecutablePath,
       ideaExecutablePath: DEFAULT_CONFIG.ideaExecutablePath,
       autoCheckUpdates: DEFAULT_CONFIG.autoCheckUpdates,
-      updateManifestUrl: DEFAULT_CONFIG.updateManifestUrl,
       lastUpdateCheckResult: DEFAULT_CONFIG.lastUpdateCheckResult
     });
     renderConfig(nextConfig);
@@ -394,23 +389,29 @@ async function handleReset() {
 
 async function handleCheckUpdate() {
   checkUpdateButton.disabled = true;
-  setUpdateStatus("正在检查 Git 仓库更新...");
+  setUpdateStatus("正在检查 Git 远程更新...");
 
   try {
-    const nextConfig = await saveConfig({
-      autoCheckUpdates: autoCheckUpdatesField.checked,
-      updateManifestUrl: updateManifestUrlField.value
-    });
-    autoCheckUpdatesField.checked = nextConfig.autoCheckUpdates;
-    updateManifestUrlField.value = nextConfig.updateManifestUrl;
-
-    // 手动检查会立即读取 update.json，并把结果写入本地配置供下次打开设置页展示。
-    const result = await checkForUpdate({ manifestUrl: nextConfig.updateManifestUrl });
+    const result = await checkForUpdate();
     renderUpdateResult(result);
   } catch (error) {
     setUpdateStatus(`检查更新失败。\n${error?.message || String(error)}`);
   } finally {
     checkUpdateButton.disabled = false;
+  }
+}
+
+async function handleSyncUpdate() {
+  syncUpdateButton.disabled = true;
+  setUpdateStatus("正在从 Git 远程同步更新...");
+
+  try {
+    const result = await syncFromGit();
+    renderUpdateResult(result);
+  } catch (error) {
+    setUpdateStatus(`同步更新失败。\n${error?.message || String(error)}`);
+  } finally {
+    syncUpdateButton.disabled = false;
   }
 }
 
@@ -473,6 +474,7 @@ for (const button of platformTabButtons) {
 form.addEventListener("submit", (event) => runWithButtonBusy(saveButton, () => handleSubmit(event)));
 resetButton.addEventListener("click", () => runWithButtonBusy(resetButton, handleReset));
 checkUpdateButton.addEventListener("click", () => runWithButtonBusy(checkUpdateButton, handleCheckUpdate));
+syncUpdateButton.addEventListener("click", () => runWithButtonBusy(syncUpdateButton, handleSyncUpdate));
 
 init().catch((error) => {
   setStatus(`配置加载失败。\n${error?.message || String(error)}`);

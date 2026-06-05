@@ -70,7 +70,7 @@
             <section id="update-settings" class="config-section">
               <div class="section-copy">
                 <h2>更新设置</h2>
-                <p>从 Git 仓库读取 update.json；源码包下载后需要在扩展页重新加载。</p>
+                <p>通过 Native Host 执行 Git 命令检查并同步远程仓库；同步后需在扩展页重新加载。</p>
               </div>
 
               <label class="toggle-field">
@@ -82,14 +82,9 @@
                 </span>
               </label>
 
-              <label class="field">
-                <span class="field-label">更新配置地址</span>
-                <input id="update-manifest-url" type="url" inputmode="url">
-              </label>
-
               <div class="update-action-row">
                 <button id="check-update-btn" class="ghost-btn" type="button">检查更新</button>
-                <a id="download-update-link" class="download-link" href="#" target="_blank" rel="noopener" hidden>下载源码包</a>
+                <button id="sync-update-btn" class="ghost-btn" type="button" hidden>同步更新</button>
               </div>
               <pre id="update-status" class="status-output update-status-output">尚未检查更新。</pre>
             </section>
