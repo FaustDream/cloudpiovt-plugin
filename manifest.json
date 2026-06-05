@@ -16,7 +16,11 @@
     "scripting",
     "storage",
     "tabs",
-    "nativeMessaging"
+    "nativeMessaging",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://raw.githubusercontent.com/FaustDream/chrome-plugin/*"
   ],
   "background": {
     "service_worker": "background.js",
