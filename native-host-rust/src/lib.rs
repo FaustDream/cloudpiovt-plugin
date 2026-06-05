@@ -54,6 +54,8 @@ pub struct HostRequest {
     pub directory_path: String,
     #[serde(default)]
     pub files: Vec<HostFileEntry>,
+    #[serde(default)]
+    pub sync: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -77,6 +79,14 @@ pub struct HostResponse {
     pub directory_path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<HostFileEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latest_version: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub update_available: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub synced: Option<bool>,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -103,6 +113,10 @@ impl Default for HostResponse {
             display_name: None,
             directory_path: None,
             files: None,
+            current_version: None,
+            latest_version: None,
+            update_available: None,
+            synced: None,
         }
     }
 }
@@ -449,6 +463,148 @@ pub fn launch_native_editor(
     }
 }
 
+/// 三段式版本号比较：返回值 >0 表示 left 高于 right，<0 表示 left 低于 right，0 表示相等
+fn compare_versions(left: &str, right: &str) -> i32 {
+    let parse = |v: &str| -> Vec<u32> {
+        v.trim_start_matches('v')
+            .split('.')
+            .filter_map(|s| s.trim().parse::<u32>().ok())
+            .collect()
+    };
+    let left_parts = parse(left);
+    let right_parts = parse(right);
+    let max_len = left_parts.len().max(right_parts.len());
+    for i in 0..max_len {
+        let l = left_parts.get(i).copied().unwrap_or(0);
+        let r = right_parts.get(i).copied().unwrap_or(0);
+        if l > r { return 1; }
+        if l < r { return -1; }
+    }
+    0
+}
+
+/// 从 manifest.json 内容中提取 version 字段
+fn parse_manifest_version(content: &str) -> String {
+    let manifest: serde_json::Value = serde_json::from_str(content).unwrap_or_default();
+    manifest["version"].as_str().unwrap_or("0.0.0").to_string()
+}
+
+/// 检查扩展目录是否为 Git 仓库，并从远程同步版本更新
+/// Native Host 可执行文件位于 <ext_root>/.native-host/publish/cloudpiovt_native_host.exe
+/// 仓库根目录即往上 3 级
+pub fn git_sync(should_sync: bool) -> HostResponse {
+    // 定位扩展根目录：exe 所在路径往上 3 级即为 Git 仓库根目录
+    let exe_path = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => return HostResponse {
+            ok: Some(false),
+            error: Some(format!("无法获取程序路径：{}", e)),
+            ..Default::default()
+        }
+    };
+
+    let git_root = match exe_path.parent()       // publish/
+        .and_then(|p| p.parent())                // .native-host/
+        .and_then(|p| p.parent())                // <ext_root>/
+    {
+        Some(p) => p.to_path_buf(),
+        None => return HostResponse {
+            ok: Some(false),
+            error: Some("无法定位扩展根目录".to_string()),
+            ..Default::default()
+        }
+    };
+
+    // 检查是否为 Git 仓库
+    if !git_root.join(".git").exists() {
+        return HostResponse {
+            ok: Some(false),
+            error: Some("当前扩展目录不是 Git 仓库，无法通过 git 同步更新。".to_string()),
+            ..Default::default()
+        };
+    }
+
+    // 第一步：从远程获取最新信息
+    let fetch = std::process::Command::new("git")
+        .args(["-C", &git_root.to_string_lossy(), "fetch", "origin"])
+        .output();
+    if let Err(e) = fetch {
+        return HostResponse {
+            ok: Some(false),
+            error: Some(format!("Git fetch 失败：{}", e)),
+            ..Default::default()
+        };
+    }
+
+    // 第二步：读取本地 manifest.json 版本
+    let local_manifest_path = git_root.join("manifest.json");
+    let local_version = std::fs::read_to_string(&local_manifest_path)
+        .map(|c| parse_manifest_version(&c))
+        .unwrap_or_else(|_| "0.0.0".to_string());
+
+    // 第三步：读取远程 origin/master 的 manifest.json 版本
+    let remote_version = std::process::Command::new("git")
+        .args(["-C", &git_root.to_string_lossy(), "show", "origin/master:manifest.json"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+        .map(|c| parse_manifest_version(&c))
+        .unwrap_or_else(|| "0.0.0".to_string());
+
+    // 第四步：比较版本
+    let update_available = compare_versions(&remote_version, &local_version) > 0;
+
+    // 第五步：有更新且需要同步时，强制拉取
+    if update_available && should_sync {
+        let reset = std::process::Command::new("git")
+            .args(["-C", &git_root.to_string_lossy(), "reset", "--hard", "origin/master"])
+            .output();
+
+        match reset {
+            Ok(o) if o.status.success() => HostResponse {
+                ok: Some(true),
+                current_version: Some(local_version),
+                latest_version: Some(remote_version),
+                update_available: Some(true),
+                synced: Some(true),
+                ..Default::default()
+            },
+            Ok(o) => HostResponse {
+                ok: Some(false),
+                error: Some(format!(
+                    "Git reset 失败：{}",
+                    String::from_utf8_lossy(&o.stderr).trim()
+                )),
+                current_version: Some(local_version),
+                latest_version: Some(remote_version),
+                update_available: Some(true),
+                synced: Some(false),
+                ..Default::default()
+            },
+            Err(e) => HostResponse {
+                ok: Some(false),
+                error: Some(format!("Git reset 执行失败：{}", e)),
+                current_version: Some(local_version),
+                latest_version: Some(remote_version),
+                update_available: Some(true),
+                synced: Some(false),
+                ..Default::default()
+            },
+        }
+    } else {
+        // 只读检查或无更新
+        HostResponse {
+            ok: Some(true),
+            current_version: Some(local_version),
+            latest_version: Some(remote_version),
+            update_available: Some(update_available),
+            synced: Some(false),
+            ..Default::default()
+        }
+    }
+}
+
 // Public functions
 pub fn handle_request(request: HostRequest) -> HostResponse {
     match request.command.as_str() {
@@ -467,6 +623,7 @@ pub fn handle_request(request: HostRequest) -> HostResponse {
             &request.arguments_template,
             &request.target_path,
         ),
+        "git_sync" => git_sync(request.sync),
         _ => HostResponse {
             ok: Some(false),
             error: Some(format!("Unsupported command: {}", request.command)),
@@ -666,6 +823,10 @@ mod tests {
             display_name: None,
             directory_path: None,
             files: None,
+            current_version: None,
+            latest_version: None,
+            update_available: None,
+            synced: None,
         };
 
         let mut output = vec![];
