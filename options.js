@@ -11,12 +11,18 @@ import {
 } from "./lib/control-metadata.js";
 import { pickNativeEditor, probeNativeHost } from "./lib/native-host.js";
 import { CURRENT_EXTENSION_VERSION, RELEASE_NOTES } from "./lib/release-notes.js";
+import { checkForUpdate } from "./lib/update-check.js";
 
 const form = document.querySelector("#settings-form");
 const saveButton = document.querySelector("#save-btn");
 const resetButton = document.querySelector("#reset-btn");
 const vscodePathField = document.querySelector("#vscode-executable-path");
 const ideaPathField = document.querySelector("#idea-executable-path");
+const autoCheckUpdatesField = document.querySelector("#auto-check-updates");
+const updateManifestUrlField = document.querySelector("#update-manifest-url");
+const checkUpdateButton = document.querySelector("#check-update-btn");
+const updateStatusOutput = document.querySelector("#update-status");
+const downloadUpdateLink = document.querySelector("#download-update-link");
 const pickVscodeButton = document.querySelector("#pick-vscode-btn");
 const pickIdeaButton = document.querySelector("#pick-idea-btn");
 const currentVersionEl = document.querySelector("#current-version");
@@ -41,6 +47,10 @@ function setStatus(message) {
   statusOutput.textContent = message;
 }
 
+function setUpdateStatus(message) {
+  updateStatusOutput.textContent = message;
+}
+
 function setNativeHostStatus(message) {
   nativeHostStatus.textContent = message;
 }
@@ -53,6 +63,66 @@ function setVersionLabels() {
 function renderPathSummary(config) {
   const configuredCount = [config.vscodeExecutablePath, config.ideaExecutablePath].filter(Boolean).length;
   pathSummaryEl.textContent = configuredCount ? `已配置 ${configuredCount} 个` : "未配置";
+}
+
+function formatUpdateCheckTime(value) {
+  if (!value) {
+    return "未检查";
+  }
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function renderUpdateResult(result) {
+  downloadUpdateLink.hidden = true;
+  downloadUpdateLink.removeAttribute("href");
+
+  if (!result) {
+    setUpdateStatus("尚未检查更新。");
+    return;
+  }
+
+  if (!result.ok) {
+    setUpdateStatus(
+      [
+        "检查更新失败。",
+        `时间：${formatUpdateCheckTime(result.checkedAt)}`,
+        `地址：${result.manifestUrl}`,
+        `原因：${result.error || "未知错误"}`
+      ].join("\n")
+    );
+    return;
+  }
+
+  if (result.updateAvailable && result.downloadUrl) {
+    downloadUpdateLink.href = result.downloadUrl;
+    downloadUpdateLink.hidden = false;
+  }
+
+  const lines = [
+    result.updateAvailable ? "发现新版本。" : "当前已是最新版本。",
+    `当前版本：${result.currentVersion || CURRENT_EXTENSION_VERSION}`,
+    `仓库版本：${result.latestVersion || "未知"}`,
+    `检查时间：${formatUpdateCheckTime(result.checkedAt)}`,
+    `配置地址：${result.manifestUrl}`
+  ];
+
+  if (result.title) {
+    lines.push(`版本标题：${result.title}`);
+  }
+  if (result.downloadUrl) {
+    lines.push(`下载地址：${result.downloadUrl}`);
+  }
+  if (result.notes?.length) {
+    lines.push("更新说明：");
+    for (const note of result.notes) {
+      lines.push(`- ${note}`);
+    }
+  }
+  setUpdateStatus(lines.join("\n"));
 }
 
 // 设置页涉及保存配置和原生助手选择应用，按钮运行态用于提示用户当前动作仍在处理。
@@ -249,12 +319,16 @@ function renderH3yunControlTypeReference() {
 function renderConfig(config) {
   vscodePathField.value = config.vscodeExecutablePath;
   ideaPathField.value = config.ideaExecutablePath;
+  autoCheckUpdatesField.checked = config.autoCheckUpdates === true;
+  updateManifestUrlField.value = config.updateManifestUrl || DEFAULT_CONFIG.updateManifestUrl;
   renderPathSummary(config);
+  renderUpdateResult(config.lastUpdateCheckResult);
   setStatus(
     [
       "配置已加载",
       `VS Code 路径: ${config.vscodeExecutablePath || "未配置"}`,
-      `IDEA 路径: ${config.ideaExecutablePath || "未配置"}`
+      `IDEA 路径: ${config.ideaExecutablePath || "未配置"}`,
+      `自动检查更新: ${config.autoCheckUpdates ? "开启" : "关闭"}`
     ].join("\n")
   );
 }
@@ -286,7 +360,9 @@ async function handleSubmit(event) {
   try {
     const nextConfig = await saveConfig({
       vscodeExecutablePath: vscodePathField.value,
-      ideaExecutablePath: ideaPathField.value
+      ideaExecutablePath: ideaPathField.value,
+      autoCheckUpdates: autoCheckUpdatesField.checked,
+      updateManifestUrl: updateManifestUrlField.value
     });
     renderConfig(nextConfig);
     setStatus("保存成功。");
@@ -302,7 +378,10 @@ async function handleReset() {
   try {
     const nextConfig = await saveConfig({
       vscodeExecutablePath: DEFAULT_CONFIG.vscodeExecutablePath,
-      ideaExecutablePath: DEFAULT_CONFIG.ideaExecutablePath
+      ideaExecutablePath: DEFAULT_CONFIG.ideaExecutablePath,
+      autoCheckUpdates: DEFAULT_CONFIG.autoCheckUpdates,
+      updateManifestUrl: DEFAULT_CONFIG.updateManifestUrl,
+      lastUpdateCheckResult: DEFAULT_CONFIG.lastUpdateCheckResult
     });
     renderConfig(nextConfig);
     setStatus("已恢复默认配置。");
@@ -310,6 +389,28 @@ async function handleReset() {
     setStatus(`恢复默认失败。\n${error?.message || String(error)}`);
   } finally {
     resetButton.disabled = false;
+  }
+}
+
+async function handleCheckUpdate() {
+  checkUpdateButton.disabled = true;
+  setUpdateStatus("正在检查 Git 仓库更新...");
+
+  try {
+    const nextConfig = await saveConfig({
+      autoCheckUpdates: autoCheckUpdatesField.checked,
+      updateManifestUrl: updateManifestUrlField.value
+    });
+    autoCheckUpdatesField.checked = nextConfig.autoCheckUpdates;
+    updateManifestUrlField.value = nextConfig.updateManifestUrl;
+
+    // 手动检查会立即读取 update.json，并把结果写入本地配置供下次打开设置页展示。
+    const result = await checkForUpdate({ manifestUrl: nextConfig.updateManifestUrl });
+    renderUpdateResult(result);
+  } catch (error) {
+    setUpdateStatus(`检查更新失败。\n${error?.message || String(error)}`);
+  } finally {
+    checkUpdateButton.disabled = false;
   }
 }
 
@@ -371,6 +472,7 @@ for (const button of platformTabButtons) {
 
 form.addEventListener("submit", (event) => runWithButtonBusy(saveButton, () => handleSubmit(event)));
 resetButton.addEventListener("click", () => runWithButtonBusy(resetButton, handleReset));
+checkUpdateButton.addEventListener("click", () => runWithButtonBusy(checkUpdateButton, handleCheckUpdate));
 
 init().catch((error) => {
   setStatus(`配置加载失败。\n${error?.message || String(error)}`);

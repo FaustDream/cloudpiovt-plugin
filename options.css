@@ -190,6 +190,103 @@ input:focus {
   border-color: var(--primary);
 }
 
+.toggle-field {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.toggle-field input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+}
+
+.toggle-track {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  border-radius: 999px;
+  background: #cdd8d2;
+  transition: background 140ms ease;
+}
+
+.toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  left: 4px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 3px 8px rgba(28, 43, 37, 0.22);
+  transition: transform 140ms ease;
+}
+
+.toggle-field input:checked + .toggle-track {
+  background: var(--primary);
+}
+
+.toggle-field input:checked + .toggle-track::after {
+  transform: translateX(20px);
+}
+
+.toggle-field input:focus-visible + .toggle-track {
+  outline: 2px solid rgba(40, 88, 77, 0.28);
+  outline-offset: 3px;
+}
+
+.toggle-copy {
+  display: grid;
+  gap: 4px;
+}
+
+.toggle-copy strong {
+  font-size: 15px;
+}
+
+.toggle-copy small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.update-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 14px;
+}
+
+.download-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 10px 14px;
+  border: 1px solid rgba(40, 88, 77, 0.22);
+  border-radius: 12px;
+  background: rgba(40, 88, 77, 0.1);
+  color: var(--primary);
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.download-link[hidden] {
+  display: none;
+}
+
+.update-status-output {
+  max-height: 240px;
+}
+
 .platform-switch {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

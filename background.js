@@ -1,3 +1,4 @@
+import { loadConfig } from "./lib/config.js";
 import { resolvePageTypeConfig } from "./lib/config.js";
 import { clearTargetDirectoryHandlesByScopePrefix } from "./lib/file-handle-db.js";
 import {
@@ -6,6 +7,11 @@ import {
   createTargetDirectoryPageScope,
   ensureTargetDirectorySnapshot
 } from "./lib/target-directory-state.js";
+import {
+  checkForUpdate,
+  UPDATE_CHECK_ALARM_NAME,
+  UPDATE_CHECK_PERIOD_MINUTES
+} from "./lib/update-check.js";
 
 // tab.url 可能在新建页早期为空，统一从 url/pendingUrl 中取可用页面地址。
 function getTabPageUrl(tab) {
@@ -47,10 +53,51 @@ function snapshotExistingTabsSafely() {
   });
 }
 
+async function refreshUpdateAlarm() {
+  const config = await loadConfig();
+  if (!config.autoCheckUpdates) {
+    await chrome.alarms.clear(UPDATE_CHECK_ALARM_NAME);
+    return;
+  }
+
+  // 自动更新只负责检查和记录结果；源码包安装仍由用户手动下载/重新加载，避免后台静默改扩展文件。
+  await chrome.alarms.create(UPDATE_CHECK_ALARM_NAME, {
+    delayInMinutes: 1,
+    periodInMinutes: UPDATE_CHECK_PERIOD_MINUTES
+  });
+}
+
+function refreshUpdateAlarmSafely() {
+  refreshUpdateAlarm().catch((error) => {
+    console.warn("Refresh update alarm failed.", error);
+  });
+}
+
+function checkForUpdateSafely() {
+  checkForUpdate().catch((error) => {
+    console.warn("Check extension update failed.", error);
+  });
+}
+
 snapshotExistingTabsSafely();
+refreshUpdateAlarmSafely();
 
 chrome.runtime.onInstalled.addListener(snapshotExistingTabsSafely);
+chrome.runtime.onInstalled.addListener(refreshUpdateAlarmSafely);
 chrome.runtime.onStartup.addListener(snapshotExistingTabsSafely);
+chrome.runtime.onStartup.addListener(refreshUpdateAlarmSafely);
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === UPDATE_CHECK_ALARM_NAME) {
+    checkForUpdateSafely();
+  }
+});
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes.autoCheckUpdates) {
+    refreshUpdateAlarmSafely();
+  }
+});
 
 chrome.tabs.onCreated.addListener((tab) => {
   snapshotTabTargetDirectorySafely(tab.id, tab);

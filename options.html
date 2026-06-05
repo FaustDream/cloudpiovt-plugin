@@ -33,6 +33,7 @@
               <p class="section-nav-title">快速导航</p>
               <ul class="section-nav-list">
                 <li><a class="section-nav-link" data-nav-link href="#status-overview">状态总览</a></li>
+                <li><a class="section-nav-link" data-nav-link href="#update-settings">更新设置</a></li>
                 <li><a class="section-nav-link" data-nav-link href="#editor-paths">应用路径</a></li>
                 <li><a class="section-nav-link" data-nav-link href="#settings-runtime">运行日志</a></li>
                 <li><a class="section-nav-link" data-nav-link data-docs-target="reference" href="#docs-center">控件参考</a></li>
@@ -64,6 +65,33 @@
                   <p>未配置时可先手动粘贴路径保存。</p>
                 </article>
               </div>
+            </section>
+
+            <section id="update-settings" class="config-section">
+              <div class="section-copy">
+                <h2>更新设置</h2>
+                <p>从 Git 仓库读取 update.json；源码包下载后需要在扩展页重新加载。</p>
+              </div>
+
+              <label class="toggle-field">
+                <input id="auto-check-updates" type="checkbox">
+                <span class="toggle-track" aria-hidden="true"></span>
+                <span class="toggle-copy">
+                  <strong>自动检查更新</strong>
+                  <small>默认关闭；开启后浏览器启动时创建每日检查任务。</small>
+                </span>
+              </label>
+
+              <label class="field">
+                <span class="field-label">更新配置地址</span>
+                <input id="update-manifest-url" type="url" inputmode="url">
+              </label>
+
+              <div class="update-action-row">
+                <button id="check-update-btn" class="ghost-btn" type="button">检查更新</button>
+                <a id="download-update-link" class="download-link" href="#" target="_blank" rel="noopener" hidden>下载源码包</a>
+              </div>
+              <pre id="update-status" class="status-output update-status-output">尚未检查更新。</pre>
             </section>
 
             <section id="editor-paths" class="config-section">
