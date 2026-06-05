@@ -1,0 +1,9 @@
+{
+    "allowed_origins":  [
+                            "chrome-extension://paonfcdlmkhjmemkjfflfoblkgdiecap/"
+                        ],
+    "path":  "D:\\gitHub\\cloudpiovt-plugin\\.native-host\\publish\\cloudpiovt_native_host.exe",
+    "name":  "com.cloudpiovt.editor_helper",
+    "type":  "stdio",
+    "description":  "CloudPiOvt native editor bridge (Rust)"
+}
