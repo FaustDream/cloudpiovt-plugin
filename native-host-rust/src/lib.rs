@@ -1,4 +1,16 @@
+use base64::{engine::general_purpose, Engine as _};
+use image::{DynamicImage, ImageBuffer, Rgba};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
+use windows_sys::Win32::Graphics::Gdi::{
+    CreateCompatibleDC, DeleteDC, DeleteObject, GetDIBits, GetObjectW, SelectObject,
+    BITMAP, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ, RGBQUAD,
+};
+use windows_sys::Win32::UI::Shell::ExtractIconExW;
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    DestroyIcon, GetIconInfo, HICON, ICONINFO,
+};
 
 // Define error type
 #[derive(Debug)]
@@ -56,6 +68,12 @@ pub struct HostRequest {
     pub files: Vec<HostFileEntry>,
     #[serde(default)]
     pub sync: bool,
+    #[serde(default)]
+    pub icon_key: String,
+    #[serde(default)]
+    pub file_name: String,
+    #[serde(default)]
+    pub content: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -80,6 +98,12 @@ pub struct HostResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub files: Option<Vec<HostFileEntry>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub launchers: Option<Vec<HostLauncherEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_key: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon_paths: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub current_version: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub latest_version: Option<String>,
@@ -89,7 +113,7 @@ pub struct HostResponse {
     pub synced: Option<bool>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Default, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HostFileEntry {
     #[serde(default)]
@@ -98,6 +122,29 @@ pub struct HostFileEntry {
     pub content: String,
     #[serde(default)]
     pub exists: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub modified_at: Option<String>,
+}
+
+#[derive(Default, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostLauncherEntry {
+    #[serde(default)]
+    pub launcher_id: String,
+    #[serde(default)]
+    pub icon_key: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub display_name: String,
+    #[serde(default)]
+    pub executable_path: String,
+    #[serde(default)]
+    pub arguments_template: String,
+    #[serde(default)]
+    pub found: bool,
 }
 
 // Implement Default for HostResponse
@@ -113,6 +160,9 @@ impl Default for HostResponse {
             display_name: None,
             directory_path: None,
             files: None,
+            launchers: None,
+            icon_key: None,
+            icon_paths: None,
             current_version: None,
             latest_version: None,
             update_available: None,
@@ -129,7 +179,7 @@ pub fn pick_editor(existing_path: &str) -> HostResponse {
     let mut initial_path = None;
 
     if !existing_path.is_empty() {
-        if let Ok(canonical) = std::path::Path::new(existing_path).canonicalize() {
+        if let Ok(canonical) = Path::new(existing_path).canonicalize() {
             if canonical.exists() {
                 initial_path = Some(canonical);
             }
@@ -148,7 +198,7 @@ pub fn pick_editor(existing_path: &str) -> HostResponse {
                 cancelled: Some(false),
                 executable_path: Some(executable_path.clone()),
                 display_name: Some(
-                    std::path::Path::new(&executable_path)
+                    Path::new(&executable_path)
                         .file_stem()
                         .unwrap()
                         .to_string_lossy()
@@ -180,7 +230,7 @@ pub fn pick_directory(existing_path: &str) -> HostResponse {
     let mut initial_path = None;
 
     if !existing_path.is_empty() {
-        if let Ok(canonical) = std::path::Path::new(existing_path).canonicalize() {
+        if let Ok(canonical) = Path::new(existing_path).canonicalize() {
             if canonical.exists() {
                 initial_path = Some(canonical);
             }
@@ -244,7 +294,7 @@ pub fn write_directory_files(directory_path: &str, files: &[HostFileEntry]) -> H
         };
 
         // Create parent directory if not exists
-        if let Some(parent) = std::path::Path::new(&target_path).parent() {
+        if let Some(parent) = Path::new(&target_path).parent() {
             if !parent.exists() {
                 if let Err(e) = std::fs::create_dir_all(parent) {
                     return HostResponse {
@@ -256,7 +306,7 @@ pub fn write_directory_files(directory_path: &str, files: &[HostFileEntry]) -> H
             }
         }
 
-        let existed = std::path::Path::new(&target_path).exists();
+        let existed = Path::new(&target_path).exists();
 
         if let Err(e) = std::fs::write(&target_path, &file.content) {
             return HostResponse {
@@ -270,6 +320,8 @@ pub fn write_directory_files(directory_path: &str, files: &[HostFileEntry]) -> H
             file_name: file.file_name.clone(),
             content: "".to_string(),
             exists: existed,
+            size: None,
+            modified_at: None,
         });
     }
 
@@ -308,11 +360,13 @@ pub fn read_directory_files(directory_path: &str, files: &[HostFileEntry]) -> Ho
             }
         };
 
-        if !std::path::Path::new(&target_path).exists() {
+        if !Path::new(&target_path).exists() {
             results.push(HostFileEntry {
                 file_name: file.file_name.clone(),
                 content: "".to_string(),
                 exists: false,
+                size: None,
+                modified_at: None,
             });
             continue;
         }
@@ -332,7 +386,80 @@ pub fn read_directory_files(directory_path: &str, files: &[HostFileEntry]) -> Ho
             file_name: file.file_name.clone(),
             content,
             exists: true,
+            size: None,
+            modified_at: None,
         });
+    }
+
+    HostResponse {
+        ok: Some(true),
+        directory_path: Some(normalized_dir),
+        files: Some(results),
+        ..Default::default()
+    }
+}
+
+fn format_system_time_millis(value: SystemTime) -> Option<String> {
+    value
+        .duration_since(UNIX_EPOCH)
+        .ok()
+        .map(|duration| duration.as_millis().to_string())
+}
+
+// Helper: collect file metadata without reading file content for diagnostic packages.
+pub fn stat_directory_files(directory_path: &str, files: &[HostFileEntry]) -> HostResponse {
+    let normalized_dir = match normalize_directory_path(directory_path) {
+        Ok(path) => path,
+        Err(e) => {
+            return HostResponse {
+                ok: Some(false),
+                error: Some(e.to_string()),
+                ..Default::default()
+            }
+        }
+    };
+
+    let mut results = Vec::new();
+
+    for file in files {
+        let target_path = match resolve_file_path(&normalized_dir, &file.file_name) {
+            Ok(path) => path,
+            Err(e) => {
+                return HostResponse {
+                    ok: Some(false),
+                    error: Some(e.to_string()),
+                    ..Default::default()
+                }
+            }
+        };
+
+        match std::fs::metadata(&target_path) {
+            Ok(metadata) => {
+                results.push(HostFileEntry {
+                    file_name: file.file_name.clone(),
+                    content: "".to_string(),
+                    exists: true,
+                    size: Some(metadata.len()),
+                    modified_at: metadata.modified().ok().and_then(format_system_time_millis),
+                });
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                results.push(HostFileEntry {
+                    file_name: file.file_name.clone(),
+                    content: "".to_string(),
+                    exists: false,
+                    size: None,
+                    modified_at: None,
+                });
+            }
+            Err(error) => {
+                return HostResponse {
+                    ok: Some(false),
+                    error: Some(error.to_string()),
+                    ..Default::default()
+                }
+            }
+        }
     }
 
     HostResponse {
@@ -410,7 +537,7 @@ pub fn launch_native_editor(
     arguments_template: &str,
     target_path: &str,
 ) -> HostResponse {
-    if executable_path.is_empty() || !std::path::Path::new(executable_path).exists() {
+    if executable_path.is_empty() || !Path::new(executable_path).exists() {
         return HostResponse {
             ok: Some(false),
             error: Some("Executable path is missing or does not exist.".to_string()),
@@ -418,7 +545,7 @@ pub fn launch_native_editor(
         };
     }
 
-    if target_path.is_empty() || !std::path::Path::new(target_path).exists() {
+    if target_path.is_empty() || !Path::new(target_path).exists() {
         return HostResponse {
             ok: Some(false),
             error: Some("Target directory is missing or does not exist.".to_string()),
@@ -447,7 +574,7 @@ pub fn launch_native_editor(
             ok: Some(true),
             executable_path: Some(executable_path.to_string()),
             display_name: Some(
-                std::path::Path::new(executable_path)
+                Path::new(executable_path)
                     .file_stem()
                     .unwrap()
                     .to_string_lossy()
@@ -460,6 +587,456 @@ pub fn launch_native_editor(
             error: Some(e.to_string()),
             ..Default::default()
         },
+    }
+}
+
+fn display_name_from_path(executable_path: &str) -> String {
+    Path::new(executable_path)
+        .file_stem()
+        .map(|value| value.to_string_lossy().to_string())
+        .unwrap_or_else(|| "launcher".to_string())
+}
+
+fn is_safe_icon_key(icon_key: &str) -> bool {
+    let bytes = icon_key.as_bytes();
+    if bytes.is_empty() || bytes.len() > 64 {
+        return false;
+    }
+    bytes.iter().all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || *byte == b'-')
+        && bytes[0].is_ascii_alphanumeric()
+}
+
+fn extension_root_dir() -> Result<PathBuf, NativeHostError> {
+    let exe_path = std::env::current_exe()?;
+    let installed_root = exe_path
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .map(Path::to_path_buf);
+    if let Some(root) = installed_root {
+        if root.join("manifest.json").exists() || root.join("assets").exists() {
+            return Ok(root);
+        }
+    }
+
+    let cwd = std::env::current_dir()?;
+    if cwd.join("manifest.json").exists() || cwd.join("assets").exists() {
+        return Ok(cwd);
+    }
+
+    Ok(exe_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from(".")))
+}
+
+fn launcher_icon_dir() -> Result<PathBuf, NativeHostError> {
+    Ok(extension_root_dir()?.join("assets").join("icons").join("launchers"))
+}
+
+fn launcher_icon_paths(icon_key: &str) -> Result<Vec<PathBuf>, NativeHostError> {
+    if !is_safe_icon_key(icon_key) {
+        return Err(NativeHostError::InvalidMessage(
+            "Icon key must contain lowercase letters, digits or hyphen only".to_string(),
+        ));
+    }
+
+    let dir = launcher_icon_dir()?;
+    Ok([16, 48, 128]
+        .iter()
+        .map(|size| dir.join(format!("{}-{}.png", icon_key, size)))
+        .collect())
+}
+
+fn save_dynamic_launcher_icon(
+    icon_key: &str,
+    image: &DynamicImage,
+) -> Result<Vec<PathBuf>, NativeHostError> {
+    let paths = launcher_icon_paths(icon_key)?;
+    if let Some(parent) = paths.first().and_then(|path| path.parent()) {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    for (path, size) in paths.iter().zip([16, 48, 128]) {
+        let resized = image.resize_exact(size, size, image::imageops::FilterType::Lanczos3);
+        resized
+            .save_with_format(path, image::ImageFormat::Png)
+            .map_err(|error| NativeHostError::InvalidMessage(error.to_string()))?;
+    }
+
+    Ok(paths)
+}
+
+fn path_to_wide_null(path: &str) -> Vec<u16> {
+    path.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+fn bitmap_size(bitmap: HBITMAP) -> Option<(i32, i32)> {
+    let mut bitmap_info: BITMAP = unsafe { std::mem::zeroed() };
+    let written = unsafe {
+        GetObjectW(
+            bitmap as _,
+            std::mem::size_of::<BITMAP>() as i32,
+            &mut bitmap_info as *mut _ as *mut _,
+        )
+    };
+    if written == 0 || bitmap_info.bmWidth <= 0 || bitmap_info.bmHeight <= 0 {
+        return None;
+    }
+    Some((bitmap_info.bmWidth, bitmap_info.bmHeight))
+}
+
+fn read_hicon_bitmap_rgba(icon: HICON, width: i32, height: i32) -> Result<Vec<u8>, NativeHostError> {
+    let screen_dc: HDC = unsafe { CreateCompatibleDC(std::ptr::null_mut()) };
+    if screen_dc.is_null() {
+        return Err(NativeHostError::InvalidMessage(
+            "Failed to create icon device context".to_string(),
+        ));
+    }
+
+    let mut icon_info: ICONINFO = unsafe { std::mem::zeroed() };
+    let ok = unsafe { GetIconInfo(icon, &mut icon_info) };
+    if ok == 0 {
+        unsafe {
+            DeleteDC(screen_dc);
+        }
+        return Err(NativeHostError::InvalidMessage(
+            "Failed to read icon bitmap info".to_string(),
+        ));
+    }
+
+    let mut bitmap_info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: width,
+            biHeight: -height,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: 0,
+            biSizeImage: 0,
+            biXPelsPerMeter: 0,
+            biYPelsPerMeter: 0,
+            biClrUsed: 0,
+            biClrImportant: 0,
+        },
+        bmiColors: [RGBQUAD {
+            rgbBlue: 0,
+            rgbGreen: 0,
+            rgbRed: 0,
+            rgbReserved: 0,
+        }],
+    };
+    let mut pixels = vec![0u8; (width * height * 4) as usize];
+    let selected = unsafe { SelectObject(screen_dc, icon_info.hbmColor as HGDIOBJ) };
+    let copied = unsafe {
+        GetDIBits(
+            screen_dc,
+            icon_info.hbmColor,
+            0,
+            height as u32,
+            pixels.as_mut_ptr() as *mut _,
+            &mut bitmap_info,
+            DIB_RGB_COLORS,
+        )
+    };
+
+    // GDI 对象必须在所有返回路径释放，否则设置页频繁提取图标会泄漏句柄。
+    unsafe {
+        if !selected.is_null() {
+            SelectObject(screen_dc, selected);
+        }
+        DeleteObject(icon_info.hbmColor as HGDIOBJ);
+        DeleteObject(icon_info.hbmMask as HGDIOBJ);
+        DeleteDC(screen_dc);
+    }
+
+    if copied == 0 {
+        return Err(NativeHostError::InvalidMessage(
+            "Failed to copy icon bitmap pixels".to_string(),
+        ));
+    }
+
+    for pixel in pixels.chunks_exact_mut(4) {
+        pixel.swap(0, 2);
+    }
+
+    Ok(pixels)
+}
+
+fn hicon_to_image(icon: HICON) -> Result<DynamicImage, NativeHostError> {
+    let mut icon_info: ICONINFO = unsafe { std::mem::zeroed() };
+    let ok = unsafe { GetIconInfo(icon, &mut icon_info) };
+    if ok == 0 {
+        return Err(NativeHostError::InvalidMessage(
+            "Failed to get icon info".to_string(),
+        ));
+    }
+    let (width, height) = bitmap_size(icon_info.hbmColor).ok_or_else(|| {
+        NativeHostError::InvalidMessage("Failed to detect icon size".to_string())
+    })?;
+    unsafe {
+        DeleteObject(icon_info.hbmColor as HGDIOBJ);
+        DeleteObject(icon_info.hbmMask as HGDIOBJ);
+    }
+
+    let pixels = read_hicon_bitmap_rgba(icon, width, height)?;
+    let image = ImageBuffer::<Rgba<u8>, Vec<u8>>::from_raw(width as u32, height as u32, pixels)
+        .ok_or_else(|| NativeHostError::InvalidMessage("Invalid icon pixels".to_string()))?;
+    Ok(DynamicImage::ImageRgba8(image))
+}
+
+fn find_first_existing_path(candidates: &[PathBuf]) -> String {
+    candidates
+        .iter()
+        .find(|path| path.exists())
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default()
+}
+
+fn program_files_roots() -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    if let Ok(path) = std::env::var("ProgramFiles") {
+        roots.push(PathBuf::from(path));
+    }
+    if let Ok(path) = std::env::var("ProgramFiles(x86)") {
+        roots.push(PathBuf::from(path));
+    }
+    if let Ok(path) = std::env::var("LOCALAPPDATA") {
+        roots.push(PathBuf::from(path));
+    }
+    roots
+}
+
+fn launcher_entry(
+    launcher_id: &str,
+    icon_key: &str,
+    name: &str,
+    arguments_template: &str,
+    executable_path: String,
+) -> HostLauncherEntry {
+    HostLauncherEntry {
+        launcher_id: launcher_id.to_string(),
+        icon_key: icon_key.to_string(),
+        name: name.to_string(),
+        display_name: if executable_path.is_empty() {
+            name.to_string()
+        } else {
+            display_name_from_path(&executable_path)
+        },
+        executable_path: executable_path.clone(),
+        arguments_template: arguments_template.to_string(),
+        found: !executable_path.is_empty(),
+    }
+}
+
+/// 只发现内置 4 个启动器，避免 Native Host 猜测用户自定义软件导致错误启用。
+pub fn discover_launchers() -> HostResponse {
+    let roots = program_files_roots();
+    let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
+    let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
+    let file_explorer = find_first_existing_path(&[
+        PathBuf::from("C:\\Windows\\explorer.exe"),
+        PathBuf::from("C:\\Windows\\System32\\explorer.exe"),
+    ]);
+
+    let vscode = find_first_existing_path(&[
+        PathBuf::from(&local_app_data).join("Programs").join("Microsoft VS Code").join("Code.exe"),
+        PathBuf::from("C:\\Program Files\\Microsoft VS Code\\Code.exe"),
+        PathBuf::from("C:\\Program Files (x86)\\Microsoft VS Code\\Code.exe"),
+    ]);
+
+    let idea_candidates = roots
+        .iter()
+        .flat_map(|root| {
+            [
+                root.join("JetBrains").join("IntelliJ IDEA").join("bin").join("idea64.exe"),
+                root.join("JetBrains").join("IntelliJ IDEA Community Edition").join("bin").join("idea64.exe"),
+                root.join("JetBrains").join("IntelliJ IDEA Ultimate").join("bin").join("idea64.exe"),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let idea = find_first_existing_path(&idea_candidates);
+
+    let git_bash = find_first_existing_path(&[
+        PathBuf::from("C:\\Program Files\\Git\\git-bash.exe"),
+        PathBuf::from("C:\\Program Files (x86)\\Git\\git-bash.exe"),
+        PathBuf::from(user_profile).join("scoop").join("apps").join("git").join("current").join("git-bash.exe"),
+    ]);
+
+    HostResponse {
+        ok: Some(true),
+        launchers: Some(vec![
+            launcher_entry("builtin-vscode", "vscode", "VS Code", "\"{rawPath}\"", vscode),
+            launcher_entry("builtin-idea", "intellij-idea", "IntelliJ IDEA", "\"{rawPath}\"", idea),
+            launcher_entry("builtin-file-explorer", "file-explorer", "File Explorer", "\"{rawPath}\"", file_explorer),
+            launcher_entry("builtin-git-bash", "git-bash", "Git Bash", "--cd=\"{rawPath}\"", git_bash),
+        ]),
+        ..Default::default()
+    }
+}
+
+/// 第一版保留 exe 图标提取命令协议；真实提取失败时由设置页强制用户上传 png/webp。
+pub fn extract_executable_icon(executable_path: &str, icon_key: &str) -> HostResponse {
+    if executable_path.is_empty() || !Path::new(executable_path).exists() {
+        return HostResponse {
+            ok: Some(false),
+            error: Some("Executable path is missing or does not exist.".to_string()),
+            ..Default::default()
+        };
+    }
+    if !is_safe_icon_key(icon_key) {
+        return HostResponse {
+            ok: Some(false),
+            error: Some("Icon key is invalid.".to_string()),
+            ..Default::default()
+        };
+    }
+
+    let wide_path = path_to_wide_null(executable_path);
+    let mut large_icon: HICON = std::ptr::null_mut();
+    let mut small_icon: HICON = std::ptr::null_mut();
+    let extracted_count = unsafe {
+        ExtractIconExW(
+            wide_path.as_ptr(),
+            0,
+            &mut large_icon,
+            &mut small_icon,
+            1,
+        )
+    };
+    let selected_icon = if !large_icon.is_null() {
+        large_icon
+    } else {
+        small_icon
+    };
+    if extracted_count == 0 || selected_icon.is_null() {
+        return HostResponse {
+            ok: Some(false),
+            icon_key: Some(icon_key.to_string()),
+            error: Some("Executable icon extraction failed; upload a png/webp icon.".to_string()),
+            ..Default::default()
+        };
+    }
+
+    let result = hicon_to_image(selected_icon).and_then(|image| save_dynamic_launcher_icon(icon_key, &image));
+    unsafe {
+        if !large_icon.is_null() {
+            DestroyIcon(large_icon);
+        }
+        if !small_icon.is_null() {
+            DestroyIcon(small_icon);
+        }
+    }
+
+    match result {
+        Ok(paths) => HostResponse {
+            ok: Some(true),
+            icon_key: Some(icon_key.to_string()),
+            icon_paths: Some(paths.iter().map(|path| path.to_string_lossy().to_string()).collect()),
+            ..Default::default()
+        },
+        Err(error) => HostResponse {
+            ok: Some(false),
+            icon_key: Some(icon_key.to_string()),
+            error: Some(error.to_string()),
+            ..Default::default()
+        },
+    }
+}
+
+fn decode_data_url_or_base64(content: &str) -> Result<Vec<u8>, NativeHostError> {
+    let trimmed = content.trim();
+    let payload = trimmed
+        .split_once(',')
+        .map(|(_, data)| data)
+        .unwrap_or(trimmed);
+    general_purpose::STANDARD
+        .decode(payload)
+        .map_err(|error| NativeHostError::InvalidMessage(format!("Invalid icon base64: {}", error)))
+}
+
+/// 保存用户上传图标并生成 16/48/128 三尺寸 PNG；上传内容不接受 SVG。
+pub fn save_launcher_icon(icon_key: &str, file_name: &str, content: &str) -> HostResponse {
+    let lower_name = file_name.to_ascii_lowercase();
+    if !lower_name.ends_with(".png") && !lower_name.ends_with(".webp") {
+        return HostResponse {
+            ok: Some(false),
+            error: Some("Only png/webp launcher icons are supported.".to_string()),
+            ..Default::default()
+        };
+    }
+
+    let image_bytes = match decode_data_url_or_base64(content) {
+        Ok(value) => value,
+        Err(error) => {
+            return HostResponse {
+                ok: Some(false),
+                error: Some(error.to_string()),
+                ..Default::default()
+            }
+        }
+    };
+
+    let image = match image::load_from_memory(&image_bytes) {
+        Ok(value) => value,
+        Err(error) => {
+            return HostResponse {
+                ok: Some(false),
+                error: Some(format!("Failed to decode icon image: {}", error)),
+                ..Default::default()
+            }
+        }
+    };
+
+    let paths = match save_dynamic_launcher_icon(icon_key, &image) {
+        Ok(value) => value,
+        Err(error) => {
+            return HostResponse {
+                ok: Some(false),
+                error: Some(error.to_string()),
+                ..Default::default()
+            }
+        }
+    };
+
+    HostResponse {
+        ok: Some(true),
+        icon_key: Some(icon_key.to_string()),
+        icon_paths: Some(paths.iter().map(|path| path.to_string_lossy().to_string()).collect()),
+        ..Default::default()
+    }
+}
+
+/// 删除自定义启动器图标，仅删除三尺寸 PNG，不触碰内置图标和其他资源。
+pub fn delete_launcher_icon(icon_key: &str) -> HostResponse {
+    let paths = match launcher_icon_paths(icon_key) {
+        Ok(value) => value,
+        Err(error) => {
+            return HostResponse {
+                ok: Some(false),
+                error: Some(error.to_string()),
+                ..Default::default()
+            }
+        }
+    };
+
+    for path in &paths {
+        if path.exists() {
+            if let Err(error) = std::fs::remove_file(path) {
+                return HostResponse {
+                    ok: Some(false),
+                    error: Some(error.to_string()),
+                    ..Default::default()
+                };
+            }
+        }
+    }
+
+    HostResponse {
+        ok: Some(true),
+        icon_key: Some(icon_key.to_string()),
+        icon_paths: Some(paths.iter().map(|path| path.to_string_lossy().to_string()).collect()),
+        ..Default::default()
     }
 }
 
@@ -616,6 +1193,7 @@ pub fn handle_request(request: HostRequest) -> HostResponse {
         },
         "write_directory_files" => write_directory_files(&request.directory_path, &request.files),
         "read_directory_files" => read_directory_files(&request.directory_path, &request.files),
+        "stat_directory_files" => stat_directory_files(&request.directory_path, &request.files),
         "pick_editor" => pick_editor(&request.existing_path),
         "pick_directory" => pick_directory(&request.existing_path),
         "launch_native_editor" => launch_native_editor(
@@ -623,6 +1201,14 @@ pub fn handle_request(request: HostRequest) -> HostResponse {
             &request.arguments_template,
             &request.target_path,
         ),
+        "discover_launchers" => discover_launchers(),
+        "extract_executable_icon" => {
+            extract_executable_icon(&request.executable_path, &request.icon_key)
+        }
+        "save_launcher_icon" => {
+            save_launcher_icon(&request.icon_key, &request.file_name, &request.content)
+        }
+        "delete_launcher_icon" => delete_launcher_icon(&request.icon_key),
         "git_sync" => git_sync(request.sync),
         _ => HostResponse {
             ok: Some(false),
@@ -646,7 +1232,7 @@ pub fn normalize_directory_path(directory_path: &str) -> Result<String, NativeHo
         ));
     }
 
-    let canonical = std::path::Path::new(directory_path).canonicalize()?;
+    let canonical = Path::new(directory_path).canonicalize()?;
 
     Ok(canonical.to_string_lossy().to_string())
 }
@@ -666,11 +1252,11 @@ pub fn resolve_file_path(directory_path: &str, file_name: &str) -> Result<String
     }
 
     let dir_path = normalize_directory_path(directory_path)?;
-    let mut full_path = std::path::PathBuf::from(&dir_path);
+    let mut full_path = PathBuf::from(&dir_path);
     full_path.push(file_name);
 
     // Get canonical directory path for comparison
-    let dir_canonical = std::path::Path::new(&dir_path).canonicalize()?;
+    let dir_canonical = Path::new(&dir_path).canonicalize()?;
 
     // Get canonical file path
     let file_canonical = if full_path.exists() {
@@ -823,6 +1409,9 @@ mod tests {
             display_name: None,
             directory_path: None,
             files: None,
+            launchers: None,
+            icon_key: None,
+            icon_paths: None,
             current_version: None,
             latest_version: None,
             update_available: None,

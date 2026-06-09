@@ -15,6 +15,7 @@ import {
   fileExistsInSelection,
   readFilesFromSelection,
   refreshTargetDirectorySelection,
+  supportsDirectoryPicker,
   writeFilesToSelection
 } from "./lib/target-directory-access.js";
 import {
@@ -29,12 +30,37 @@ import {
   getRecentTargetDirectories,
   removeRecentTargetDirectory
 } from "./lib/recent-target-directories.js";
-import { launchNativeEditor, pickNativeDirectory } from "./lib/native-host.js";
+import {
+  launchNativeEditor,
+  pickNativeDirectory,
+  probeNativeHost,
+  statNativeDirectoryFiles
+} from "./lib/native-host.js";
 import {
   buildH3yunFromCodeContent,
   resolveH3yunBackendFileName,
   resolveH3yunFrontendFileName
 } from "./lib/h3yun-code.js";
+import {
+  buildMissingWorkspaceDocumentFiles,
+  LEGACY_WORKSPACE_DOCUMENT_FILE_NAMES,
+  WORKSPACE_DOCUMENT_FILE_NAMES
+} from "./lib/workspace-documents.js";
+import {
+  PREFLIGHT_OPERATION_IDS,
+  PREFLIGHT_SEVERITY,
+  buildDiagnosticPackage,
+  createWritebackRiskResult,
+  createPreflightResult,
+  formatPreflightStatusLines,
+  hasBlockingPreflightResult,
+  saveLastDiagnosticPackage
+} from "./lib/preflight-diagnostics.js";
+import {
+  getAvailableLaunchers,
+  getLauncherIconPath,
+  selectDefaultLauncher
+} from "./lib/custom-launchers.js";
 
 const pageOriginEl = document.querySelector("#page-origin");
 const targetHandleEl = document.querySelector("#target-handle");
@@ -49,12 +75,15 @@ const refreshHandleButton = document.querySelector("#refresh-handle-btn");
 const statusOutput = document.querySelector("#status-output");
 const copyLogButton = document.querySelector("#copy-log-btn");
 const exportLogButton = document.querySelector("#export-log-btn");
+const exportDiagnosticButton = document.querySelector("#export-diagnostic-btn");
 const frontendCaptureWriteButton = document.querySelector("#frontend-capture-write-btn");
 const frontendWritebackButton = document.querySelector("#frontend-writeback-btn");
 const bizruleCaptureWriteButton = document.querySelector("#bizrule-capture-write-btn");
 const bizruleWritebackButton = document.querySelector("#bizrule-writeback-btn");
-const openVscodeButton = document.querySelector("#open-vscode-btn");
-const openIdeaButton = document.querySelector("#open-idea-btn");
+const launcherMainButton = document.querySelector("#launcher-main-btn");
+const launcherMainIcon = document.querySelector("#launcher-main-icon");
+const launcherMenuButton = document.querySelector("#launcher-menu-btn");
+const launcherMenu = document.querySelector("#launcher-menu");
 const openOptionsButton = document.querySelector("#open-options-btn");
 const platformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab]"));
 const platformPanels = Array.from(document.querySelectorAll("[data-platform-panel]"));
@@ -71,8 +100,12 @@ let isPopupBusy = false;
 const runtimeLogs = [];
 // 弹窗生命周期很短，限制最近 80 条可以保留完整排查上下文，同时避免日志撑爆弹窗内存。
 const RUNTIME_LOG_LIMIT = 80;
+let lastDiagnosticPackage = null;
 // 当前弹窗选中的平台标签，只影响 UI 展示，不直接决定页面实际适配类型。
 let activePlatformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
+let currentLaunchers = [];
+let defaultLauncher = null;
+let isLauncherMenuOpen = false;
 
 const H3YUN_CODE_EDITOR_CONFIG = {
   frontend: {
@@ -89,14 +122,88 @@ const H3YUN_CODE_EDITOR_CONFIG = {
     modeIds: ["alonesharp", "csharp", undefined, ""]
   }
 };
-// 氚云设计文档是人工维护入口；新建时统一使用大写文件名，旧版小写文件只用于存在性兼容判断。
-const H3YUN_DESIGN_FILE_NAME = "DESIGN.md";
-const H3YUN_LEGACY_DESIGN_FILE_NAME = "design.md";
+const WORKSPACE_README_FILE_NAMES = [
+  WORKSPACE_DOCUMENT_FILE_NAMES.readme,
+  ...LEGACY_WORKSPACE_DOCUMENT_FILE_NAMES.readme
+];
+const WORKSPACE_DESIGN_FILE_NAMES = [
+  WORKSPACE_DOCUMENT_FILE_NAMES.design,
+  ...LEGACY_WORKSPACE_DOCUMENT_FILE_NAMES.design
+];
+const COMMON_DIAGNOSTIC_FILE_NAMES = [
+  WORKSPACE_DOCUMENT_FILE_NAMES.readme,
+  ...LEGACY_WORKSPACE_DOCUMENT_FILE_NAMES.readme,
+  WORKSPACE_DOCUMENT_FILE_NAMES.agents,
+  WORKSPACE_DOCUMENT_FILE_NAMES.design,
+  ...LEGACY_WORKSPACE_DOCUMENT_FILE_NAMES.design,
+  WORKSPACE_DOCUMENT_FILE_NAMES.fromCode,
+  "form-index.html",
+  "form-style.css",
+  "form-script.js",
+  "list-index.html",
+  "list-style.css",
+  "list-script.js",
+  "index.html",
+  "style.css",
+  "script.js"
+];
 
 function syncRecentPathInteractionState() {
   for (const element of recentPathsListEl.querySelectorAll("button")) {
     element.disabled = isPopupBusy;
   }
+}
+
+function syncLauncherInteractionState() {
+  const hasDefaultLauncher = Boolean(defaultLauncher);
+  launcherMainButton.disabled = isPopupBusy || !hasDefaultLauncher;
+  launcherMenuButton.disabled = isPopupBusy || !getAvailableLaunchers(currentLaunchers).length;
+  for (const element of launcherMenu.querySelectorAll("button")) {
+    element.disabled = isPopupBusy;
+  }
+}
+
+function setLauncherMenuOpen(isOpen) {
+  isLauncherMenuOpen = Boolean(isOpen);
+  launcherMenu.hidden = !isLauncherMenuOpen;
+  launcherMenuButton.setAttribute("aria-expanded", isLauncherMenuOpen ? "true" : "false");
+}
+
+function renderLauncherMenuItem(launcher) {
+  const button = document.createElement("button");
+  button.className = "launcher-menu-item";
+  button.type = "button";
+  button.setAttribute("role", "menuitem");
+  button.dataset.launcherId = launcher.launcherId;
+  const icon = document.createElement("img");
+  icon.className = "launcher-menu-icon";
+  icon.src = getLauncherIconPath(launcher, 16);
+  icon.alt = "";
+  const name = document.createElement("span");
+  name.className = "launcher-menu-name";
+  name.textContent = launcher.name;
+  button.append(icon, name);
+  return button;
+}
+
+function renderLauncherControls(config) {
+  currentLaunchers = Array.isArray(config?.customLaunchers) ? config.customLaunchers : [];
+  defaultLauncher = selectDefaultLauncher(currentLaunchers);
+  const availableLaunchers = getAvailableLaunchers(currentLaunchers);
+
+  if (defaultLauncher) {
+    launcherMainIcon.src = getLauncherIconPath(defaultLauncher, 16);
+    launcherMainButton.title = `用 ${defaultLauncher.name} 打开当前目录`;
+    launcherMainButton.setAttribute("aria-label", `用 ${defaultLauncher.name} 打开当前目录`);
+  } else {
+    launcherMainIcon.src = getLauncherIconPath({ iconKey: "file-explorer" }, 16);
+    launcherMainButton.title = "请先在设置页配置打开方式";
+    launcherMainButton.setAttribute("aria-label", "请先在设置页配置打开方式");
+    setLauncherMenuOpen(false);
+  }
+
+  launcherMenu.replaceChildren(...availableLaunchers.map(renderLauncherMenuItem));
+  syncLauncherInteractionState();
 }
 
 function setBusy(isBusy) {
@@ -106,8 +213,7 @@ function setBusy(isBusy) {
   bizruleCaptureWriteButton.disabled = isBusy;
   bizruleWritebackButton.disabled = isBusy;
   refreshHandleButton.disabled = isBusy;
-  openVscodeButton.disabled = isBusy;
-  openIdeaButton.disabled = isBusy;
+  syncLauncherInteractionState();
   targetPathToggleButton.disabled = isBusy;
   h3yunCaptureAllButton.disabled = isBusy;
   h3yunFrontendWritebackButton.disabled = isBusy;
@@ -221,6 +327,175 @@ function buildRuntimeLogText() {
   ].join("\n\n---\n\n");
 }
 
+function buildDownloadTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function downloadTextFile(fileName, text, mimeType) {
+  const blob = new Blob([text], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function buildPageProbeSnapshot(pageContext = currentPageContext || {}) {
+  const tab = pageContext.tab || {};
+  const pageTypeConfig = pageContext.pageTypeConfig || {};
+  const executableContextError = getExecutableContextError(tab);
+  return {
+    url: tab.url || "",
+    title: tab.title || "",
+    platformKey: pageTypeConfig.platformKey || activePlatformKey,
+    pageType: pageContext.pageType || "",
+    pageLabel: pageTypeConfig.pageLabel || "",
+    executableContextOk: !executableContextError,
+    monacoModels: []
+  };
+}
+
+function buildExtensionDiagnosticContext() {
+  const manifest = globalThis.chrome?.runtime?.getManifest?.() || {};
+  return {
+    extension: {
+      name: manifest.name || "unknown",
+      version: manifest.version || "unknown"
+    },
+    browser: {
+      userAgent: globalThis.navigator?.userAgent || "unknown"
+    }
+  };
+}
+
+function buildDiagnosticFileNames(pageTypeConfig = {}) {
+  const mappedFiles = Array.isArray(pageTypeConfig.fileMappings)
+    ? pageTypeConfig.fileMappings.map((item) => item.fileName)
+    : [];
+  return Array.from(new Set([
+    ...COMMON_DIAGNOSTIC_FILE_NAMES,
+    ...mappedFiles
+  ].filter(Boolean)));
+}
+
+async function statHandleDirectoryFiles(directorySelection, fileNames) {
+  const files = [];
+  for (const fileName of fileNames) {
+    try {
+      const fileHandle = await directorySelection.handle.getFileHandle(fileName);
+      const file = await fileHandle.getFile();
+      files.push({
+        fileName,
+        exists: true,
+        size: file.size,
+        modifiedAt: file.lastModified ? new Date(file.lastModified).toISOString() : ""
+      });
+    } catch (error) {
+      if (error?.name === "NotFoundError") {
+        files.push({ fileName, exists: false, size: null, modifiedAt: "" });
+        continue;
+      }
+      files.push({
+        fileName,
+        exists: false,
+        size: null,
+        modifiedAt: "",
+        error: error?.message || String(error)
+      });
+    }
+  }
+  return files;
+}
+
+async function buildDirectorySnapshotForDiagnostics(directorySelection, pageTypeConfig = {}) {
+  if (!directorySelection) {
+    return { accessMode: "", targetPath: currentTargetPath, files: [] };
+  }
+
+  const fileNames = buildDiagnosticFileNames(pageTypeConfig);
+  if (directorySelection.kind === "native-path") {
+    const response = await statNativeDirectoryFiles({
+      directoryPath: directorySelection.directoryPath,
+      fileNames
+    });
+    return {
+      accessMode: "Native Host",
+      targetPath: directorySelection.directoryPath || "",
+      files: Array.isArray(response?.files) ? response.files : []
+    };
+  }
+
+  if (directorySelection.kind === "handle") {
+    return {
+      accessMode: "File System Access API",
+      targetPath: currentTargetPath || directorySelection.label || "",
+      files: await statHandleDirectoryFiles(directorySelection, fileNames)
+    };
+  }
+
+  return { accessMode: "", targetPath: currentTargetPath, files: [] };
+}
+
+async function statSingleDirectoryFile(directorySelection, fileName) {
+  if (!directorySelection || !fileName) {
+    return { fileName, exists: false, size: null, modifiedAt: "" };
+  }
+
+  if (directorySelection.kind === "native-path") {
+    const response = await statNativeDirectoryFiles({
+      directoryPath: directorySelection.directoryPath,
+      fileNames: [fileName]
+    });
+    return Array.isArray(response?.files) && response.files[0]
+      ? response.files[0]
+      : { fileName, exists: false, size: null, modifiedAt: "" };
+  }
+
+  if (directorySelection.kind === "handle") {
+    const [file] = await statHandleDirectoryFiles(directorySelection, [fileName]);
+    return file || { fileName, exists: false, size: null, modifiedAt: "" };
+  }
+
+  return { fileName, exists: false, size: null, modifiedAt: "" };
+}
+
+async function persistDiagnosticPackage(packageData) {
+  lastDiagnosticPackage = buildDiagnosticPackage(packageData);
+  await saveLastDiagnosticPackage(lastDiagnosticPackage);
+  return lastDiagnosticPackage;
+}
+
+async function handleExportDiagnosticPackage() {
+  try {
+    if (!lastDiagnosticPackage) {
+      const pageContext = currentPageContext || await updatePageInfo({ syncPlatform: false });
+      lastDiagnosticPackage = buildDiagnosticPackage({
+        ...buildExtensionDiagnosticContext(),
+        operationId: "manual.exportDiagnostic",
+        logs: runtimeLogs,
+        pageProbe: buildPageProbeSnapshot(pageContext),
+        directorySnapshot: { accessMode: "", targetPath: currentTargetPath, files: [] },
+        preflightResults: []
+      });
+    }
+
+    downloadTextFile(
+      `cloudpiovt-plugin-diagnostic-${buildDownloadTimestamp()}.json`,
+      JSON.stringify(lastDiagnosticPackage, null, 2),
+      "application/json;charset=utf-8"
+    );
+    setStatus("诊断 JSON 已导出，可直接发给作者定位问题。", { level: "success" });
+  } catch (error) {
+    setStatus(`导出诊断 JSON 失败。\n${error?.message || String(error)}`, {
+      level: "error",
+      suggestion: "处理建议：先点击复制日志；若需要结构化诊断，请重新执行失败操作后再导出。"
+    });
+  }
+}
+
 // 统一状态入口：既更新弹窗展示，也把同一条记录写入当前会话运行日志。
 function setStatus(message, options = {}) {
   const lines = normalizeStatusLines(message);
@@ -257,16 +532,11 @@ async function handleCopyRuntimeLog() {
 // 导出 UTF-8 文本日志文件，用户可以直接把文件发给作者定位页面、目录或插件适配问题。
 function handleExportRuntimeLog() {
   try {
-    const blob = new Blob([buildRuntimeLogText()], { type: "text/plain;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-    link.href = url;
-    link.download = `cloudpiovt-plugin-log-${timestamp}.txt`;
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 0);
+    downloadTextFile(
+      `cloudpiovt-plugin-log-${buildDownloadTimestamp()}.txt`,
+      buildRuntimeLogText(),
+      "text/plain;charset=utf-8"
+    );
     setStatus("运行日志已导出，请将日志文件发给作者排查。", { level: "success" });
   } catch (error) {
     setStatus(`导出运行日志失败。\n${error?.message || String(error)}`, {
@@ -591,6 +861,36 @@ async function handleRefreshDirectoryHandle() {
 
   try {
     const { pageType, targetScope } = await updatePageInfo();
+    const nativePreflight = await runNativeHostPreflight(PREFLIGHT_OPERATION_IDS.directoryRefresh);
+    if (hasBlockingPreflightResult(nativePreflight.results) && supportsDirectoryPicker()) {
+      nativePreflight.results = [
+        createPreflightWarning(
+          PREFLIGHT_OPERATION_IDS.directoryRefresh,
+          "nativeHost.ping",
+          "NATIVE_HOST_UNAVAILABLE_BROWSER_PICKER_AVAILABLE",
+          nativePreflight.hostStatus.error || "native host unavailable, browser directory picker available",
+          "继续使用浏览器目录选择器；绝对路径历史和一键打开编辑器仍需原生助手。",
+          nativePreflight.hostStatus
+        )
+      ];
+    }
+    setStatus([
+      "自动预检完成。",
+      `operationId=${PREFLIGHT_OPERATION_IDS.directoryRefresh}`,
+      ...formatPreflightStatusLines(nativePreflight.results)
+    ]);
+    await persistDiagnosticPackage({
+      ...buildExtensionDiagnosticContext(),
+      operationId: PREFLIGHT_OPERATION_IDS.directoryRefresh,
+      logs: runtimeLogs,
+      pageProbe: buildPageProbeSnapshot(currentPageContext),
+      directorySnapshot: { accessMode: "", targetPath: currentTargetPath, files: [] },
+      preflightResults: nativePreflight.results,
+      nativeHost: nativePreflight.hostStatus
+    });
+    if (hasBlockingPreflightResult(nativePreflight.results)) {
+      return;
+    }
     const selection = await refreshDirectoryHandle(pageType, targetScope);
     setStatus([
       "当前路径已更新。",
@@ -697,46 +997,99 @@ async function handleRecentPathsClick(event) {
   }
 }
 
-async function handleOpenEditor(editorType) {
+function findLauncherById(launcherId) {
+  return currentLaunchers.find((launcher) => launcher.launcherId === launcherId) || null;
+}
+
+function createLauncherPreflightResult(operationId, launcher) {
+  if (!launcher) {
+    return createPreflightResult({
+      operationId,
+      checkId: "launcher.selection",
+      severity: PREFLIGHT_SEVERITY.blocker,
+      ok: false,
+      errorCode: "NO_AVAILABLE_LAUNCHER",
+      evidence: "No enabled launcher with executablePath",
+      nextAction: "打开设置页，在“打开方式”中启用并配置至少一个软件路径。"
+    });
+  }
+
+  return createPreflightResult({
+    operationId,
+    checkId: "launcher.selection",
+    severity: launcher.executablePath ? PREFLIGHT_SEVERITY.info : PREFLIGHT_SEVERITY.blocker,
+    ok: Boolean(launcher.executablePath),
+    errorCode: launcher.executablePath ? "" : "LAUNCHER_PATH_MISSING",
+    evidence: `launcherId=${launcher.launcherId} | iconKey=${launcher.iconKey} | executablePath=${launcher.executablePath || ""} | argumentsTemplate=${launcher.argumentsTemplate || ""}`,
+    nextAction: launcher.executablePath ? "" : "打开设置页为该打开方式配置应用路径。",
+    data: {
+      launcherId: launcher.launcherId,
+      iconKey: launcher.iconKey,
+      name: launcher.name,
+      executablePath: launcher.executablePath,
+      argumentsTemplate: launcher.argumentsTemplate
+    }
+  });
+}
+
+async function handleOpenCustomLauncher(launcherId = "") {
   setBusy(true);
-  const editorLabel = editorType === "vscode" ? "VS Code" : "IDEA";
-  setStatus(`正在打开 ${editorLabel}...`);
+  let launcher = null;
+  let launcherLabel = "打开方式";
+  setStatus(`正在打开 ${launcherLabel}...`);
 
   try {
-    const { pageType, targetScope } = await updatePageInfo();
     const config = await loadConfig();
-    const executablePath = editorType === "vscode"
-      ? config.vscodeExecutablePath
-      : config.ideaExecutablePath;
+    renderLauncherControls(config);
+    launcher = launcherId ? findLauncherById(launcherId) : selectDefaultLauncher(currentLaunchers);
+    launcherLabel = launcher?.name || "打开方式";
+    setStatus(`正在打开 ${launcherLabel}...`);
 
-    if (!executablePath) {
-      throw new Error(`请先在设置页配置 ${editorLabel} 可执行文件路径。`);
-    }
+    await runOperationWithPreflight(
+      PREFLIGHT_OPERATION_IDS.nativeOpenCustomLauncher,
+      async ({ pageContext }) => {
+        const { pageType, targetScope } = pageContext;
+        if (!launcher?.executablePath) {
+          throw new Error("请先在设置页配置可用打开方式。");
+        }
 
-    const targetPath = await ensureLaunchTargetPath(pageType, targetScope);
+        const targetPath = await ensureLaunchTargetPath(pageType, targetScope);
 
-    const response = await launchNativeEditor({
-      executablePath,
-      targetPath
-    });
+        const response = await launchNativeEditor({
+          executablePath: launcher.executablePath,
+          argumentsTemplate: launcher.argumentsTemplate,
+          targetPath
+        });
 
-    if (!response?.ok) {
-      throw new Error(response?.error || `打开 ${editorLabel} 失败。`);
-    }
+        if (!response?.ok) {
+          throw new Error(response?.error || `打开 ${launcher.name} 失败。`);
+        }
 
-    setStatus([
-      `${editorLabel} 已打开目标目录。`,
-      `页面类型：${getCurrentPageContext().pageTypeConfig.pageLabel}`,
-      `目标目录：${targetPath}`,
-      `可执行文件：${executablePath}`
-    ]);
+        setStatus([
+          `${launcher.name} 已打开目标目录。`,
+          `页面类型：${getCurrentPageContext().pageTypeConfig.pageLabel}`,
+          `目标目录：${targetPath}`,
+          `launcherId：${launcher.launcherId}`,
+          `iconKey：${launcher.iconKey}`,
+          `可执行文件：${launcher.executablePath}`,
+          `参数模板：${launcher.argumentsTemplate || "{rawPath}"}`
+        ]);
+      },
+      {
+        requireNativeHost: true,
+        collectExtraResults: async ({ operationId }) => [
+          createLauncherPreflightResult(operationId, launcher)
+        ]
+      }
+    );
   } catch (error) {
     if (error?.name === "AbortError") {
-      setStatus(`已取消打开 ${editorLabel}。`);
+      setStatus(`已取消打开 ${launcherLabel}。`);
       return;
     }
-    setStatus(`打开 ${editorLabel} 失败。\n${error?.message || String(error)}`);
+    setStatus(`打开 ${launcherLabel} 失败。\n${error?.message || String(error)}`);
   } finally {
+    setLauncherMenuOpen(false);
     setBusy(false);
   }
 }
@@ -895,6 +1248,25 @@ async function fileExists(directorySelection, fileName) {
   return fileExistsInSelection(directorySelection, fileName);
 }
 
+async function anyFileExists(directorySelection, fileNames) {
+  // 协作文件改为标准大小写后仍兼容旧文件名，避免用户已有 README.MD / design.md 被重复创建。
+  for (const fileName of fileNames) {
+    if (await fileExists(directorySelection, fileName)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+async function getWorkspaceDocumentState(directorySelection) {
+  // 三个协作入口均为人工维护文件，抓取时只补缺失项，不能覆盖已有业务需求或设计说明。
+  return {
+    hasReadme: await anyFileExists(directorySelection, WORKSPACE_README_FILE_NAMES),
+    hasAgents: await fileExists(directorySelection, WORKSPACE_DOCUMENT_FILE_NAMES.agents),
+    hasDesign: await anyFileExists(directorySelection, WORKSPACE_DESIGN_FILE_NAMES)
+  };
+}
+
 async function readOptionalDirectoryFile(directorySelection, fileName) {
   try {
     const [fileResult] = await readFilesFromSelection(directorySelection, [fileName]);
@@ -943,10 +1315,328 @@ async function writeReadmeFile(directorySelection, metadata, pageTypeConfig, pag
   await writeFilesToSelection(directorySelection, filesToWrite);
 }
 
+async function writeMissingWorkspaceDocumentFiles(directorySelection, documentInput, workspaceDocumentState) {
+  // 业务规则或氚云局部抓取没有统一 FromCode 入口时，仍要补齐 AI 协作文件，已有人工内容保持不覆盖。
+  const filesToWrite = buildMissingWorkspaceDocumentFiles(documentInput, workspaceDocumentState);
+  if (!filesToWrite.length) {
+    return [];
+  }
+
+  await writeFilesToSelection(directorySelection, filesToWrite);
+  return filesToWrite;
+}
+
+function buildCloudpivotBizRuleWorkspaceDocumentInput(pageTypeConfig, pageUrl, fileName = "") {
+  // 云枢业务规则目录需要写明 JS 只能通过业务规则传参协作，避免后续 AI 误生成 Ajax 方案。
+  return {
+    platformKey: PLATFORM_CONFIG.cloudpivot.platformKey,
+    platformLabel: PLATFORM_CONFIG.cloudpivot.platformLabel,
+    pageLabel: pageTypeConfig?.pageLabel || "业务规则开发",
+    pageUrl,
+    codeFiles: [fileName || "业务规则 .java 文件"]
+  };
+}
+
 function describeDirectoryAccessMode(directorySelection) {
   return directorySelection.kind === "native-path"
     ? "Native Host"
     : "File System Access API";
+}
+
+function createPreflightInfo(operationId, checkId, evidence, data = {}) {
+  return createPreflightResult({
+    operationId,
+    checkId,
+    severity: PREFLIGHT_SEVERITY.info,
+    ok: true,
+    evidence,
+    data
+  });
+}
+
+function createPreflightBlocker(operationId, checkId, errorCode, evidence, nextAction, data = {}) {
+  return createPreflightResult({
+    operationId,
+    checkId,
+    severity: PREFLIGHT_SEVERITY.blocker,
+    ok: false,
+    errorCode,
+    evidence,
+    nextAction,
+    data
+  });
+}
+
+function createPreflightWarning(operationId, checkId, errorCode, evidence, nextAction, data = {}) {
+  return createPreflightResult({
+    operationId,
+    checkId,
+    severity: PREFLIGHT_SEVERITY.warning,
+    ok: false,
+    errorCode,
+    evidence,
+    nextAction,
+    data
+  });
+}
+
+async function runDirectoryPreflight(operationId, pageType, targetScope, mode) {
+  try {
+    const directorySelection = await ensureDirectoryAccessForOperation(pageType, mode, targetScope);
+    return {
+      directorySelection,
+      results: [
+        createPreflightInfo(operationId, `directory.${mode}`, "target directory access granted", {
+          accessMode: describeDirectoryAccessMode(directorySelection),
+          targetPath: directorySelection.kind === "native-path" ? directorySelection.directoryPath : ""
+        })
+      ]
+    };
+  } catch (error) {
+    return {
+      directorySelection: null,
+      results: [
+        createPreflightBlocker(
+          operationId,
+          `directory.${mode}`,
+          "DIRECTORY_ACCESS_FAILED",
+          error?.message || String(error),
+          "重新选择当前路径并确认目录权限。"
+        )
+      ]
+    };
+  }
+}
+
+async function collectCloudpivotImportFilePreflight({ pageContext, directorySelection, operationId }) {
+  if (!directorySelection) {
+    return [];
+  }
+
+  const fileNames = Array.isArray(pageContext.pageTypeConfig?.fileMappings)
+    ? pageContext.pageTypeConfig.fileMappings.map((item) => item.fileName)
+    : [];
+  if (!fileNames.length) {
+    return [
+      createPreflightBlocker(
+        operationId,
+        "directory.importFiles",
+        "NO_CONFIGURED_IMPORT_FILES",
+        "pageType has no fileMappings",
+        "检查页面类型识别是否正确。"
+      )
+    ];
+  }
+
+  try {
+    const readResults = await readFilesFromSelection(directorySelection, fileNames);
+    const existingFiles = readResults.filter((item) => item?.exists).map((item) => item.fileName);
+    if (!existingFiles.length) {
+      return [
+        createPreflightBlocker(
+          operationId,
+          "directory.importFiles",
+          "NO_IMPORTABLE_CODE_FILES",
+          `missing=${fileNames.join(",")}`,
+          "先执行抓取写入，或确认当前路径中存在对应代码文件。",
+          { expectedFiles: fileNames }
+        )
+      ];
+    }
+
+    const metadataResults = await Promise.all(
+      existingFiles.map((fileName) => statSingleDirectoryFile(directorySelection, fileName))
+    );
+    return [
+      createPreflightInfo(operationId, "directory.importFiles", `existing=${existingFiles.join(",")}`, {
+        expectedFiles: fileNames,
+        existingFiles
+      }),
+      ...metadataResults.map((file) => createWritebackRiskResult({
+        operationId,
+        checkId: "writeback.localFileRisk",
+        fileName: file.fileName,
+        size: file.size,
+        modifiedAt: file.modifiedAt
+      }))
+    ];
+  } catch (error) {
+    return [
+      createPreflightBlocker(
+        operationId,
+        "directory.importFiles",
+        "IMPORT_FILE_PREFLIGHT_FAILED",
+        error?.message || String(error),
+        "确认当前路径可读，并重新执行回写。"
+      )
+    ];
+  }
+}
+
+function collectH3yunLazyLoadWarning({ operationId }) {
+  return [
+    createPreflightWarning(
+      operationId,
+      "h3yun.lazyLoad",
+      "H3YUN_PARTIAL_MOUNT_ALLOWED",
+      "h3yun designer may lazy-load graph/js/cs areas",
+      "若一键抓取只写入部分文件，请切到对应区域加载后重试。"
+    )
+  ];
+}
+
+function runPageContextPreflight(operationId, pageContext, expectedPlatformKey = "") {
+  const { tab, pageTypeConfig } = pageContext;
+  const results = [
+    createPreflightInfo(operationId, "page.context", "page context resolved", {
+      pageType: pageContext.pageType,
+      platformKey: pageTypeConfig?.platformKey,
+      url: tab?.url || ""
+    })
+  ];
+  const executableContextError = getExecutableContextError(tab);
+  if (executableContextError) {
+    results.push(createPreflightBlocker(
+      operationId,
+      "page.executableContext",
+      "PAGE_NOT_SCRIPTABLE",
+      executableContextError,
+      "切换到云枢或氚云业务页面后重试。"
+    ));
+  }
+
+  if (expectedPlatformKey && pageTypeConfig?.platformKey !== expectedPlatformKey) {
+    results.push(createPreflightBlocker(
+      operationId,
+      "page.platform",
+      "PLATFORM_MISMATCH",
+      `expected=${expectedPlatformKey}, actual=${pageTypeConfig?.platformKey || "unknown"}`,
+      "切换到匹配平台页面或弹窗标签后重试。"
+    ));
+  }
+
+  return results;
+}
+
+async function runNativeHostPreflight(operationId) {
+  const hostStatus = await probeNativeHost();
+  if (hostStatus.available) {
+    return {
+      hostStatus,
+      results: [
+        createPreflightInfo(operationId, "nativeHost.ping", "native host available", hostStatus)
+      ]
+    };
+  }
+
+  return {
+    hostStatus,
+    results: [
+      createPreflightBlocker(
+        operationId,
+        "nativeHost.ping",
+        "NATIVE_HOST_UNAVAILABLE",
+        hostStatus.error || "native host unavailable",
+        "重新运行 scripts\\install-native-host.cmd 后重试。",
+        hostStatus
+      )
+    ]
+  };
+}
+
+function buildPreflightStatusMessage(operationId, results) {
+  const blocked = hasBlockingPreflightResult(results);
+  return [
+    blocked ? "自动预检阻断操作。" : "自动预检完成。",
+    `operationId=${operationId}`,
+    ...formatPreflightStatusLines(results)
+  ];
+}
+
+async function runOperationWithPreflight(operationId, task, options = {}) {
+  const pageContext = await updatePageInfo({ syncPlatform: options.syncPlatform !== false });
+  const results = [
+    ...runPageContextPreflight(operationId, pageContext, options.expectedPlatformKey || "")
+  ];
+  let directorySelection = null;
+  let hostStatus = null;
+
+  if (options.requireNativeHost) {
+    const nativePreflight = await runNativeHostPreflight(operationId);
+    hostStatus = nativePreflight.hostStatus;
+    results.push(...nativePreflight.results);
+  }
+
+  if (options.directoryMode) {
+    const directoryPreflight = await runDirectoryPreflight(
+      operationId,
+      pageContext.pageType,
+      pageContext.targetScope,
+      options.directoryMode
+    );
+    directorySelection = directoryPreflight.directorySelection;
+    results.push(...directoryPreflight.results);
+  }
+
+  if (typeof options.collectExtraResults === "function") {
+    results.push(...await options.collectExtraResults({ pageContext, directorySelection, operationId }));
+  }
+
+  setStatus(buildPreflightStatusMessage(operationId, results), {
+    level: hasBlockingPreflightResult(results) ? "error" : "info",
+    suggestion: hasBlockingPreflightResult(results)
+      ? "nextAction 字段已给出阻断原因和下一步处理。"
+      : "预检未发现 blocker，继续执行操作。"
+  });
+
+  const directorySnapshot = await buildDirectorySnapshotForDiagnostics(
+    directorySelection,
+    pageContext.pageTypeConfig
+  );
+  await persistDiagnosticPackage({
+    ...buildExtensionDiagnosticContext(),
+    operationId,
+    logs: runtimeLogs,
+    pageProbe: buildPageProbeSnapshot(pageContext),
+    directorySnapshot,
+    preflightResults: results,
+    nativeHost: hostStatus || {}
+  });
+
+  if (hasBlockingPreflightResult(results)) {
+    return { ok: false, pageContext, directorySelection, preflightResults: results };
+  }
+
+  return task({
+    pageContext,
+    directorySelection,
+    preflightResults: results
+  });
+}
+
+async function appendWritebackRiskDiagnostic(operationId, pageContext, directorySelection, fileName, preflightResults = []) {
+  const file = await statSingleDirectoryFile(directorySelection, fileName);
+  const riskResult = createWritebackRiskResult({
+    operationId,
+    fileName: file.fileName || fileName,
+    size: file.size,
+    modifiedAt: file.modifiedAt
+  });
+  const nextResults = [...preflightResults, riskResult];
+  setStatus([
+    "回写风险提示。",
+    `operationId=${operationId}`,
+    formatPreflightStatusLines([riskResult]).join("\n")
+  ]);
+  await persistDiagnosticPackage({
+    ...buildExtensionDiagnosticContext(),
+    operationId,
+    logs: runtimeLogs,
+    pageProbe: buildPageProbeSnapshot(pageContext),
+    directorySnapshot: await buildDirectorySnapshotForDiagnostics(directorySelection, pageContext.pageTypeConfig),
+    preflightResults: nextResults
+  });
+  return nextResults;
 }
 
 async function handleCaptureAndWrite() {
@@ -954,7 +1644,9 @@ async function handleCaptureAndWrite() {
   setStatus("正在抓取并写入...");
 
   try {
-    const pageContext = await updatePageInfo();
+    await runOperationWithPreflight(
+      PREFLIGHT_OPERATION_IDS.cloudpivotFrontendCapture,
+      async ({ pageContext, directorySelection }) => {
     const { tab, pageType, pageTypeConfig, targetScope } = pageContext;
     assertCloudpivotOperation(pageContext, "前端抓取写入");
     const executableContextError = getExecutableContextError(tab);
@@ -967,9 +1659,7 @@ async function handleCaptureAndWrite() {
       throw new Error(originError);
     }
 
-    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite", targetScope);
-    // README.MD 允许人工补充说明，因此抓取时只在文件缺失时补建，已有内容不覆盖。
-    const hadReadme = await fileExists(directorySelection, "README.MD");
+    const workspaceDocumentState = await getWorkspaceDocumentState(directorySelection);
 
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -1006,7 +1696,7 @@ ${exportPlan.details || exportPlan.errorCode || "未知错误"}`, {
     const exportedHtml = exportPlan.filesToWrite.find((item) => item.key === "html")?.content || "";
     const readmeMetadata = extractReadmeMetadataFromHtml(exportedHtml, result.pageUrl || tab.url);
     await writeReadmeFile(directorySelection, readmeMetadata, pageTypeConfig, result.pageUrl || tab.url, {
-      hasReadme: hadReadme
+      ...workspaceDocumentState
     });
     await updateDirectoryInfo(pageType, targetScope);
 
@@ -1015,9 +1705,17 @@ ${exportPlan.details || exportPlan.errorCode || "未知错误"}`, {
       `页面类型：${pageTypeConfig.pageLabel}`,
       `目录访问：${describeDirectoryAccessMode(directorySelection)}`,
       `代码文件：${exportPlan.filesToWrite.map((item) => item.fileName).join("、")}`,
-      hadReadme ? "README.MD 已保留现有内容。" : "README.MD 已新建。",
+      workspaceDocumentState.hasReadme ? "README.md 已保留现有内容。" : "README.md 已新建。",
+      workspaceDocumentState.hasAgents ? "AGENTS.md 已保留现有内容。" : "AGENTS.md 已新建。",
+      workspaceDocumentState.hasDesign ? "DESIGN.md 已保留现有内容。" : "DESIGN.md 已新建。",
       "FromCode.md 已同步编码信息。",
     ]);
+      },
+      {
+        expectedPlatformKey: PLATFORM_CONFIG.cloudpivot.platformKey,
+        directoryMode: "readwrite"
+      }
+    );
   } catch (error) {
     setStatus(`抓取并写入失败。
 ${error?.message || String(error)}`);
@@ -1031,7 +1729,9 @@ async function handleImportAndWriteBack() {
   setStatus("正在从文件夹回写...");
 
   try {
-    const pageContext = await updatePageInfo();
+    await runOperationWithPreflight(
+      PREFLIGHT_OPERATION_IDS.cloudpivotFrontendWriteback,
+      async ({ pageContext, directorySelection, preflightResults }) => {
     const { tab, pageType, pageTypeConfig, targetScope } = pageContext;
     assertCloudpivotOperation(pageContext, "前端回写");
     const executableContextError = getExecutableContextError(tab);
@@ -1044,7 +1744,6 @@ async function handleImportAndWriteBack() {
       throw new Error(originError);
     }
 
-    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "read", targetScope);
     const importPlan = await readCodeFilesFromDirectory(directorySelection, pageTypeConfig);
     if (!importPlan.ok) {
       setStatus(`回写失败。
@@ -1088,6 +1787,13 @@ ${result?.details || result?.errorCode || "未知错误"}`, {
         ? `兼容处理：webIDEService.updateDataSource -> ${result.compatibilityState.fallbackMethod}`
         : "兼容处理：未注入 webIDEService 兜底",
     ]);
+      },
+      {
+        expectedPlatformKey: PLATFORM_CONFIG.cloudpivot.platformKey,
+        directoryMode: "read",
+        collectExtraResults: collectCloudpivotImportFilePreflight
+      }
+    );
   } catch (error) {
     setStatus(`从文件夹回写失败。
 ${error?.message || String(error)}`);
@@ -1101,7 +1807,9 @@ async function handleBizruleCaptureAndWrite() {
   setStatus("正在抓取业务规则并写入...");
 
   try {
-    const pageContext = await updatePageInfo();
+    await runOperationWithPreflight(
+      PREFLIGHT_OPERATION_IDS.cloudpivotBizruleCapture,
+      async ({ pageContext, directorySelection, preflightResults }) => {
     const { tab, pageType, targetScope } = pageContext;
     assertCloudpivotOperation(pageContext, "业务规则抓取写入");
     const executableContextError = getExecutableContextError(tab);
@@ -1114,7 +1822,6 @@ async function handleBizruleCaptureAndWrite() {
       throw new Error(originError);
     }
 
-    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite", targetScope);
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
@@ -1142,12 +1849,18 @@ async function handleBizruleCaptureAndWrite() {
     }
 
     const hadTargetFile = await fileExists(directorySelection, result.fileName);
+    const workspaceDocumentState = await getWorkspaceDocumentState(directorySelection);
     await writeFilesToSelection(directorySelection, [
       {
         fileName: result.fileName,
         content: result.sourceContent
       }
     ]);
+    const workspaceFiles = await writeMissingWorkspaceDocumentFiles(
+      directorySelection,
+      buildCloudpivotBizRuleWorkspaceDocumentInput(pageContext.pageTypeConfig, tab.url, result.fileName),
+      workspaceDocumentState
+    );
     await updateDirectoryInfo(pageType, targetScope);
 
     setStatus([
@@ -1159,8 +1872,15 @@ async function handleBizruleCaptureAndWrite() {
       `URI：${result.uri || "空"}`,
       `源代码长度：${result.sourceLength}`,
       hadTargetFile ? "目标文件已更新。" : "目标文件已新建。",
+      workspaceFiles.length ? `协作文件已补齐：${workspaceFiles.map((item) => item.fileName).join("、")}` : "协作文件已保留现有内容。",
       `诊断：${(result.details || []).join(" | ") || "无"}`
     ]);
+      },
+      {
+        expectedPlatformKey: PLATFORM_CONFIG.cloudpivot.platformKey,
+        directoryMode: "readwrite"
+      }
+    );
   } catch (error) {
     setStatus(`业务规则抓取写入失败。
 ${error?.message || String(error)}`);
@@ -1178,7 +1898,9 @@ async function handleBizruleWritebackInternal() {
   setStatus("正在回写业务规则到页面编辑器...");
 
   try {
-    const pageContext = await updatePageInfo();
+    await runOperationWithPreflight(
+      PREFLIGHT_OPERATION_IDS.cloudpivotBizruleWriteback,
+      async ({ pageContext, directorySelection, preflightResults }) => {
     const { tab, pageType, targetScope } = pageContext;
     assertCloudpivotOperation(pageContext, "业务规则回写");
     const executableContextError = getExecutableContextError(tab);
@@ -1191,7 +1913,6 @@ async function handleBizruleWritebackInternal() {
       throw new Error(originError);
     }
 
-    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "read", targetScope);
     const [{ result: probeResult }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
@@ -1223,6 +1944,13 @@ async function handleBizruleWritebackInternal() {
       ]);
       return;
     }
+    await appendWritebackRiskDiagnostic(
+      PREFLIGHT_OPERATION_IDS.cloudpivotBizruleWriteback,
+      pageContext,
+      directorySelection,
+      importResult.fileName,
+      preflightResults
+    );
 
     const [{ result: writebackResult }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -1260,6 +1988,12 @@ async function handleBizruleWritebackInternal() {
       `模型数量：${writebackResult.modelCount}`,
       `诊断：${(writebackResult.details || []).join(" | ") || "无"}`
     ]);
+      },
+      {
+        expectedPlatformKey: PLATFORM_CONFIG.cloudpivot.platformKey,
+        directoryMode: "read"
+      }
+    );
   } catch (error) {
     setStatus(`业务规则回写失败。\n${error?.message || String(error)}`);
   } finally {
@@ -1312,14 +2046,30 @@ async function handleH3yunCodeWriteback(codeKind) {
   setBusy(true);
   setStatus(`正在回写氚云${config.label}...`);
   try {
-    const { tab, pageType, targetScope } = await getH3yunOperationContext(`氚云${config.label}回写`);
-    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "read", targetScope);
+    await runOperationWithPreflight(
+      codeKind === "backend"
+        ? PREFLIGHT_OPERATION_IDS.h3yunBackendWriteback
+        : PREFLIGHT_OPERATION_IDS.h3yunFrontendWriteback,
+      async ({ pageContext, directorySelection }) => {
+    const { tab, pageType, targetScope } = pageContext;
+    if (pageContext.pageTypeConfig.platformKey !== PLATFORM_CONFIG.h3yun.platformKey) {
+      throw new Error(`氚云${config.label}回写仅支持氚云页面。当前页面：${describeOrigin(tab?.url || "")}`);
+    }
     const probeResult = await probeH3yunCodeEditor(tab, codeKind);
     if (!probeResult?.ok) {
       throw new Error(probeResult?.details || `${config.selector} 未找到可回写编辑器`);
     }
     const fileName = resolveH3yunCodeFileName(codeKind, probeResult, probeResult.pageUrl || tab.url);
     const importResult = await readCodeFileByName(directorySelection, fileName);
+    await appendWritebackRiskDiagnostic(
+      codeKind === "backend"
+        ? PREFLIGHT_OPERATION_IDS.h3yunBackendWriteback
+        : PREFLIGHT_OPERATION_IDS.h3yunFrontendWriteback,
+      pageContext,
+      directorySelection,
+      importResult.fileName,
+      preflightResults
+    );
     const writebackResult = await writeH3yunCodeEditor(tab, codeKind, importResult.content);
     if (!writebackResult?.ok) {
       const logExtra = writebackResult?.debugLog ? `\n--- 调试日志 ---\n${writebackResult.debugLog}` : "";
@@ -1329,6 +2079,13 @@ async function handleH3yunCodeWriteback(codeKind) {
     const modelNote = writebackResult.writableCount > 1 ? `（已写入 ${writebackResult.writableCount} 个 model）` : "";
     const logNote = writebackResult.debugLog ? `\n--- 调试日志 ---\n${writebackResult.debugLog}` : "";
     setStatus([`氚云${config.label}回写成功。${modelNote}`, `文件名：${fileName}`, `源码长度：${writebackResult.sourceLength} 字符${logNote}`]);
+      },
+      {
+        expectedPlatformKey: PLATFORM_CONFIG.h3yun.platformKey,
+        directoryMode: "read",
+        syncPlatform: false
+      }
+    );
   } catch (error) {
     setStatus(`氚云${config.label}回写失败。\n${error?.message || String(error)}`, {
       level: "error",
@@ -1357,16 +2114,6 @@ async function writeH3yunCodeEditor(tab, codeKind, sourceContent) {
   return result;
 }
 
-// 一键抓取不能覆盖用户维护的设计文档；同时兼容旧版小写 design.md，避免重复生成模板文件。
-async function hasH3yunDesignDocument(directorySelection) {
-  const hasDesignFile = await fileExistsInSelection(directorySelection, H3YUN_DESIGN_FILE_NAME);
-  if (hasDesignFile) {
-    return true;
-  }
-
-  return fileExistsInSelection(directorySelection, H3YUN_LEGACY_DESIGN_FILE_NAME);
-}
-
 // 统计子表字段编码缺失数量，便于氚云 DOM 结构变化时快速判断本次抓取是否仍需补适配。
 function countMissingH3yunChildCodes(metadata) {
   return (Array.isArray(metadata?.controls) ? metadata.controls : []).reduce((total, control) => {
@@ -1375,13 +2122,32 @@ function countMissingH3yunChildCodes(metadata) {
   }, 0);
 }
 
+function buildH3yunWorkspaceDocumentInput(metadata, pageTypeConfig, pageUrl, codeFiles = []) {
+  // 氚云协作文件必须突出 Ajax 前后端互通模型，便于 AI 同步生成 JS 与 C# 的参数契约。
+  return {
+    platformKey: PLATFORM_CONFIG.h3yun.platformKey,
+    platformLabel: PLATFORM_CONFIG.h3yun.platformLabel,
+    pageLabel: pageTypeConfig?.pageLabel,
+    pageUrl,
+    appCode: metadata?.appCode,
+    formId: metadata?.formId,
+    codeFiles
+  };
+}
+
 // 一键抓取写入：并行抓取控件信息、前端 JS、后端 C# 并写入。
 async function handleH3yunCaptureAllAndWrite() {
   setBusy(true);
   setStatus("正在一键抓取氚云页面...");
   try {
-    const { tab, pageType, targetScope } = await getH3yunOperationContext("氚云一键抓取写入");
-    const directorySelection = await ensureDirectoryAccessForOperation(pageType, "readwrite", targetScope);
+    await runOperationWithPreflight(
+      PREFLIGHT_OPERATION_IDS.h3yunCaptureAll,
+      async ({ pageContext, directorySelection }) => {
+    const { tab, pageType, pageTypeConfig, targetScope } = pageContext;
+    if (pageTypeConfig.platformKey !== PLATFORM_CONFIG.h3yun.platformKey) {
+      throw new Error(`氚云一键抓取写入仅支持氚云页面。当前页面：${describeOrigin(tab?.url || "")}`);
+    }
+    const workspaceDocumentState = await getWorkspaceDocumentState(directorySelection);
     const [metadata, frontendResult, backendResult] = await Promise.all([
       probeH3yunDesignerMetadata(tab),
       probeH3yunCodeEditor(tab, "frontend"),
@@ -1389,22 +2155,32 @@ async function handleH3yunCaptureAllAndWrite() {
     ]);
     const filesToWrite = [];
     const skipped = [];
+    const codeFiles = [];
+    let capturedFileCount = 0;
+
     if (metadata?.ok && metadata.controls?.length) {
       filesToWrite.push({ fileName: "FromCode.md", content: buildH3yunFromCodeContent(metadata) });
-      const designExists = await hasH3yunDesignDocument(directorySelection);
-      if (!designExists) {
-        filesToWrite.push({ fileName: H3YUN_DESIGN_FILE_NAME, content: buildDesignMdContent(metadata) });
-      }
+      capturedFileCount += 1;
     } else { skipped.push("图形控件"); }
     if (frontendResult?.ok && frontendResult.sourceContent) {
-      filesToWrite.push({ fileName: resolveH3yunFrontendFileName({ pageUrl: frontendResult.pageUrl || tab.url }), content: frontendResult.sourceContent });
+      const frontendFileName = resolveH3yunFrontendFileName({ pageUrl: frontendResult.pageUrl || tab.url });
+      codeFiles.push(frontendFileName);
+      filesToWrite.push({ fileName: frontendFileName, content: frontendResult.sourceContent });
+      capturedFileCount += 1;
     } else { skipped.push("前端 JS"); }
     if (backendResult?.ok && backendResult.sourceContent) {
-      filesToWrite.push({ fileName: resolveH3yunBackendFileName({ sourceContent: backendResult.sourceContent, pageUrl: backendResult.pageUrl || tab.url }), content: backendResult.sourceContent });
+      const backendFileName = resolveH3yunBackendFileName({ sourceContent: backendResult.sourceContent, pageUrl: backendResult.pageUrl || tab.url });
+      codeFiles.push(backendFileName);
+      filesToWrite.push({ fileName: backendFileName, content: backendResult.sourceContent });
+      capturedFileCount += 1;
     } else { skipped.push("后端 C#"); }
-    if (!filesToWrite.length) {
+    if (!capturedFileCount) {
       throw new Error("当前页面没有挂载图形控件、前端 JS 或后端 C# 编辑器。");
     }
+    filesToWrite.unshift(...buildMissingWorkspaceDocumentFiles(
+      buildH3yunWorkspaceDocumentInput(metadata, pageTypeConfig, tab.url, codeFiles),
+      workspaceDocumentState
+    ));
     await writeFilesToSelection(directorySelection, filesToWrite);
     await updateDirectoryInfo(pageType, targetScope);
     const missingChildCodeCount = countMissingH3yunChildCodes(metadata);
@@ -1414,6 +2190,14 @@ async function handleH3yunCaptureAllAndWrite() {
       `未挂载：${skipped.join("、") || "无"}`,
       missingChildCodeCount ? `子表控件编码缺失：${missingChildCodeCount} 个` : "子表控件编码缺失：无"
     ]);
+      },
+      {
+        expectedPlatformKey: PLATFORM_CONFIG.h3yun.platformKey,
+        directoryMode: "readwrite",
+        syncPlatform: false,
+        collectExtraResults: collectH3yunLazyLoadWarning
+      }
+    );
   } catch (error) {
     setStatus(`氚云一键抓取写入失败。\n${error?.message || String(error)}`, {
       level: "error",
@@ -1422,32 +2206,6 @@ async function handleH3yunCaptureAllAndWrite() {
   } finally {
     setBusy(false);
   }
-}
-
-// 控件信息抓取写入时，同时生成 FromCode.md（控件结构）和 DESIGN.md（用户手写设计/任务，已存在时不覆盖）。
-function buildDesignMdContent(metadata) {
-  const appCode = String(metadata?.appCode || "");
-  const formId = String(metadata?.formId || "");
-  return [
-    "# 设计说明",
-    "",
-    "> 此文件用于记录表单设计思路和开发任务，不会被自动抓取覆盖。",
-    "> 请在此文件内自由编写内容。",
-    "",
-    "## 基本信息",
-    "",
-    `- 应用编码：${appCode}`,
-    `- 表单ID：${formId}`,
-    "",
-    "## 设计思路",
-    "",
-    "",
-    "",
-    "## 开发任务",
-    "",
-    "- [ ] ",
-    "",
-  ].join("\n");
 }
 
 function handlePlatformTabClick(event) {
@@ -3554,8 +4312,24 @@ frontendCaptureWriteButton.addEventListener("click", () => runWithButtonBusy(fro
 frontendWritebackButton.addEventListener("click", () => runWithButtonBusy(frontendWritebackButton, handleImportAndWriteBack));
 bizruleCaptureWriteButton.addEventListener("click", () => runWithButtonBusy(bizruleCaptureWriteButton, handleBizruleCaptureAndWrite));
 bizruleWritebackButton.addEventListener("click", () => runWithButtonBusy(bizruleWritebackButton, handleBizruleWriteback));
-openVscodeButton.addEventListener("click", () => runWithButtonBusy(openVscodeButton, () => handleOpenEditor("vscode")));
-openIdeaButton.addEventListener("click", () => runWithButtonBusy(openIdeaButton, () => handleOpenEditor("idea")));
+launcherMainButton.addEventListener("click", () => runWithButtonBusy(launcherMainButton, () => handleOpenCustomLauncher()));
+launcherMenuButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  setLauncherMenuOpen(!isLauncherMenuOpen);
+});
+launcherMenu.addEventListener("click", (event) => {
+  const button = event.target.closest("[data-launcher-id]");
+  if (!button) {
+    return;
+  }
+  event.preventDefault();
+  runWithButtonBusy(button, () => handleOpenCustomLauncher(button.dataset.launcherId));
+});
+document.addEventListener("click", (event) => {
+  if (!event.target.closest("#launcher-control")) {
+    setLauncherMenuOpen(false);
+  }
+});
 openOptionsButton.addEventListener("click", () => chrome.runtime.openOptionsPage());
 h3yunCaptureAllButton.addEventListener("click", () => runWithButtonBusy(h3yunCaptureAllButton, handleH3yunCaptureAllAndWrite));
 h3yunFrontendWritebackButton.addEventListener("click", () => runWithButtonBusy(h3yunFrontendWritebackButton, () => handleH3yunCodeWriteback("frontend")));
@@ -3568,8 +4342,10 @@ targetPathToggleButton.addEventListener("click", handleToggleTargetPathPanel);
 recentPathsListEl.addEventListener("click", handleRecentPathsClick);
 copyLogButton.addEventListener("click", handleCopyRuntimeLog);
 exportLogButton.addEventListener("click", handleExportRuntimeLog);
+exportDiagnosticButton.addEventListener("click", handleExportDiagnosticPackage);
 
 async function init() {
+  renderLauncherControls(await loadConfig());
   const pageContext = await updatePageInfo();
   renderCurrentPageUrl(pageContext.tab);
   const isDirectoryInfoReady = await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);

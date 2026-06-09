@@ -174,6 +174,187 @@ body {
   align-items: center;
 }
 
+.launcher-settings-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.launcher-nav {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--panel-soft);
+  overflow-x: auto;
+}
+
+.launcher-nav-button {
+  display: grid;
+  grid-template-columns: 30px minmax(96px, 1fr);
+  gap: 8px;
+  align-items: center;
+  min-width: 152px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.launcher-nav-button:hover,
+.launcher-nav-button[aria-pressed="true"] {
+  border-color: var(--border);
+  background: #fff;
+}
+
+.launcher-nav-button.is-disabled {
+  color: var(--muted);
+}
+
+.launcher-nav-button .launcher-settings-icon {
+  width: 28px;
+  height: 28px;
+}
+
+.launcher-nav-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.launcher-nav-copy strong,
+.launcher-nav-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launcher-nav-copy strong {
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.launcher-nav-copy small {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.launcher-detail-panel {
+  min-width: 0;
+}
+
+.launcher-settings-item {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.launcher-settings-head {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+}
+
+.launcher-settings-icon {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.launcher-settings-title {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.launcher-settings-title strong,
+.launcher-settings-title small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.launcher-settings-title small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.launcher-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.launcher-actions .ghost-btn {
+  min-height: 36px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 12px;
+}
+
+.launcher-form-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.launcher-form-grid > .field {
+  margin-top: 0;
+}
+
+.launcher-wide-field {
+  grid-column: 1 / -1;
+}
+
+.launcher-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.launcher-meta-row code {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--panel-soft);
+  color: var(--ink);
+}
+
+.launcher-icon-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--ghost);
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.launcher-icon-upload input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 input {
   width: 100%;
   padding: 13px 14px;
@@ -264,6 +445,17 @@ input:focus {
   gap: 12px;
   align-items: center;
   margin-top: 14px;
+}
+
+.diagnostic-summary {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  border: 1px solid #d8e3f0;
+  border-radius: 6px;
+  background: #f7fbff;
+  color: #334155;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .download-link {
@@ -375,9 +567,7 @@ input:focus {
 }
 
 .docs-panel {
-  min-height: 420px;
-  max-height: 560px;
-  overflow: auto;
+  min-height: 320px;
   padding: 14px;
   border: 1px solid rgba(207, 219, 213, 0.82);
   border-radius: 16px;
@@ -387,9 +577,6 @@ input:focus {
 .release-timeline {
   display: grid;
   gap: 12px;
-  max-height: 500px;
-  overflow: auto;
-  padding-right: 4px;
 }
 
 .release-card {
@@ -440,8 +627,6 @@ input:focus {
 .readonly-list {
   display: grid;
   gap: 8px;
-  max-height: 390px;
-  overflow: auto;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -460,9 +645,6 @@ input:focus {
 .usage-doc {
   display: grid;
   gap: 10px;
-  max-height: 390px;
-  overflow: auto;
-  padding-right: 2px;
 }
 
 .usage-item {
@@ -513,7 +695,6 @@ input:focus {
 
 .control-reference-table-wrap {
   overflow-x: auto;
-  max-height: 430px;
   border: 1px solid rgba(207, 219, 213, 0.92);
   border-radius: 14px;
   background: #fff;
@@ -659,8 +840,23 @@ button:disabled {
   }
 
   .sticky-actions,
-  .inline-action-row {
+  .inline-action-row,
+  .launcher-form-grid,
+  .launcher-settings-head {
     grid-template-columns: 1fr;
+  }
+
+  .launcher-nav {
+    margin-inline: -4px;
+    padding: 6px;
+  }
+
+  .launcher-nav-button {
+    min-width: 136px;
+  }
+
+  .launcher-actions {
+    justify-content: flex-start;
   }
 
   .intro {
@@ -689,16 +885,7 @@ button:disabled {
   }
 
   .docs-panel {
-    max-height: none;
-    overflow: visible;
     padding: 12px;
-  }
-
-  .usage-doc,
-  .readonly-list,
-  .release-timeline {
-    max-height: none;
-    overflow: visible;
   }
 
   .reference-hint-pill {
