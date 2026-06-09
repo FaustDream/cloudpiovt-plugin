@@ -19,7 +19,7 @@
             </div>
             <div class="intro-version" aria-label="当前扩展版本">
               <span>当前版本</span>
-              <strong id="current-version">1.3.0</strong>
+              <strong id="current-version">1.4.0</strong>
             </div>
           </section>
 
@@ -51,7 +51,7 @@
               <div class="overview-grid">
                 <article class="overview-tile">
                   <span class="tile-label">版本</span>
-                  <strong id="overview-version">1.3.0</strong>
+                  <strong id="overview-version">1.4.0</strong>
                   <p>更新记录在下方集中查看。</p>
                 </article>
                 <article class="overview-tile">
@@ -60,7 +60,7 @@
                   <p>选择应用、绝对路径历史和打开编辑器依赖它。</p>
                 </article>
                 <article class="overview-tile">
-                  <span class="tile-label">编辑器路径</span>
+                  <span class="tile-label">打开方式</span>
                   <strong id="path-summary">正在加载...</strong>
                   <p>未配置时可先手动粘贴路径保存。</p>
                 </article>
@@ -92,32 +92,15 @@
             <section id="editor-paths" class="config-section">
               <div class="section-copy">
                 <h2>应用路径</h2>
-                <p>只配置你实际使用的编辑器；未安装原生助手时仍可手动粘贴路径。</p>
+                <p>用导航栏切换打开方式；置顶项作为弹窗主按钮默认打开软件。</p>
               </div>
 
-              <label class="field">
-                <span class="field-label">VS Code 应用路径</span>
-                <div class="inline-action-row">
-                  <input
-                    id="vscode-executable-path"
-                    type="text"
-                    placeholder="例如：C:\\Users\\Lynn\\AppData\\Local\\Programs\\Microsoft VS Code\\Code.exe"
-                  >
-                  <button id="pick-vscode-btn" class="ghost-btn" type="button">选择应用</button>
-                </div>
-              </label>
+              <div class="update-action-row">
+                <button id="discover-launchers-btn" class="ghost-btn" type="button">检测内置软件</button>
+                <button id="add-launcher-btn" class="ghost-btn" type="button">新增打开方式</button>
+              </div>
 
-              <label class="field">
-                <span class="field-label">IDEA 应用路径</span>
-                <div class="inline-action-row">
-                  <input
-                    id="idea-executable-path"
-                    type="text"
-                    placeholder="例如：C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe"
-                  >
-                  <button id="pick-idea-btn" class="ghost-btn" type="button">选择应用</button>
-                </div>
-              </label>
+              <div id="launcher-list" class="launcher-settings-list" aria-label="打开方式列表"></div>
             </section>
 
             <section id="settings-runtime" class="config-section runtime-section">
@@ -125,6 +108,11 @@
                 <h2>运行日志</h2>
                 <p>设置保存、路径选择和原生助手检测结果会显示在这里。</p>
               </div>
+              <div class="update-action-row">
+                <button id="copy-diagnostic-summary-btn" class="ghost-btn" type="button">复制诊断摘要</button>
+                <button id="export-last-diagnostic-btn" class="ghost-btn" type="button">导出最近诊断 JSON</button>
+              </div>
+              <p id="last-diagnostic-summary" class="diagnostic-summary">最近诊断：未生成</p>
               <pre id="settings-status" class="status-output">正在加载当前设置和运行日志...</pre>
             </section>
 
@@ -220,8 +208,8 @@
                           <p>进入业务规则页后先抓取 .java 文件，本地改完再回写；同一页面不要同时打开多个业务规则，避免命中错误 Monaco model。</p>
                         </article>
                         <article class="usage-item">
-                          <h5>4. 用 README.MD 和 FromCode.md 对齐上下文</h5>
-                          <p>前端抓取会同步项目说明和控件编码文档，回写不会覆盖这些说明文件。</p>
+                          <h5>4. 用协作文件对齐上下文</h5>
+                          <p>抓取会按需补齐 README.md、AGENTS.md、DESIGN.md，并刷新 FromCode.md；云枢 JS 通过业务规则传参协作。</p>
                         </article>
                       </div>
                     </article>
@@ -244,11 +232,11 @@
                         </article>
                         <article class="usage-item">
                           <h5>2. 使用一键抓取写入</h5>
-                          <p>一次写入 FromCode.md、表单 ID 对应的 .js 文件和 C# 类名对应的 .cs 文件；未挂载区域会跳过，不阻断已抓到的内容。</p>
+                          <p>一次补齐 README.md、AGENTS.md、DESIGN.md、FromCode.md，并写入表单 ID 对应的 .js 文件和 C# 类名对应的 .cs 文件；未挂载区域会跳过。</p>
                         </article>
                         <article class="usage-item">
                           <h5>3. 在本地维护设计与代码</h5>
-                          <p>DESIGN.md 只在首次缺失时创建，后续保留人工内容；旧版 design.md 存在时也不会重复生成；FromCode.md 用于核对字段编码、控件名称和控件类型。</p>
+                          <p>README.md 用于用户填写需求，DESIGN.md 用于 AI 整理实现逻辑和代码文件，FromCode.md 用于核对字段编码；氚云 JS 和 C# 通过 Ajax 互通。</p>
                         </article>
                         <article class="usage-item">
                           <h5>4. 分别回写前端和后端</h5>

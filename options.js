@@ -6,24 +6,53 @@ import {
   saveConfig
 } from "./lib/config.js";
 import {
+  applyDiscoveredLaunchers,
+  createCustomLauncherDraft,
+  getAvailableLaunchers,
+  getDefaultArgumentsTemplate,
+  getLauncherIconPath,
+  normalizeCustomLaunchers,
+  pinLauncher
+} from "./lib/custom-launchers.js";
+import {
   CONTROL_TYPE_REFERENCE,
   H3YUN_CONTROL_TYPE_REFERENCE
 } from "./lib/control-metadata.js";
-import { pickNativeEditor, probeNativeHost } from "./lib/native-host.js";
+import {
+  deleteLauncherIcon,
+  discoverNativeLaunchers,
+  extractExecutableIcon,
+  pickNativeEditor,
+  probeNativeHost,
+  saveLauncherIcon
+} from "./lib/native-host.js";
 import { CURRENT_EXTENSION_VERSION, RELEASE_NOTES } from "./lib/release-notes.js";
 import { checkForUpdate, syncFromGit } from "./lib/update-check.js";
+import {
+  PREFLIGHT_OPERATION_IDS,
+  PREFLIGHT_SEVERITY,
+  buildDiagnosticPackage,
+  createPreflightResult,
+  formatPreflightStatusLines,
+  hasBlockingPreflightResult,
+  loadLastDiagnosticPackage,
+  saveLastDiagnosticPackage,
+  summarizeDiagnosticPackage
+} from "./lib/preflight-diagnostics.js";
 
 const form = document.querySelector("#settings-form");
 const saveButton = document.querySelector("#save-btn");
 const resetButton = document.querySelector("#reset-btn");
-const vscodePathField = document.querySelector("#vscode-executable-path");
-const ideaPathField = document.querySelector("#idea-executable-path");
 const autoCheckUpdatesField = document.querySelector("#auto-check-updates");
 const checkUpdateButton = document.querySelector("#check-update-btn");
 const syncUpdateButton = document.querySelector("#sync-update-btn");
 const updateStatusOutput = document.querySelector("#update-status");
-const pickVscodeButton = document.querySelector("#pick-vscode-btn");
-const pickIdeaButton = document.querySelector("#pick-idea-btn");
+const discoverLaunchersButton = document.querySelector("#discover-launchers-btn");
+const addLauncherButton = document.querySelector("#add-launcher-btn");
+const launcherListEl = document.querySelector("#launcher-list");
+const copyDiagnosticSummaryButton = document.querySelector("#copy-diagnostic-summary-btn");
+const exportLastDiagnosticButton = document.querySelector("#export-last-diagnostic-btn");
+const lastDiagnosticSummaryEl = document.querySelector("#last-diagnostic-summary");
 const currentVersionEl = document.querySelector("#current-version");
 const overviewVersionEl = document.querySelector("#overview-version");
 const pathSummaryEl = document.querySelector("#path-summary");
@@ -41,6 +70,8 @@ const platformTabButtons = Array.from(document.querySelectorAll("[data-platform-
 const platformPanels = Array.from(document.querySelectorAll("[data-platform-panel][data-platform-group]"));
 
 let activeDocsTabKey = "reference";
+let currentLaunchers = [];
+let selectedLauncherId = "";
 
 function setStatus(message) {
   statusOutput.textContent = message;
@@ -54,14 +85,95 @@ function setNativeHostStatus(message) {
   nativeHostStatus.textContent = message;
 }
 
+function buildDownloadTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function downloadJsonFile(fileName, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function buildExtensionDiagnosticContext() {
+  return {
+    extension: {
+      name: chrome.runtime.getManifest().name,
+      version: chrome.runtime.getManifest().version
+    },
+    browser: {
+      userAgent: navigator.userAgent
+    }
+  };
+}
+
+function createNativeHostPreflightResult(hostStatus) {
+  if (hostStatus.available) {
+    return createPreflightResult({
+      operationId: PREFLIGHT_OPERATION_IDS.updateSync,
+      checkId: "nativeHost.ping",
+      severity: PREFLIGHT_SEVERITY.info,
+      ok: true,
+      evidence: "native host available",
+      data: hostStatus
+    });
+  }
+
+  return createPreflightResult({
+    operationId: PREFLIGHT_OPERATION_IDS.updateSync,
+    checkId: "nativeHost.ping",
+    severity: PREFLIGHT_SEVERITY.blocker,
+    ok: false,
+    errorCode: "NATIVE_HOST_UNAVAILABLE",
+    evidence: hostStatus.error || "native host unavailable",
+    nextAction: "重新运行 scripts\\install-native-host.cmd 后重试。",
+    data: hostStatus
+  });
+}
+
+function createUpdateOverwriteRiskResult() {
+  return createPreflightResult({
+    operationId: PREFLIGHT_OPERATION_IDS.updateSync,
+    checkId: "update.gitResetRisk",
+    severity: PREFLIGHT_SEVERITY.warning,
+    ok: true,
+    errorCode: "",
+    evidence: "syncFromGit uses git reset --hard origin/master through Native Host",
+    nextAction: "",
+    data: {
+      command: "git reset --hard origin/master"
+    }
+  });
+}
+
+async function renderLastDiagnosticSummary() {
+  const packageData = await loadLastDiagnosticPackage();
+  if (!packageData) {
+    lastDiagnosticSummaryEl.textContent = "最近诊断：未生成";
+    return null;
+  }
+
+  lastDiagnosticSummaryEl.textContent = [
+    `最近诊断：${packageData.createdAt || "未知时间"}`,
+    `operationId=${packageData.operationId || "unknown"}`
+  ].join("；");
+  return packageData;
+}
+
 function setVersionLabels() {
   currentVersionEl.textContent = CURRENT_EXTENSION_VERSION;
   overviewVersionEl.textContent = CURRENT_EXTENSION_VERSION;
 }
 
 function renderPathSummary(config) {
-  const configuredCount = [config.vscodeExecutablePath, config.ideaExecutablePath].filter(Boolean).length;
-  pathSummaryEl.textContent = configuredCount ? `已配置 ${configuredCount} 个` : "未配置";
+  const availableCount = getAvailableLaunchers(config.customLaunchers).length;
+  pathSummaryEl.textContent = availableCount ? `可用 ${availableCount} 个` : "未配置";
 }
 
 function formatUpdateCheckTime(value) {
@@ -314,32 +426,241 @@ function renderH3yunControlTypeReference() {
   );
 }
 
+function createTextInput({ label, value, placeholder, launcherId, fieldName, wide = false }) {
+  const wrapper = document.createElement("label");
+  wrapper.className = wide ? "field launcher-wide-field" : "field";
+  const labelEl = document.createElement("span");
+  labelEl.className = "field-label";
+  labelEl.textContent = label;
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = value || "";
+  input.placeholder = placeholder || "";
+  input.dataset.launcherId = launcherId;
+  input.dataset.launcherField = fieldName;
+  wrapper.append(labelEl, input);
+  return wrapper;
+}
+
+function createLauncherButton(label, launcherId, action, options = {}) {
+  const button = document.createElement("button");
+  button.className = "ghost-btn";
+  button.type = "button";
+  button.textContent = label;
+  button.dataset.launcherId = launcherId;
+  button.dataset.launcherAction = action;
+  if (options.disabled) {
+    button.disabled = true;
+  }
+  return button;
+}
+
+function createLauncherIconUpload(launcher) {
+  const label = document.createElement("label");
+  label.className = "launcher-icon-upload";
+  label.textContent = "上传图标";
+  const input = document.createElement("input");
+  input.type = "file";
+  input.accept = "image/png,image/webp";
+  input.dataset.launcherId = launcher.launcherId;
+  input.dataset.launcherAction = "upload-icon";
+  label.append(input);
+  return label;
+}
+
+function createLauncherIcon(launcher, size = 48) {
+  const icon = document.createElement("img");
+  icon.className = "launcher-settings-icon";
+  icon.src = getLauncherIconPath(launcher, size);
+  icon.alt = "";
+  return icon;
+}
+
+function renderLauncherNavButton(launcher) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "launcher-nav-button";
+  button.dataset.launcherId = launcher.launcherId;
+  button.dataset.launcherAction = "select";
+  button.setAttribute("aria-pressed", launcher.launcherId === selectedLauncherId ? "true" : "false");
+  if (launcher.pinned === true) {
+    button.classList.add("is-pinned");
+  }
+  if (launcher.enabled !== true) {
+    button.classList.add("is-disabled");
+  }
+
+  const icon = createLauncherIcon(launcher, 48);
+  const copy = document.createElement("span");
+  copy.className = "launcher-nav-copy";
+  const name = document.createElement("strong");
+  name.textContent = launcher.name;
+  const meta = document.createElement("small");
+  meta.textContent = launcher.pinned === true
+    ? "置顶"
+    : launcher.enabled === true
+      ? "已启用"
+      : "未启用";
+  copy.append(name, meta);
+  button.append(icon, copy);
+  return button;
+}
+
+function renderLauncherDetail(launcher) {
+  const item = document.createElement("article");
+  item.className = "launcher-settings-item";
+  item.dataset.launcherId = launcher.launcherId;
+
+  const head = document.createElement("div");
+  head.className = "launcher-settings-head";
+
+  const icon = createLauncherIcon(launcher, 48);
+
+  const title = document.createElement("div");
+  title.className = "launcher-settings-title";
+  const nameEl = document.createElement("strong");
+  nameEl.textContent = launcher.name;
+  const hintEl = document.createElement("small");
+  hintEl.textContent = launcher.pinned === true
+    ? "当前置顶，弹窗主按钮默认打开"
+    : launcher.builtin
+      ? "内置启动器，可禁用"
+      : "自定义启动器，可删除";
+  title.append(nameEl, hintEl);
+
+  const actions = document.createElement("div");
+  actions.className = "launcher-actions";
+  const enabledLabel = document.createElement("label");
+  enabledLabel.className = "toggle-field";
+  const enabledInput = document.createElement("input");
+  enabledInput.type = "checkbox";
+  enabledInput.checked = launcher.enabled === true;
+  enabledInput.dataset.launcherId = launcher.launcherId;
+  enabledInput.dataset.launcherField = "enabled";
+  const enabledTrack = document.createElement("span");
+  enabledTrack.className = "toggle-track";
+  enabledTrack.setAttribute("aria-hidden", "true");
+  const enabledCopy = document.createElement("span");
+  enabledCopy.className = "toggle-copy";
+  const enabledStrong = document.createElement("strong");
+  enabledStrong.textContent = "启用";
+  enabledCopy.append(enabledStrong);
+  enabledLabel.append(enabledInput, enabledTrack, enabledCopy);
+
+  actions.append(
+    enabledLabel,
+    createLauncherButton(launcher.pinned === true ? "已置顶" : "设为置顶", launcher.launcherId, "pin", { disabled: launcher.pinned === true }),
+    createLauncherButton("选择应用", launcher.launcherId, "pick-exe"),
+    createLauncherButton("恢复默认参数", launcher.launcherId, "restore-args"),
+    createLauncherIconUpload(launcher)
+  );
+  if (!launcher.builtin) {
+    actions.append(createLauncherButton("删除", launcher.launcherId, "delete"));
+  }
+
+  head.append(icon, title, actions);
+
+  const meta = document.createElement("div");
+  meta.className = "launcher-meta-row";
+  const launcherIdMeta = document.createElement("span");
+  launcherIdMeta.textContent = "launcherId=";
+  const launcherIdCode = document.createElement("code");
+  launcherIdCode.textContent = launcher.launcherId;
+  launcherIdMeta.append(launcherIdCode);
+  const iconKeyMeta = document.createElement("span");
+  iconKeyMeta.textContent = "iconKey=";
+  const iconKeyCode = document.createElement("code");
+  iconKeyCode.textContent = launcher.iconKey;
+  iconKeyMeta.append(iconKeyCode);
+  meta.append(launcherIdMeta, iconKeyMeta);
+
+  const fields = document.createElement("div");
+  fields.className = "launcher-form-grid";
+  fields.append(
+    createTextInput({
+      label: "显示名称",
+      value: launcher.name,
+      placeholder: "例如：Cursor",
+      launcherId: launcher.launcherId,
+      fieldName: "name"
+    }),
+    createTextInput({
+      label: "应用路径",
+      value: launcher.executablePath,
+      placeholder: "例如：C:\\Tools\\App\\app.exe",
+      launcherId: launcher.launcherId,
+      fieldName: "executablePath"
+    }),
+    createTextInput({
+      label: "参数模板",
+      value: launcher.argumentsTemplate,
+      placeholder: '"{rawPath}"',
+      launcherId: launcher.launcherId,
+      fieldName: "argumentsTemplate",
+      wide: true
+    })
+  );
+
+  item.append(head, meta, fields);
+  return item;
+}
+
+function renderLauncherList() {
+  currentLaunchers = normalizeCustomLaunchers(currentLaunchers);
+  const firstLauncher = currentLaunchers[0] || null;
+  const hasSelectedLauncher = currentLaunchers.some((launcher) => launcher.launcherId === selectedLauncherId);
+  selectedLauncherId = hasSelectedLauncher ? selectedLauncherId : firstLauncher?.launcherId || "";
+
+  const nav = document.createElement("div");
+  nav.className = "launcher-nav";
+  nav.setAttribute("role", "tablist");
+  nav.setAttribute("aria-label", "打开方式导航");
+  nav.append(...currentLaunchers.map(renderLauncherNavButton));
+
+  const selectedLauncher = findCurrentLauncher(selectedLauncherId) || firstLauncher;
+  const detail = document.createElement("div");
+  detail.className = "launcher-detail-panel";
+  if (selectedLauncher) {
+    detail.append(renderLauncherDetail(selectedLauncher));
+  }
+
+  launcherListEl.replaceChildren(nav, detail);
+}
+
+function updateLauncher(launcherId, patch) {
+  currentLaunchers = normalizeCustomLaunchers(currentLaunchers.map((launcher) => (
+    launcher.launcherId === launcherId
+      ? { ...launcher, ...patch }
+      : launcher
+  )));
+  renderLauncherList();
+  renderPathSummary({ customLaunchers: currentLaunchers });
+}
+
 function renderConfig(config) {
-  vscodePathField.value = config.vscodeExecutablePath;
-  ideaPathField.value = config.ideaExecutablePath;
+  currentLaunchers = normalizeCustomLaunchers(config.customLaunchers);
+  renderLauncherList();
   autoCheckUpdatesField.checked = config.autoCheckUpdates === true;
   renderPathSummary(config);
   renderUpdateResult(config.lastUpdateCheckResult);
   setStatus(
     [
       "配置已加载",
-      `VS Code 路径: ${config.vscodeExecutablePath || "未配置"}`,
-      `IDEA 路径: ${config.ideaExecutablePath || "未配置"}`,
+      `打开方式可用数量: ${getAvailableLaunchers(currentLaunchers).length}`,
       `自动检查更新: ${config.autoCheckUpdates ? "开启" : "关闭"}`
     ].join("\n")
   );
 }
 
-async function pickEditorPath(targetField, defaultHint) {
+async function pickLauncherExecutablePath(launcher) {
   // “选择应用”依赖原生助手；未安装时保留手动粘贴路径，避免用户被单个按钮卡住。
   const hostStatus = await probeNativeHost();
   if (!hostStatus.available) {
     setStatus("当前未安装原生助手，请先双击 scripts\\install-native-host.cmd；也可以临时手动粘贴应用路径后保存。");
-    targetField.focus();
     return;
   }
 
-  const response = await pickNativeEditor(targetField.value || defaultHint);
+  const response = await pickNativeEditor(launcher.executablePath || launcher.name);
   if (!response?.ok) {
     if (response?.cancelled) {
       setStatus("已取消选择应用。");
@@ -347,7 +668,26 @@ async function pickEditorPath(targetField, defaultHint) {
     }
     throw new Error(response?.error || "选择应用失败");
   }
-  targetField.value = response.executablePath || "";
+  const executablePath = response.executablePath || "";
+  const displayName = response.displayName || launcher.name;
+  let iconMessage = "已选择应用；请确认图标。";
+
+  const iconResponse = await extractExecutableIcon({
+    executablePath,
+    iconKey: launcher.iconKey
+  });
+  if (iconResponse?.ok) {
+    iconMessage = "已选择应用，并已从 exe 提取图标。";
+  } else if (!launcher.builtin) {
+    iconMessage = "已选择应用；未能从 exe 提取图标，请上传 png/webp 图标后保存。";
+  }
+
+  updateLauncher(launcher.launcherId, {
+    executablePath,
+    name: launcher.builtin ? launcher.name : displayName,
+    enabled: true
+  });
+  setStatus(iconMessage);
 }
 
 async function handleSubmit(event) {
@@ -355,9 +695,9 @@ async function handleSubmit(event) {
   saveButton.disabled = true;
 
   try {
+    syncLaunchersFromForm();
     const nextConfig = await saveConfig({
-      vscodeExecutablePath: vscodePathField.value,
-      ideaExecutablePath: ideaPathField.value,
+      customLaunchers: currentLaunchers,
       autoCheckUpdates: autoCheckUpdatesField.checked
     });
     renderConfig(nextConfig);
@@ -373,8 +713,7 @@ async function handleReset() {
   resetButton.disabled = true;
   try {
     const nextConfig = await saveConfig({
-      vscodeExecutablePath: DEFAULT_CONFIG.vscodeExecutablePath,
-      ideaExecutablePath: DEFAULT_CONFIG.ideaExecutablePath,
+      customLaunchers: DEFAULT_CONFIG.customLaunchers,
       autoCheckUpdates: DEFAULT_CONFIG.autoCheckUpdates,
       lastUpdateCheckResult: DEFAULT_CONFIG.lastUpdateCheckResult
     });
@@ -385,6 +724,235 @@ async function handleReset() {
   } finally {
     resetButton.disabled = false;
   }
+}
+
+async function handleDiscoverLaunchers() {
+  discoverLaunchersButton.disabled = true;
+  try {
+    const hostStatus = await probeNativeHost();
+    if (!hostStatus.available) {
+      setStatus("当前未安装原生助手，无法自动检测内置软件；可手动填写应用路径。");
+      return;
+    }
+
+    const response = await discoverNativeLaunchers();
+    if (!response?.ok) {
+      throw new Error(response?.error || "检测内置软件失败");
+    }
+
+    currentLaunchers = applyDiscoveredLaunchers(currentLaunchers, response.launchers || []);
+    renderLauncherList();
+    renderPathSummary({ customLaunchers: currentLaunchers });
+    const found = (response.launchers || []).filter((launcher) => launcher.executablePath).map((launcher) => launcher.name);
+    setStatus([
+      "内置软件检测完成。",
+      `找到：${found.length ? found.join("、") : "无"}`,
+      "点击保存设置后生效。"
+    ].join("\n"));
+  } catch (error) {
+    setStatus(`检测内置软件失败。\n${error?.message || String(error)}`);
+  } finally {
+    discoverLaunchersButton.disabled = false;
+  }
+}
+
+async function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(reader.error || new Error("读取图标文件失败"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function handleLauncherIconUpload(launcher, file) {
+  if (!file) {
+    return;
+  }
+  if (!["image/png", "image/webp"].includes(file.type)) {
+    setStatus("图标格式仅支持 png/webp。");
+    return;
+  }
+  if (file.size > 512 * 1024) {
+    setStatus("图标文件不能超过 512KB。");
+    return;
+  }
+
+  const hostStatus = await probeNativeHost();
+  if (!hostStatus.available) {
+    setStatus("上传图标需要原生助手生成 16/48/128 PNG，请先安装原生助手。");
+    return;
+  }
+
+  const response = await saveLauncherIcon({
+    iconKey: launcher.iconKey,
+    fileName: file.name,
+    content: await fileToDataUrl(file)
+  });
+  if (!response?.ok) {
+    throw new Error(response?.error || "保存图标失败");
+  }
+
+  renderLauncherList();
+  setStatus(`图标已保存：${launcher.name}\n已生成 16/48/128 PNG。`);
+}
+
+async function handleDeleteLauncher(launcher) {
+  if (launcher.builtin) {
+    setStatus("内置启动器不可删除，只能禁用。");
+    return;
+  }
+
+  const hostStatus = await probeNativeHost();
+  if (hostStatus.available) {
+    const response = await deleteLauncherIcon({ iconKey: launcher.iconKey });
+    if (!response?.ok) {
+      throw new Error(response?.error || "删除图标失败");
+    }
+  }
+
+  currentLaunchers = normalizeCustomLaunchers(currentLaunchers.filter((item) => item.launcherId !== launcher.launcherId));
+  selectedLauncherId = currentLaunchers[0]?.launcherId || "";
+  renderLauncherList();
+  renderPathSummary({ customLaunchers: currentLaunchers });
+  setStatus("自定义打开方式已删除；点击保存设置后生效。");
+}
+
+function findCurrentLauncher(launcherId) {
+  return currentLaunchers.find((launcher) => launcher.launcherId === launcherId) || null;
+}
+
+async function handleLauncherListClick(event) {
+  const actionButton = event.target.closest("[data-launcher-action]");
+  if (!actionButton || actionButton.tagName === "INPUT") {
+    return;
+  }
+
+  const launcher = findCurrentLauncher(actionButton.dataset.launcherId);
+  if (!launcher) {
+    return;
+  }
+
+  const action = actionButton.dataset.launcherAction;
+  try {
+    if (action === "select") {
+      syncLaunchersFromForm();
+      selectedLauncherId = launcher.launcherId;
+      renderLauncherList();
+      return;
+    }
+    if (action === "pin") {
+      currentLaunchers = pinLauncher(currentLaunchers, launcher.launcherId);
+      selectedLauncherId = launcher.launcherId;
+      renderLauncherList();
+      renderPathSummary({ customLaunchers: currentLaunchers });
+      setStatus("已设为置顶打开方式；点击保存设置后生效。");
+      return;
+    }
+    if (action === "pick-exe") {
+      await pickLauncherExecutablePath(launcher);
+      return;
+    }
+    if (action === "restore-args") {
+      updateLauncher(launcher.launcherId, {
+        argumentsTemplate: getDefaultArgumentsTemplate(launcher)
+      });
+      setStatus("参数模板已恢复默认；点击保存设置后生效。");
+      return;
+    }
+    if (action === "delete") {
+      await handleDeleteLauncher(launcher);
+    }
+  } catch (error) {
+    setStatus(`打开方式操作失败。\n${error?.message || String(error)}`);
+  }
+}
+
+async function handleLauncherListChange(event) {
+  const target = event.target;
+  if (target?.dataset?.launcherAction === "upload-icon") {
+    return;
+  }
+  const launcherId = target?.dataset?.launcherId || "";
+  const fieldName = target?.dataset?.launcherField || "";
+  const launcher = findCurrentLauncher(launcherId);
+  if (!launcher || !fieldName) {
+    return;
+  }
+
+  if (fieldName !== "enabled") {
+    return;
+  }
+
+  if (target.checked === true && !launcher.executablePath) {
+    updateLauncher(launcherId, { enabled: false });
+    setStatus("启用前需要先配置应用路径，或点击“检测内置软件”。");
+    return;
+  }
+
+  updateLauncher(launcherId, { enabled: target.checked === true });
+  setStatus("启用状态已更新；点击保存设置后生效。");
+}
+
+function handleLauncherListFocusOut(event) {
+  const target = event.target;
+  const launcherId = target?.dataset?.launcherId || "";
+  const fieldName = target?.dataset?.launcherField || "";
+  if (!launcherId || !fieldName || target.type === "checkbox") {
+    return;
+  }
+
+  currentLaunchers = normalizeCustomLaunchers(currentLaunchers.map((launcher) => (
+    launcher.launcherId === launcherId
+      ? { ...launcher, [fieldName]: target.value }
+      : launcher
+  )));
+  renderPathSummary({ customLaunchers: currentLaunchers });
+  setStatus("打开方式已更新；点击保存设置后生效。");
+}
+
+async function handleLauncherListFileChange(event) {
+  const target = event.target;
+  if (target?.dataset?.launcherAction !== "upload-icon") {
+    return;
+  }
+  const launcher = findCurrentLauncher(target.dataset.launcherId);
+  if (!launcher) {
+    return;
+  }
+
+  try {
+    await handleLauncherIconUpload(launcher, target.files?.[0] || null);
+  } catch (error) {
+    setStatus(`上传图标失败。\n${error?.message || String(error)}`);
+  } finally {
+    target.value = "";
+  }
+}
+
+async function handleAddLauncher() {
+  const draft = createCustomLauncherDraft({ seed: Date.now().toString(36) }, currentLaunchers);
+  currentLaunchers = normalizeCustomLaunchers([...currentLaunchers, draft]);
+  selectedLauncherId = draft.launcherId;
+  renderLauncherList();
+  renderPathSummary({ customLaunchers: currentLaunchers });
+  setStatus("已新增自定义打开方式；请选择应用并上传 png/webp 图标后保存。");
+}
+
+function syncLaunchersFromForm() {
+  const patchesById = new Map();
+  for (const element of launcherListEl.querySelectorAll("[data-launcher-field]")) {
+    const launcherId = element.dataset.launcherId;
+    const fieldName = element.dataset.launcherField;
+    const patch = patchesById.get(launcherId) || {};
+    patch[fieldName] = element.type === "checkbox" ? element.checked === true : element.value;
+    patchesById.set(launcherId, patch);
+  }
+
+  currentLaunchers = normalizeCustomLaunchers(currentLaunchers.map((launcher) => ({
+    ...launcher,
+    ...(patchesById.get(launcher.launcherId) || {})
+  })));
 }
 
 async function handleCheckUpdate() {
@@ -406,12 +974,87 @@ async function handleSyncUpdate() {
   setUpdateStatus("正在从 Git 远程同步更新...");
 
   try {
+    const hostStatus = await probeNativeHost();
+    const preflightResults = [
+      createNativeHostPreflightResult(hostStatus),
+      createUpdateOverwriteRiskResult()
+    ];
+    setUpdateStatus([
+      "自动预检完成。",
+      `operationId=${PREFLIGHT_OPERATION_IDS.updateSync}`,
+      ...formatPreflightStatusLines(preflightResults)
+    ].join("\n"));
+    if (hasBlockingPreflightResult(preflightResults)) {
+      await saveLastDiagnosticPackage(buildDiagnosticPackage({
+        ...buildExtensionDiagnosticContext(),
+        operationId: PREFLIGHT_OPERATION_IDS.updateSync,
+        logs: [],
+        pageProbe: {},
+        directorySnapshot: {},
+        preflightResults,
+        nativeHost: hostStatus
+      }));
+      await renderLastDiagnosticSummary();
+      return;
+    }
+
     const result = await syncFromGit();
+    await saveLastDiagnosticPackage(buildDiagnosticPackage({
+      ...buildExtensionDiagnosticContext(),
+      operationId: PREFLIGHT_OPERATION_IDS.updateSync,
+      logs: [],
+      pageProbe: {},
+      directorySnapshot: {},
+      preflightResults,
+      nativeHost: hostStatus,
+      updateSync: result
+    }));
+    await renderLastDiagnosticSummary();
     renderUpdateResult(result);
   } catch (error) {
     setUpdateStatus(`同步更新失败。\n${error?.message || String(error)}`);
   } finally {
     syncUpdateButton.disabled = false;
+  }
+}
+
+async function handleExportLastDiagnostic() {
+  exportLastDiagnosticButton.disabled = true;
+  try {
+    const packageData = await loadLastDiagnosticPackage();
+    if (!packageData) {
+      setStatus("暂无最近诊断 JSON；请先在弹窗或设置页执行一次失败操作。");
+      return;
+    }
+
+    downloadJsonFile(
+      `cloudpiovt-plugin-last-diagnostic-${buildDownloadTimestamp()}.json`,
+      packageData
+    );
+    await renderLastDiagnosticSummary();
+    setStatus(`最近诊断 JSON 已导出。\ncreatedAt=${packageData.createdAt || ""}`);
+  } catch (error) {
+    setStatus(`导出最近诊断失败。\n${error?.message || String(error)}`);
+  } finally {
+    exportLastDiagnosticButton.disabled = false;
+  }
+}
+
+async function handleCopyDiagnosticSummary() {
+  copyDiagnosticSummaryButton.disabled = true;
+  try {
+    const packageData = await renderLastDiagnosticSummary();
+    if (!packageData) {
+      setStatus("暂无最近诊断摘要；请先执行一次带预检的操作。");
+      return;
+    }
+
+    await navigator.clipboard.writeText(summarizeDiagnosticPackage(packageData));
+    setStatus("最近诊断摘要已复制。");
+  } catch (error) {
+    setStatus(`复制诊断摘要失败。\n${error?.message || String(error)}`);
+  } finally {
+    copyDiagnosticSummaryButton.disabled = false;
   }
 }
 
@@ -426,6 +1069,7 @@ async function init() {
   setActivePlatform("reference", "cloudpivot");
   setActivePlatform("flow", "cloudpivot");
   renderConfig(await loadConfig());
+  await renderLastDiagnosticSummary();
   const hostStatus = await probeNativeHost();
   setNativeHostStatus(
     hostStatus.available
@@ -439,30 +1083,6 @@ async function init() {
   );
 }
 
-pickVscodeButton.addEventListener("click", () => runWithButtonBusy(pickVscodeButton, async () => {
-  pickVscodeButton.disabled = true;
-  try {
-    await pickEditorPath(vscodePathField, "Code.exe");
-    setStatus("已回填 VS Code 路径。");
-  } catch (error) {
-    setStatus(`选择 VS Code 路径失败。\n${error?.message || String(error)}`);
-  } finally {
-    pickVscodeButton.disabled = false;
-  }
-}));
-
-pickIdeaButton.addEventListener("click", () => runWithButtonBusy(pickIdeaButton, async () => {
-  pickIdeaButton.disabled = true;
-  try {
-    await pickEditorPath(ideaPathField, "idea64.exe");
-    setStatus("已回填 IDEA 路径。");
-  } catch (error) {
-    setStatus(`选择 IDEA 路径失败。\n${error?.message || String(error)}`);
-  } finally {
-    pickIdeaButton.disabled = false;
-  }
-}));
-
 for (const button of docsTabButtons) {
   button.addEventListener("click", () => setActiveDocsTab(button.dataset.docsTab));
 }
@@ -475,6 +1095,14 @@ form.addEventListener("submit", (event) => runWithButtonBusy(saveButton, () => h
 resetButton.addEventListener("click", () => runWithButtonBusy(resetButton, handleReset));
 checkUpdateButton.addEventListener("click", () => runWithButtonBusy(checkUpdateButton, handleCheckUpdate));
 syncUpdateButton.addEventListener("click", () => runWithButtonBusy(syncUpdateButton, handleSyncUpdate));
+discoverLaunchersButton.addEventListener("click", () => runWithButtonBusy(discoverLaunchersButton, handleDiscoverLaunchers));
+addLauncherButton.addEventListener("click", () => runWithButtonBusy(addLauncherButton, handleAddLauncher));
+launcherListEl.addEventListener("click", handleLauncherListClick);
+launcherListEl.addEventListener("change", handleLauncherListChange);
+launcherListEl.addEventListener("change", handleLauncherListFileChange);
+launcherListEl.addEventListener("focusout", handleLauncherListFocusOut);
+copyDiagnosticSummaryButton.addEventListener("click", () => runWithButtonBusy(copyDiagnosticSummaryButton, handleCopyDiagnosticSummary));
+exportLastDiagnosticButton.addEventListener("click", () => runWithButtonBusy(exportLastDiagnosticButton, handleExportLastDiagnostic));
 
 init().catch((error) => {
   setStatus(`配置加载失败。\n${error?.message || String(error)}`);

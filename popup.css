@@ -438,7 +438,8 @@ button:disabled {
 .secondary-btn,
 .launch-btn,
 .ghost-launch-btn,
-.editor-launch-btn {
+.launcher-main-btn,
+.launcher-menu-btn {
   position: relative;
   display: inline-flex;
   align-items: center;
@@ -454,7 +455,8 @@ button:disabled {
 .secondary-btn.is-running::before,
 .launch-btn.is-running::before,
 .ghost-launch-btn.is-running::before,
-.editor-launch-btn.is-running::before,
+.launcher-main-btn.is-running::before,
+.launcher-menu-btn.is-running::before,
 .icon-btn.is-running::before,
 .recent-path-btn.is-running::before,
 .recent-path-remove.is-running::before {
@@ -548,48 +550,94 @@ button:disabled {
   background: #fff;
 }
 
-.editor-launch-btn {
-  min-width: 104px;
-  padding: 10px 12px;
-  border: 1px solid rgba(35, 32, 27, 0.1);
-  color: #fff;
-  box-shadow: 0 10px 20px rgba(35, 32, 27, 0.14);
+.launcher-control {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 38px 24px;
+  align-items: stretch;
+  border: 1px solid rgba(35, 32, 27, 0.16);
+  border-radius: 12px;
+  background: #25272c;
+  box-shadow: 0 10px 20px rgba(35, 32, 27, 0.16);
 }
 
-.editor-launch-icon {
-  display: inline-flex;
+.launcher-main-btn,
+.launcher-menu-btn {
+  min-width: 0;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #fff;
+}
+
+.launcher-main-btn {
+  border-radius: 11px 0 0 11px;
+}
+
+.launcher-menu-btn {
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 0 11px 11px 0;
+  font-size: 12px;
+}
+
+.launcher-main-btn:hover:not(:disabled),
+.launcher-menu-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.launcher-main-icon,
+.launcher-menu-icon {
+  display: block;
   width: 18px;
   height: 18px;
-  flex: 0 0 18px;
+  object-fit: contain;
 }
 
-.editor-launch-icon svg {
+.launcher-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 190px;
+  max-width: 260px;
+  padding: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  background: #202226;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24);
+}
+
+.launcher-menu[hidden] {
+  display: none;
+}
+
+.launcher-menu-item {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
   width: 100%;
-  height: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: transparent;
+  color: #f5f7fa;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: left;
 }
 
-.vscode-btn {
-  background: linear-gradient(135deg, #0065a9 0%, #1f9cf0 100%);
+.launcher-menu-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.vscode-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #00558e 0%, #1688d4 100%);
-}
-
-.vscode-btn .editor-launch-icon {
-  color: #fff;
-}
-
-.vscode-btn .editor-launch-icon svg {
-  fill: currentColor;
-}
-
-.idea-btn {
-  background: linear-gradient(135deg, #1f1638 0%, #3d155f 45%, #0059d6 100%);
-}
-
-.idea-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #170f2d 0%, #34114f 45%, #004db8 100%);
+.launcher-menu-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .status-card {
