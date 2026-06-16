@@ -30,6 +30,9 @@ npm-debug.log*
 .codebuddy/
 
 # Project: auto-generated docs (local only)
-docs/architecture.md
-docs/changelog-ai.md
-docs/launcher-system-plan.md
+docs/AI文档/
+
+# Project: tests (local only, not deployed with extension)
+tests/
+vitest.config.js
+coverage/

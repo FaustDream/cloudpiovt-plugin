@@ -1,14 +1,16 @@
 {
-  "version": "1.4.0",
-  "title": "开发助手 1.4.0",
-  "releaseDate": "2026-06-09",
+  "version": "1.4.5",
+  "title": "开发助手 1.4.5",
+  "releaseDate": "2026-06-16",
   "author": "凌致",
   "projectUrl": "https://github.com/FaustDream/chrome-plugin",
   "downloadUrl": "https://github.com/FaustDream/chrome-plugin/archive/refs/heads/master.zip",
   "sha256": "",
   "notes": [
+    "1.4.5 修复氚云子表自定义编码无法读取：优先从 Vue allControls 全局状态读取完整控件编码，DOM 扫描作为兜底。",
+    "1.4.2 氚云子表控件编码缺失时自动注入 DOM 诊断快照，导出诊断 JSON 可供分析自定义编码匹配失败根因。",
+    "1.4.1 修复氚云代码回写失败和设置页无法打开资源管理器；重构 AGENTS.md 全局规则；增强 Java 代码规则。",
     "1.4.0 新增可配置打开方式启动器，支持内置软件检测、自定义软件、排序和三尺寸图标。",
-    "1.3.5 统一补建 README.md、AGENTS.md、DESIGN.md，并保留 FromCode.md 作为编码文件；新增自动预检和诊断 JSON。",
     "源码包下载不依赖 GitHub Releases；用户下载后解压并在浏览器扩展页重新加载文件夹。",
     "源码包必须包含 .native-host/publish/cloudpiovt_native_host.exe，否则原生助手安装仍会失败。",
     "后续发布新版本时同步更新 manifest.json、lib/release-notes.js 和本文件的 version 字段。"
