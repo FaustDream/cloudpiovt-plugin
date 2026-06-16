@@ -1010,7 +1010,7 @@ function createLauncherPreflightResult(operationId, launcher) {
       ok: false,
       errorCode: "NO_AVAILABLE_LAUNCHER",
       evidence: "No enabled launcher with executablePath",
-      nextAction: "打开设置页，在“打开方式”中启用并配置至少一个软件路径。"
+      nextAction: "打开设置页，在\"打开方式\"中启用并配置至少一个软件路径。"
     });
   }
 
@@ -1077,6 +1077,7 @@ async function handleOpenCustomLauncher(launcherId = "") {
       },
       {
         requireNativeHost: true,
+        skipExecutableContextCheck: true,
         collectExtraResults: async ({ operationId }) => [
           createLauncherPreflightResult(operationId, launcher)
         ]
@@ -1485,7 +1486,7 @@ function collectH3yunLazyLoadWarning({ operationId }) {
   ];
 }
 
-function runPageContextPreflight(operationId, pageContext, expectedPlatformKey = "") {
+function runPageContextPreflight(operationId, pageContext, expectedPlatformKey = "", skipExecutableContextCheck = false) {
   const { tab, pageTypeConfig } = pageContext;
   const results = [
     createPreflightInfo(operationId, "page.context", "page context resolved", {
@@ -1494,15 +1495,18 @@ function runPageContextPreflight(operationId, pageContext, expectedPlatformKey =
       url: tab?.url || ""
     })
   ];
-  const executableContextError = getExecutableContextError(tab);
-  if (executableContextError) {
-    results.push(createPreflightBlocker(
-      operationId,
-      "page.executableContext",
-      "PAGE_NOT_SCRIPTABLE",
-      executableContextError,
-      "切换到云枢或氚云业务页面后重试。"
-    ));
+  // 打开外部程序（如资源管理器）不需要向页面注入脚本，允许在扩展页执行。
+  if (!skipExecutableContextCheck) {
+    const executableContextError = getExecutableContextError(tab);
+    if (executableContextError) {
+      results.push(createPreflightBlocker(
+        operationId,
+        "page.executableContext",
+        "PAGE_NOT_SCRIPTABLE",
+        executableContextError,
+        "切换到云枢或氚云业务页面后重试。"
+      ));
+    }
   }
 
   if (expectedPlatformKey && pageTypeConfig?.platformKey !== expectedPlatformKey) {
@@ -1556,7 +1560,7 @@ function buildPreflightStatusMessage(operationId, results) {
 async function runOperationWithPreflight(operationId, task, options = {}) {
   const pageContext = await updatePageInfo({ syncPlatform: options.syncPlatform !== false });
   const results = [
-    ...runPageContextPreflight(operationId, pageContext, options.expectedPlatformKey || "")
+    ...runPageContextPreflight(operationId, pageContext, options.expectedPlatformKey || "", options.skipExecutableContextCheck)
   ];
   let directorySelection = null;
   let hostStatus = null;
@@ -2050,7 +2054,7 @@ async function handleH3yunCodeWriteback(codeKind) {
       codeKind === "backend"
         ? PREFLIGHT_OPERATION_IDS.h3yunBackendWriteback
         : PREFLIGHT_OPERATION_IDS.h3yunFrontendWriteback,
-      async ({ pageContext, directorySelection }) => {
+      async ({ pageContext, directorySelection, preflightResults }) => {
     const { tab, pageType, targetScope } = pageContext;
     if (pageContext.pageTypeConfig.platformKey !== PLATFORM_CONFIG.h3yun.platformKey) {
       throw new Error(`氚云${config.label}回写仅支持氚云页面。当前页面：${describeOrigin(tab?.url || "")}`);
@@ -2190,6 +2194,13 @@ async function handleH3yunCaptureAllAndWrite() {
       `未挂载：${skipped.join("、") || "无"}`,
       missingChildCodeCount ? `子表控件编码缺失：${missingChildCodeCount} 个` : "子表控件编码缺失：无"
     ]);
+    // 子表控件编码缺失时，将 DOM 诊断快照注入诊断包，便于导出后分析根因
+    if (missingChildCodeCount && metadata?._diagnosticDomSnapshot) {
+      if (lastDiagnosticPackage) {
+        lastDiagnosticPackage.designerDomSnapshot = metadata._diagnosticDomSnapshot;
+        await saveLastDiagnosticPackage(lastDiagnosticPackage);
+      }
+    }
       },
       {
         expectedPlatformKey: PLATFORM_CONFIG.h3yun.platformKey,
@@ -2234,7 +2245,7 @@ function h3yunCodeEditorProbeMain(input = {}) {
     return 0;
   }
 
-  // 氚云同页会残留模板 / 当前编辑等多个 JS model，候选评分优先“当前挂载和最近变更”，避免只按长度读到模板。
+  // 氚云同页会残留模板 / 当前编辑等多个 JS model，候选评分优先"当前挂载和最近变更"，避免只按长度读到模板。
   function createModelCandidate(model, index, containerModel) {
     const sourceContent = String(model?.getValue?.() || "");
     const snippet = sourceContent.substring(0, 2000);
@@ -2613,7 +2624,7 @@ function h3yunDesignerMetadataMain() {
     const rightName = text(right);
     return Boolean(leftName && rightName && (leftName === rightName || leftName.includes(rightName) || rightName.includes(leftName)));
   }
-  // 子表字段完整编码通常只出现在设计器全局状态中，格式为“子表编码.F字段编码”，不在具体 .sheet-control 节点上。
+  // 子表字段完整编码通常只出现在设计器全局状态中，格式为"子表编码.F字段编码"，不在具体 .sheet-control 节点上。
   function buildSheetFieldCodeCatalog(root) {
     const groups = new Map();
     const groupOrder = [];
@@ -2735,7 +2746,7 @@ function h3yunDesignerMetadataMain() {
     const bySize = catalog.filter((group) => group.entries.length >= childCount);
     return bySize.length === 1 ? bySize[0] : null;
   }
-  // 氚云子表内控件在当前 DOM 中常缺少 data-code；最终按“子表编码.F字段编码”的全局顺序回填。
+  // 氚云子表内控件在当前 DOM 中常缺少 data-code；最终按"子表编码.F字段编码"的全局顺序回填。
   function childrenOf(container, sheetFieldGroup = null) {
     return Array.from(container.querySelectorAll("[data-sheet='true'] .sheet-control")).map((item, position) => {
       const displayName = text(readAttribute(item, ["title"]) || item.querySelector(".title")?.textContent);
@@ -2753,9 +2764,207 @@ function h3yunDesignerMetadataMain() {
       };
     });
   }
+  // 子表控件编码缺失时，捕获当前页面 DOM 和 Vue 状态快照，便于诊断编码匹配失败的根因。
+  function buildMissingCodeDomSnapshot(root, sheetFieldCatalog) {
+    var snap = {
+      sheetFieldCatalog: [],
+      sheetContainers: []
+    };
+
+    // 输出全局字段编码目录摘要
+    for (var gi = 0; gi < sheetFieldCatalog.length; gi++) {
+      var group = sheetFieldCatalog[gi];
+      snap.sheetFieldCatalog.push({
+        sheetCode: group.sheetCode,
+        names: group.names,
+        entryCount: group.entries.length,
+        entries: group.entries.map(function (entry) {
+          return { code: entry.code, displayName: entry.displayName || "" };
+        })
+      });
+    }
+
+    // 输出每个子表容器的 DOM 结构及 Vue 状态线索
+    var sheetContainers = Array.from(root.querySelectorAll("[data-sheet='true']"));
+    for (var ci = 0; ci < sheetContainers.length && ci < 20; ci++) {
+      var container = sheetContainers[ci];
+      var containerInfo = {
+        tagName: String(container.tagName || ""),
+        className: String(container.className || ""),
+        attributeKeys: Array.from(container.attributes || []).slice(0, 30).map(function (attr) {
+          return { name: attr.name, value: String(attr.value || "").substring(0, 300) };
+        }),
+        sheetControls: []
+      };
+
+      var sheetControls = Array.from(container.querySelectorAll(".sheet-control"));
+      for (var si = 0; si < sheetControls.length && si < 50; si++) {
+        var sc = sheetControls[si];
+        var controlInfo = {
+          outerHTML: String(sc.outerHTML || "").substring(0, 2000),
+          attributeKeys: Array.from(sc.attributes || []).slice(0, 20).map(function (attr) {
+            return { name: attr.name, value: String(attr.value || "").substring(0, 300) };
+          }),
+          textContent: String(sc.textContent || "").replace(/\s+/g, " ").trim().substring(0, 200),
+          vueKeys: []
+        };
+
+        // 收集 .sheet-control 节点 Vue 状态中与编码匹配相关的 key
+        var sources = vueSources(sc);
+        var seenVueKeys = {};
+        for (var vi = 0; vi < sources.length && Object.keys(seenVueKeys).length < 40; vi++) {
+          var source = sources[vi];
+          if (!source || typeof source !== "object") continue;
+          var keys = Object.keys(source).filter(function (k) {
+            return /(code|field|control|property|schema|data|type|name|label|title|index|display|sheet|sort|order|key)/i.test(k);
+          });
+          for (var ki = 0; ki < keys.length && Object.keys(seenVueKeys).length < 40; ki++) {
+            var key = keys[ki];
+            if (seenVueKeys[key]) continue;
+            seenVueKeys[key] = true;
+            var rawValue = source[key];
+            var type = typeof rawValue;
+            var displayValue = "";
+            if (type === "string") displayValue = rawValue.substring(0, 150);
+            else if (type === "number" || type === "boolean") displayValue = String(rawValue);
+            else if (rawValue && type === "object") displayValue = "[object]";
+            controlInfo.vueKeys.push({ key: key, value: displayValue, type: type });
+          }
+        }
+
+        containerInfo.sheetControls.push(controlInfo);
+      }
+
+      snap.sheetContainers.push(containerInfo);
+    }
+
+    return snap;
+  }
+  // 检查 controls 中是否有子表控件编码缺失
+  function hasMissingChildCodes(controls) {
+    for (var ci = 0; ci < controls.length; ci++) {
+      var children = Array.isArray(controls[ci].children) ? controls[ci].children : [];
+      for (var si = 0; si < children.length; si++) {
+        if (!String(children[si].code || "").trim()) return true;
+      }
+    }
+    return false;
+  }
+  // 从氚云设计器全局 allControls（Vue 实例属性）中提取所有控件的完整信息，
+  // 包括自定义编码、关联表单、默认值、选项、显示隐藏规则等。
+  // 该方式直接读取设计器状态，不依赖 DOM 属性或 Vue 深度遍历，优先使用。
+  function findDesignerAllControls() {
+    // 优先通过设计器根节点读取
+    const designerRoot = document.querySelector(".designer.web");
+    if (designerRoot?.__vue__?.allControls && typeof designerRoot.__vue__.allControls === "object") {
+      return designerRoot.__vue__.allControls;
+    }
+    // 回退：从子表控件沿祖先链查找
+    const sheetControl = document.querySelector('[data-sheet="true"] .sheet-control');
+    if (sheetControl) {
+      for (let node = sheetControl; node; node = node.parentElement) {
+        if (node.__vue__?.allControls && typeof node.__vue__.allControls === "object") {
+          return node.__vue__.allControls;
+        }
+      }
+    }
+    return null;
+  }
+  // 将 allControls 原始数据转换为与现有 DOM 扫描一致的 controls 数组格式
+  function extractControlsFromAllControls(rawAllControls, params) {
+    var entries = [];
+    for (var key in rawAllControls) {
+      if (!Object.prototype.hasOwnProperty.call(rawAllControls, key)) continue;
+      var entry = rawAllControls[key];
+      if (!entry || typeof entry !== "object") continue;
+      entries.push({ key: key, entry: entry });
+    }
+    // 分类：不含点号的是容器控件（主表字段/子表容器），含点号的是子表内字段（sheetCode.fieldCode）
+    var containerEntries = entries.filter(function (e) { return e.key.indexOf(".") < 0; });
+    var childEntries = entries.filter(function (e) { return e.key.indexOf(".") >= 0; });
+
+    // 将子表字段按 sheetCode（Dxxxxx 前缀）分组
+    var childrenBySheetCode = {};
+    for (var ci = 0; ci < childEntries.length; ci++) {
+      var cKey = childEntries[ci].key;
+      var cEntry = childEntries[ci].entry;
+      var dotIndex = cKey.indexOf(".");
+      var sheetCode = cKey.substring(0, dotIndex);
+      var fieldCode = cKey.substring(dotIndex + 1);
+
+      if (!childrenBySheetCode[sheetCode]) {
+        childrenBySheetCode[sheetCode] = [];
+      }
+      childrenBySheetCode[sheetCode].push({
+        code: fieldCode,
+        displayName: text(cEntry.DisplayName),
+        controlKey: text(cEntry.type || cEntry.ControlKey),
+        defaultValue: text(cEntry.DefaultValue),
+        boschemaCode: text(cEntry.BOSchemaCode),
+        displayRule: text(cEntry.DisplayRule),
+        defaultItems: Array.isArray(cEntry.DefaultItems) ? cEntry.DefaultItems : (cEntry.DefaultItems ? [cEntry.DefaultItems] : [])
+      });
+    }
+
+    // 构建顶层 controls 数组，容器条目按子表类型（FormGridView）判断是否有子表子字段
+    var controls = [];
+    var formId = text(params.id);
+    for (var ti = 0; ti < containerEntries.length; ti++) {
+      var tKey = containerEntries[ti].key;
+      var tEntry = containerEntries[ti].entry;
+      var controlKey = text(tEntry.type || tEntry.ControlKey);
+      var children = childrenBySheetCode[tKey] || [];
+
+      controls.push({
+        code: tKey,
+        displayName: text(tEntry.DisplayName || tEntry.name),
+        controlKey: controlKey,
+        sheetCode: tKey,
+        children: children,
+        boschemaCode: text(tEntry.BOSchemaCode),
+        defaultValue: text(tEntry.DefaultValue),
+        displayRule: text(tEntry.DisplayRule)
+      });
+    }
+
+    // 处理孤儿子表字段（sheetCode 在 containerEntries 中不存在的情况，比如主表单字段挂在 formId 或 appCode 下面）
+    for (var sc in childrenBySheetCode) {
+      if (!Object.prototype.hasOwnProperty.call(childrenBySheetCode, sc)) continue;
+      var existing = containerEntries.some(function (e) { return e.key === sc; });
+      if (!existing && childrenBySheetCode[sc].length > 0) {
+        var orphanChildren = childrenBySheetCode[sc];
+        for (var oi = 0; oi < orphanChildren.length; oi++) {
+          controls.push({
+            code: orphanChildren[oi].code,
+            displayName: orphanChildren[oi].displayName,
+            controlKey: orphanChildren[oi].controlKey,
+            sheetCode: "",
+            children: [],
+            boschemaCode: orphanChildren[oi].boschemaCode,
+            defaultValue: orphanChildren[oi].defaultValue,
+            displayRule: orphanChildren[oi].displayRule
+          });
+        }
+      }
+    }
+
+    return controls;
+  }
 
   try {
     const params = pageParams();
+
+    // 优先使用 Vue allControls 全局状态读取完整控件编码（含自定义编码），
+    // 该方式直接读取设计器状态，不受 DOM 懒加载影响，编码最完整。
+    const designerAllControls = findDesignerAllControls();
+    if (designerAllControls && Object.keys(designerAllControls).length > 0) {
+      const controls = extractControlsFromAllControls(designerAllControls, params);
+      if (controls.length > 0) {
+        return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls, source: "allControls" };
+      }
+    }
+
+    // 回退：通过 DOM 扫描 + Vue 状态遍历 + 编码目录回填获取控件编码（兜底逻辑）
     // 氚云设计器主表控件有两种常见结构：
     // 1. 早期版本：.control-container[data-code]
     // 2. 当前版本（如图）：.layout-control__item[data-code]
@@ -2788,7 +2997,8 @@ function h3yunDesignerMetadataMain() {
       control.children = childrenOf(item, sheetFieldGroup);
       return control;
     });
-    return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls };
+    var diagnosticDomSnapshot = hasMissingChildCodes(controls) ? buildMissingCodeDomSnapshot(designerRoot, sheetFieldCatalog) : null;
+    return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls, _diagnosticDomSnapshot: diagnosticDomSnapshot };
   } catch (error) {
     return { ok: false, errorCode: "H3YUN_DESIGNER_METADATA_FAILED", details: error?.message || String(error), controls: [] };
   }
