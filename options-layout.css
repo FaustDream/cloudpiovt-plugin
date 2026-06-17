@@ -10,64 +10,19 @@ html {
   min-width: 0;
 }
 
-.section-nav {
-  margin-bottom: 18px;
-  padding: 12px;
-  background: var(--panel-soft);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-}
-
-.section-nav-title {
-  margin: 0 0 10px;
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.section-nav-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.section-nav-link {
-  display: block;
-  padding: 8px 11px;
-  border-radius: 999px;
-  color: var(--muted);
-  text-decoration: none;
-  font-size: 13px;
-  font-weight: 800;
-  line-height: 1.5;
-}
-
-.section-nav-link:hover,
-.section-nav-link.is-active {
-  background: rgba(48, 84, 74, 0.12);
-  color: var(--primary);
-}
-
 .config-section,
 .status-output {
   scroll-margin-top: 20px;
 }
 
+/* 两栏布局下保留滚动定位偏移 */
+.settings-column .config-section {
+  scroll-margin-top: 16px;
+}
+
 @media (max-width: 720px) {
-  .section-nav {
-    padding: 14px;
-  }
-
-  .section-nav-list {
-    flex-wrap: nowrap;
-    overflow-x: auto;
-    padding-bottom: 4px;
-  }
-
-  .section-nav-link {
-    white-space: nowrap;
+  .settings-column,
+  .docs-column {
+    border-radius: 16px;
   }
 }
