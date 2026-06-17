@@ -22,6 +22,7 @@ import {
   deleteLauncherIcon,
   discoverNativeLaunchers,
   extractExecutableIcon,
+  pickNativeDirectory,
   pickNativeEditor,
   probeNativeHost,
   saveLauncherIcon
@@ -40,9 +41,11 @@ import {
   summarizeDiagnosticPackage
 } from "./lib/preflight-diagnostics.js";
 
-const form = document.querySelector("#settings-form");
 const saveButton = document.querySelector("#save-btn");
 const resetButton = document.querySelector("#reset-btn");
+const toolbarActions = document.querySelector("#toolbar-actions");
+const mainTabButtons = Array.from(document.querySelectorAll("[data-main-tab]"));
+const mainPanels = Array.from(document.querySelectorAll("[data-main-panel]"));
 const autoCheckUpdatesField = document.querySelector("#auto-check-updates");
 const checkUpdateButton = document.querySelector("#check-update-btn");
 const syncUpdateButton = document.querySelector("#sync-update-btn");
@@ -54,7 +57,6 @@ const copyDiagnosticSummaryButton = document.querySelector("#copy-diagnostic-sum
 const exportLastDiagnosticButton = document.querySelector("#export-last-diagnostic-btn");
 const lastDiagnosticSummaryEl = document.querySelector("#last-diagnostic-summary");
 const currentVersionEl = document.querySelector("#current-version");
-const overviewVersionEl = document.querySelector("#overview-version");
 const pathSummaryEl = document.querySelector("#path-summary");
 const releaseNotesList = document.querySelector("#release-notes-list");
 const cloudpivotReadonlyList = document.querySelector("#cloudpivot-readonly-settings-list");
@@ -63,13 +65,18 @@ const cloudpivotControlTypeReferenceBody = document.querySelector("#cloudpivot-c
 const h3yunControlTypeReferenceBody = document.querySelector("#h3yun-control-type-reference-body");
 const nativeHostStatus = document.querySelector("#native-host-status");
 const statusOutput = document.querySelector("#settings-status");
-const sectionNavLinks = Array.from(document.querySelectorAll("[data-nav-link]"));
 const docsTabButtons = Array.from(document.querySelectorAll("[data-docs-tab]"));
 const docsPanels = Array.from(document.querySelectorAll("[data-docs-panel]"));
 const platformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab][data-platform-group]"));
 const platformPanels = Array.from(document.querySelectorAll("[data-platform-panel][data-platform-group]"));
+const defaultDirPlatformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab][data-platform-group=\"default-dir\"]"));
+const fallbackPathCloudpivotInput = document.querySelector("#fallback-path-cloudpivot");
+const fallbackPathH3yunInput = document.querySelector("#fallback-path-h3yun");
+const pickFallbackDirCloudpivotButton = document.querySelector("#pick-fallback-dir-cloudpivot");
+const pickFallbackDirH3yunButton = document.querySelector("#pick-fallback-dir-h3yun");
 
 let activeDocsTabKey = "reference";
+let activeDefaultDirTabKey = "cloudpivot";
 let currentLaunchers = [];
 let selectedLauncherId = "";
 
@@ -166,9 +173,9 @@ async function renderLastDiagnosticSummary() {
   return packageData;
 }
 
+// 版本号显示在顶部标题栏右侧指标中
 function setVersionLabels() {
   currentVersionEl.textContent = CURRENT_EXTENSION_VERSION;
-  overviewVersionEl.textContent = CURRENT_EXTENSION_VERSION;
 }
 
 function renderPathSummary(config) {
@@ -247,73 +254,26 @@ async function runWithButtonBusy(button, task) {
   }
 }
 
-function setActiveNavLink(sectionId) {
-  for (const link of sectionNavLinks) {
-    const docsTarget = link.dataset.docsTarget || "";
-    const isSameSection = link.getAttribute("href") === `#${sectionId}`;
-    const isSameDocsTarget = !docsTarget || docsTarget === activeDocsTabKey;
-    const isActive = isSameSection && isSameDocsTarget;
-    link.classList.toggle("is-active", isActive);
-    if (isActive) {
-      link.setAttribute("aria-current", "true");
-    } else {
-      link.removeAttribute("aria-current");
-    }
+// 主标签切换：应用路径/默认目录/更新设置/运行日志/说明中心
+// 说明中心为只读，不显示保存/恢复按钮
+function setActiveMainTab(tabKey) {
+  for (const button of mainTabButtons) {
+    const isActive = button.dataset.mainTab === tabKey;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
   }
+
+  for (const panel of mainPanels) {
+    const isActive = panel.dataset.mainPanel === tabKey;
+    panel.classList.toggle("is-active", isActive);
+    panel.hidden = !isActive;
+  }
+
+  // 说明中心为只读参考，不显示保存/恢复按钮
+  toolbarActions.hidden = tabKey === "docs";
 }
 
-function bindSectionNavigation() {
-  if (!sectionNavLinks.length) {
-    return;
-  }
-
-  const sections = sectionNavLinks
-    .map((link) => document.querySelector(link.getAttribute("href")))
-    .filter(Boolean);
-  const uniqueSections = Array.from(new Set(sections));
-
-  if (!uniqueSections.length) {
-    return;
-  }
-
-  for (const link of sectionNavLinks) {
-    link.addEventListener("click", () => {
-      if (link.dataset.docsTarget) {
-        setActiveDocsTab(link.dataset.docsTarget);
-      }
-      const targetSectionId = link.getAttribute("href")?.slice(1);
-      if (targetSectionId) {
-        setActiveNavLink(targetSectionId);
-      }
-    });
-  }
-
-  setActiveNavLink(uniqueSections[0].id);
-
-  // 使用可见区块驱动导航高亮，让用户在重点区块和说明中心之间切换时保留位置感。
-  if (!("IntersectionObserver" in window)) {
-    return;
-  }
-
-  const observer = new IntersectionObserver((entries) => {
-    const activeEntry = entries
-      .filter((entry) => entry.isIntersecting)
-      .sort((left, right) => left.boundingClientRect.top - right.boundingClientRect.top)[0];
-
-    if (activeEntry?.target?.id) {
-      setActiveNavLink(activeEntry.target.id);
-    }
-  }, {
-    rootMargin: "-20% 0px -60% 0px",
-    threshold: [0.15, 0.35, 0.6]
-  });
-
-  for (const section of uniqueSections) {
-    observer.observe(section);
-  }
-}
-
-function setActiveDocsTab(tabKey, shouldSyncNav = true) {
+function setActiveDocsTab(tabKey) {
   const normalizedTabKey = ["flow", "release"].includes(tabKey) ? tabKey : "reference";
   activeDocsTabKey = normalizedTabKey;
 
@@ -328,10 +288,6 @@ function setActiveDocsTab(tabKey, shouldSyncNav = true) {
     const isActive = panel.dataset.docsPanel === normalizedTabKey;
     panel.classList.toggle("is-active", isActive);
     panel.hidden = !isActive;
-  }
-
-  if (shouldSyncNav) {
-    setActiveNavLink("docs-center");
   }
 }
 
@@ -357,6 +313,68 @@ function setActivePlatform(groupKey, platformKey) {
     panel.classList.toggle("is-active", isActive);
     panel.hidden = !isActive;
   }
+}
+
+/**
+ * 默认目录区块用独立的平台标签切换云枢/氚云，不与说明中心的控件参考、推荐流程标签联动。
+ */
+function setActiveDefaultDirTab(platformKey) {
+  const normalizedPlatformKey = platformKey === "h3yun" ? "h3yun" : "cloudpivot";
+  activeDefaultDirTabKey = normalizedPlatformKey;
+
+  for (const button of defaultDirPlatformTabButtons) {
+    const isActive = button.dataset.platformTab === normalizedPlatformKey;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+  }
+
+  const panels = document.querySelectorAll("[data-platform-group=\"default-dir\"][data-platform-panel]");
+  for (const panel of panels) {
+    const isActive = panel.dataset.platformPanel === normalizedPlatformKey;
+    panel.classList.toggle("is-active", isActive);
+    panel.hidden = !isActive;
+  }
+}
+
+/**
+ * 将配置中的兜底目录路径填入设置页输入框。
+ */
+function renderFallbackDirectoryPaths(fallbackDirectoryPaths) {
+  fallbackPathCloudpivotInput.value = String(fallbackDirectoryPaths?.cloudpivot || "");
+  fallbackPathH3yunInput.value = String(fallbackDirectoryPaths?.h3yun || "");
+}
+
+/**
+ * 通过原生助手打开系统目录选择框，将用户选中的目录路径填入对应平台的输入框。
+ * 原生助手不可用时提示用户手动粘贴路径。
+ */
+async function handlePickFallbackDirectory(platformKey) {
+  const hostStatus = await probeNativeHost();
+  if (!hostStatus.available) {
+    setStatus("当前未安装原生助手，请先双击 scripts\\install-native-host.cmd；也可以临时手动粘贴目录路径后保存。");
+    return;
+  }
+
+  const platformLabel = platformKey === "h3yun" ? "氚云" : "云枢";
+  const inputEl = platformKey === "h3yun" ? fallbackPathH3yunInput : fallbackPathCloudpivotInput;
+  const currentPath = String(inputEl?.value || "").trim();
+
+  const response = await pickNativeDirectory(currentPath);
+  if (!response?.ok) {
+    if (response?.cancelled) {
+      setStatus(`已取消选择${platformLabel}默认目录。`);
+      return;
+    }
+    throw new Error(response?.error || `选择${platformLabel}默认目录失败。`);
+  }
+
+  const directoryPath = String(response.directoryPath || "").trim();
+  if (!directoryPath) {
+    throw new Error("原生助手未返回目录路径。");
+  }
+
+  inputEl.value = directoryPath;
+  setStatus(`${platformLabel}默认目录已选择：${directoryPath}；点击保存设置后生效。`);
 }
 
 function renderReadonlyList(listElement, settings) {
@@ -642,6 +660,7 @@ function renderConfig(config) {
   renderLauncherList();
   autoCheckUpdatesField.checked = config.autoCheckUpdates === true;
   renderPathSummary(config);
+  renderFallbackDirectoryPaths(config.fallbackDirectoryPaths);
   renderUpdateResult(config.lastUpdateCheckResult);
   setStatus(
     [
@@ -690,18 +709,26 @@ async function pickLauncherExecutablePath(launcher) {
   setStatus(iconMessage);
 }
 
-async function handleSubmit(event) {
-  event.preventDefault();
+// 保存设置：从各面板控件收集值，同步写入 chrome.storage.local
+async function handleSubmit() {
   saveButton.disabled = true;
 
   try {
     syncLaunchersFromForm();
     const nextConfig = await saveConfig({
       customLaunchers: currentLaunchers,
+      fallbackDirectoryPaths: {
+        cloudpivot: String(fallbackPathCloudpivotInput.value || "").trim(),
+        h3yun: String(fallbackPathH3yunInput.value || "").trim()
+      },
       autoCheckUpdates: autoCheckUpdatesField.checked
     });
     renderConfig(nextConfig);
     setStatus("保存成功。");
+
+    // 保存成功动画：按钮短暂变绿并显示勾号
+    saveButton.classList.add("is-saved");
+    setTimeout(() => saveButton.classList.remove("is-saved"), 1200);
   } catch (error) {
     setStatus(`保存失败。\n${error?.message || String(error)}`);
   } finally {
@@ -709,16 +736,22 @@ async function handleSubmit(event) {
   }
 }
 
+// 恢复默认配置：所有设置回到出厂值
 async function handleReset() {
   resetButton.disabled = true;
   try {
     const nextConfig = await saveConfig({
       customLaunchers: DEFAULT_CONFIG.customLaunchers,
+      fallbackDirectoryPaths: DEFAULT_CONFIG.fallbackDirectoryPaths,
       autoCheckUpdates: DEFAULT_CONFIG.autoCheckUpdates,
       lastUpdateCheckResult: DEFAULT_CONFIG.lastUpdateCheckResult
     });
     renderConfig(nextConfig);
     setStatus("已恢复默认配置。");
+
+    // 恢复成功动画
+    resetButton.classList.add("is-reset");
+    setTimeout(() => resetButton.classList.remove("is-reset"), 1200);
   } catch (error) {
     setStatus(`恢复默认失败。\n${error?.message || String(error)}`);
   } finally {
@@ -797,17 +830,23 @@ async function handleLauncherIconUpload(launcher, file) {
   setStatus(`图标已保存：${launcher.name}\n已生成 16/48/128 PNG。`);
 }
 
+// 删除自定义启动器，同时清理对应的图标文件；图标清理失败不阻断删除流程。
 async function handleDeleteLauncher(launcher) {
   if (launcher.builtin) {
     setStatus("内置启动器不可删除，只能禁用。");
     return;
   }
 
+  // 尝试清理图标文件；新创建的或从未上传图标的启动器可能没有图标，忽略失败继续删除
   const hostStatus = await probeNativeHost();
   if (hostStatus.available) {
-    const response = await deleteLauncherIcon({ iconKey: launcher.iconKey });
-    if (!response?.ok) {
-      throw new Error(response?.error || "删除图标失败");
+    try {
+      const response = await deleteLauncherIcon({ iconKey: launcher.iconKey });
+      if (!response?.ok) {
+        // 图标删除失败不阻断启动器删除
+      }
+    } catch (_error) {
+      // 忽略图标删除失败
     }
   }
 
@@ -1059,15 +1098,16 @@ async function handleCopyDiagnosticSummary() {
 }
 
 async function init() {
-  bindSectionNavigation();
   setVersionLabels();
   renderReadonlySettings();
   renderReleaseNotes();
   renderCloudpivotControlTypeReference();
   renderH3yunControlTypeReference();
-  setActiveDocsTab("reference", false);
+  setActiveDocsTab("reference");
   setActivePlatform("reference", "cloudpivot");
   setActivePlatform("flow", "cloudpivot");
+  setActiveDefaultDirTab("cloudpivot");
+  setActiveMainTab("launchers");
   renderConfig(await loadConfig());
   await renderLastDiagnosticSummary();
   const hostStatus = await probeNativeHost();
@@ -1083,6 +1123,10 @@ async function init() {
   );
 }
 
+for (const button of mainTabButtons) {
+  button.addEventListener("click", () => setActiveMainTab(button.dataset.mainTab));
+}
+
 for (const button of docsTabButtons) {
   button.addEventListener("click", () => setActiveDocsTab(button.dataset.docsTab));
 }
@@ -1091,7 +1135,7 @@ for (const button of platformTabButtons) {
   button.addEventListener("click", () => setActivePlatform(button.dataset.platformGroup, button.dataset.platformTab));
 }
 
-form.addEventListener("submit", (event) => runWithButtonBusy(saveButton, () => handleSubmit(event)));
+saveButton.addEventListener("click", () => runWithButtonBusy(saveButton, handleSubmit));
 resetButton.addEventListener("click", () => runWithButtonBusy(resetButton, handleReset));
 checkUpdateButton.addEventListener("click", () => runWithButtonBusy(checkUpdateButton, handleCheckUpdate));
 syncUpdateButton.addEventListener("click", () => runWithButtonBusy(syncUpdateButton, handleSyncUpdate));
@@ -1103,6 +1147,13 @@ launcherListEl.addEventListener("change", handleLauncherListFileChange);
 launcherListEl.addEventListener("focusout", handleLauncherListFocusOut);
 copyDiagnosticSummaryButton.addEventListener("click", () => runWithButtonBusy(copyDiagnosticSummaryButton, handleCopyDiagnosticSummary));
 exportLastDiagnosticButton.addEventListener("click", () => runWithButtonBusy(exportLastDiagnosticButton, handleExportLastDiagnostic));
+
+for (const button of defaultDirPlatformTabButtons) {
+  button.addEventListener("click", () => setActiveDefaultDirTab(button.dataset.platformTab));
+}
+
+pickFallbackDirCloudpivotButton.addEventListener("click", () => runWithButtonBusy(pickFallbackDirCloudpivotButton, () => handlePickFallbackDirectory("cloudpivot")));
+pickFallbackDirH3yunButton.addEventListener("click", () => runWithButtonBusy(pickFallbackDirH3yunButton, () => handlePickFallbackDirectory("h3yun")));
 
 init().catch((error) => {
   setStatus(`配置加载失败。\n${error?.message || String(error)}`);
