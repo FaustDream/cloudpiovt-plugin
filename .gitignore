@@ -7,9 +7,6 @@ packages/
 native-host-rust/target/
 native-host-rust/tests/
 
-
-
-
 # OS
 .DS_Store
 Thumbs.db
@@ -26,3 +23,4 @@ npm-debug.log*
 # Project: tests (local only, not deployed with extension)
 vitest.config.js
 coverage/
+.codebuddy/
