@@ -146,6 +146,14 @@
 - 其中10个小版本升级成一个中版本，10个中版本升级成一个大版本。
 - 每次更新一个中版本或者大版本，原有的小版本或者中版本都开始从0计算。
 
+### 1.6.1 - 2026-06-18
+- 氚云 allControls 获取：修复 findDesignerAllControls 深度搜索逻辑，递归搜索 __vue__.$children/$data/$options 及全 DOM 元素，解决 allControls 不在 .designer.web.__vue__ 顶层属性的问题
+- 氚云 allControls 提取：新增 readAllControlField 辅助函数，优先从 entry.options 子对象读取属性（DisplayName/DefaultValue/BOSchemaCode/DisplayRule/DefaultItems），兼容氚云实际数据结构
+- 氚云 allControls 提取：主表控件和孤儿子表控件增加 defaultItems（选项值）提取
+- 氚云 FromCode 输出：主表控件追加"选项值"行，与子表控件输出格式统一
+- 修复控件类型显示：ControlKey（字符串）优先于 type（数字编码），避免输出 301 等数字
+- 修复显示规则显示：DisplayRule 对象使用 safeText 转为 JSON 字符串，避免输出 [object Object]
+
 ### 1.4.7 - 2026-06-17
 - README.md 模板精简为仅"需求文档"标题，去除所有默认填充内容
 

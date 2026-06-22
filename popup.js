@@ -2506,6 +2506,14 @@ function h3yunDesignerMetadataMain() {
   function text(value) {
     return String(value || "").replace(/\s+/g, " ").trim();
   }
+  // 安全转为文本：对象类型（如 DisplayRule）转为 JSON 字符串，避免出现 [object Object]
+  function safeText(value) {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "object") {
+      try { return JSON.stringify(value); } catch (_) { return ""; }
+    }
+    return String(value || "").replace(/\s+/g, " ").trim();
+  }
   function pageParams() {
     const url = new URL(window.location.href);
     const hashQuery = url.hash.includes("?") ? url.hash.slice(url.hash.indexOf("?") + 1) : "";
@@ -2854,22 +2862,76 @@ function h3yunDesignerMetadataMain() {
   // 包括自定义编码、关联表单、默认值、选项、显示隐藏规则等。
   // 该方式直接读取设计器状态，不依赖 DOM 属性或 Vue 深度遍历，优先使用。
   function findDesignerAllControls() {
+    // 辅助：在 Vue 实例及其 $children/$data/$options 中递归查找 allControls
+    function searchVueForAllControls(vueInstance) {
+      if (!vueInstance || typeof vueInstance !== "object") return null;
+      // 1. 直接属性
+      if (vueInstance.allControls && typeof vueInstance.allControls === "object" && Object.keys(vueInstance.allControls).length > 0) {
+        return vueInstance.allControls;
+      }
+      // 2. $data
+      if (vueInstance.$data?.allControls && typeof vueInstance.$data.allControls === "object" && Object.keys(vueInstance.$data.allControls).length > 0) {
+        return vueInstance.$data.allControls;
+      }
+      // 3. $options
+      if (vueInstance.$options?.allControls && typeof vueInstance.$options.allControls === "object" && Object.keys(vueInstance.$options.allControls).length > 0) {
+        return vueInstance.$options.allControls;
+      }
+      // 4. 递归 $children
+      var children = vueInstance.$children;
+      if (Array.isArray(children)) {
+        for (var i = 0; i < children.length; i++) {
+          var found = searchVueForAllControls(children[i]);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
+    // 5. 页面所有带 __vue__ 的 DOM 元素遍历查找
+    function searchAllDomForAllControls() {
+      var allElements = document.querySelectorAll("*");
+      for (var i = 0; i < allElements.length; i++) {
+        var el = allElements[i];
+        if (el.__vue__) {
+          var found = searchVueForAllControls(el.__vue__);
+          if (found) return found;
+        }
+      }
+      return null;
+    }
+
     // 优先通过设计器根节点读取
     const designerRoot = document.querySelector(".designer.web");
-    if (designerRoot?.__vue__?.allControls && typeof designerRoot.__vue__.allControls === "object") {
-      return designerRoot.__vue__.allControls;
+    if (designerRoot?.__vue__) {
+      var found = searchVueForAllControls(designerRoot.__vue__);
+      if (found) return found;
     }
+
     // 回退：从子表控件沿祖先链查找
     const sheetControl = document.querySelector('[data-sheet="true"] .sheet-control');
     if (sheetControl) {
       for (let node = sheetControl; node; node = node.parentElement) {
-        if (node.__vue__?.allControls && typeof node.__vue__.allControls === "object") {
-          return node.__vue__.allControls;
+        if (node.__vue__) {
+          var foundInAncestor = searchVueForAllControls(node.__vue__);
+          if (foundInAncestor) return foundInAncestor;
         }
       }
     }
-    return null;
+
+    // 最终回退：遍历所有 DOM 元素的 __vue__ 查找
+    return searchAllDomForAllControls();
   }
+  // 从 allControls entry 中读取字段值，优先取 entry.options 内的属性（氚云实际数据存放在 options 子对象中），
+  // 若 options 中不存在则回退到 entry 顶层属性，兼容不同的数据格式。
+  function readAllControlField(entry, fieldName) {
+    var opts = entry?.options;
+    if (opts && typeof opts === "object" && opts[fieldName] !== undefined && opts[fieldName] !== null) {
+      return opts[fieldName];
+    }
+    return entry[fieldName];
+  }
+
   // 将 allControls 原始数据转换为与现有 DOM 扫描一致的 controls 数组格式
   function extractControlsFromAllControls(rawAllControls, params) {
     var entries = [];
@@ -2895,14 +2957,16 @@ function h3yunDesignerMetadataMain() {
       if (!childrenBySheetCode[sheetCode]) {
         childrenBySheetCode[sheetCode] = [];
       }
+      var cDefaultItems = readAllControlField(cEntry, "DefaultItems");
       childrenBySheetCode[sheetCode].push({
         code: fieldCode,
-        displayName: text(cEntry.DisplayName),
-        controlKey: text(cEntry.type || cEntry.ControlKey),
-        defaultValue: text(cEntry.DefaultValue),
-        boschemaCode: text(cEntry.BOSchemaCode),
-        displayRule: text(cEntry.DisplayRule),
-        defaultItems: Array.isArray(cEntry.DefaultItems) ? cEntry.DefaultItems : (cEntry.DefaultItems ? [cEntry.DefaultItems] : [])
+        displayName: text(readAllControlField(cEntry, "DisplayName")),
+        // ControlKey（options 内字符串，如 "FormTextBox"）优先于 type（顶层数字，如 301）
+        controlKey: text(readAllControlField(cEntry, "ControlKey") || readAllControlField(cEntry, "type")),
+        defaultValue: text(readAllControlField(cEntry, "DefaultValue")),
+        boschemaCode: text(readAllControlField(cEntry, "BOSchemaCode")),
+        displayRule: safeText(readAllControlField(cEntry, "DisplayRule")),
+        defaultItems: Array.isArray(cDefaultItems) ? cDefaultItems : (cDefaultItems ? [cDefaultItems] : [])
       });
     }
 
@@ -2912,18 +2976,22 @@ function h3yunDesignerMetadataMain() {
     for (var ti = 0; ti < containerEntries.length; ti++) {
       var tKey = containerEntries[ti].key;
       var tEntry = containerEntries[ti].entry;
-      var controlKey = text(tEntry.type || tEntry.ControlKey);
+      // ControlKey（options 内字符串，如 "FormTextBox"）优先于 type（顶层数字，如 301）
+      var controlKey = text(readAllControlField(tEntry, "ControlKey") || readAllControlField(tEntry, "type"));
       var children = childrenBySheetCode[tKey] || [];
+      var tDefaultItems = readAllControlField(tEntry, "DefaultItems");
 
       controls.push({
         code: tKey,
-        displayName: text(tEntry.DisplayName || tEntry.name),
+        displayName: text(readAllControlField(tEntry, "DisplayName") || readAllControlField(tEntry, "name")),
         controlKey: controlKey,
         sheetCode: tKey,
         children: children,
-        boschemaCode: text(tEntry.BOSchemaCode),
-        defaultValue: text(tEntry.DefaultValue),
-        displayRule: text(tEntry.DisplayRule)
+        // 以下字段优先从 entry.options 读取（氚云实际数据位于 options 子对象），回退到 entry 顶层
+        boschemaCode: text(readAllControlField(tEntry, "BOSchemaCode")),
+        defaultValue: text(readAllControlField(tEntry, "DefaultValue")),
+        displayRule: safeText(readAllControlField(tEntry, "DisplayRule")),
+        defaultItems: Array.isArray(tDefaultItems) ? tDefaultItems : (tDefaultItems ? [tDefaultItems] : [])
       });
     }
 
@@ -2942,7 +3010,8 @@ function h3yunDesignerMetadataMain() {
             children: [],
             boschemaCode: orphanChildren[oi].boschemaCode,
             defaultValue: orphanChildren[oi].defaultValue,
-            displayRule: orphanChildren[oi].displayRule
+            displayRule: orphanChildren[oi].displayRule,
+            defaultItems: orphanChildren[oi].defaultItems || []
           });
         }
       }
@@ -2969,11 +3038,11 @@ function h3yunDesignerMetadataMain() {
     // 1. 早期版本：.control-container[data-code]
     // 2. 当前版本（如图）：.layout-control__item[data-code]
     // 为避免遗漏，使用 .designer.web [data-code] 并排除已知的非表单控件元素（如左侧工具栏）
-    const designerRoot = document.querySelector(".designer.web");
-    if (!designerRoot) {
+    const designerRootForDom = document.querySelector(".designer.web");
+    if (!designerRootForDom) {
       return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls: [] };
     }
-    const allDataCodeElements = Array.from(designerRoot.querySelectorAll("[data-code]"));
+    const allDataCodeElements = Array.from(designerRootForDom.querySelectorAll("[data-code]"));
     // 只取主表控件元素（排除左侧工具栏、拖拽面板等非画布控件）：
     // - control-container：早期氚云版本
     // - layout-control__item：当前氚云版本
@@ -2983,7 +3052,7 @@ function h3yunDesignerMetadataMain() {
       return className.includes("control-container") ||
              className.includes("layout-control__item");
     });
-    const sheetFieldCatalog = buildSheetFieldCodeCatalog(designerRoot);
+    const sheetFieldCatalog = buildSheetFieldCodeCatalog(designerRootForDom);
     const controls = controlElements.map((item) => {
       const control = {
         code: text(item.dataset.code),
@@ -2997,7 +3066,7 @@ function h3yunDesignerMetadataMain() {
       control.children = childrenOf(item, sheetFieldGroup);
       return control;
     });
-    var diagnosticDomSnapshot = hasMissingChildCodes(controls) ? buildMissingCodeDomSnapshot(designerRoot, sheetFieldCatalog) : null;
+    var diagnosticDomSnapshot = hasMissingChildCodes(controls) ? buildMissingCodeDomSnapshot(designerRootForDom, sheetFieldCatalog) : null;
     return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls, _diagnosticDomSnapshot: diagnosticDomSnapshot };
   } catch (error) {
     return { ok: false, errorCode: "H3YUN_DESIGNER_METADATA_FAILED", details: error?.message || String(error), controls: [] };

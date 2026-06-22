@@ -5,14 +5,10 @@ packages/
 
 # Build artifacts
 native-host-rust/target/
+native-host-rust/tests/
 
 
 
-# IDE / Editor
-.idea/
-.vscode/
-*.swp
-*.swo
 
 # OS
 .DS_Store
@@ -26,13 +22,7 @@ npm-debug.log*
 .env
 .env.local
 
-# Project: agent working memory & skills (local only)
-.codebuddy/
-
-# Project: auto-generated docs (local only)
-docs/AI文档/
 
 # Project: tests (local only, not deployed with extension)
-tests/
 vitest.config.js
 coverage/
