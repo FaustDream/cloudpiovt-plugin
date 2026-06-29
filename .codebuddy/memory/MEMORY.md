@@ -22,7 +22,7 @@
 
 - **主路径（allControls）**：通过 `document.querySelector(".designer.web").__vue__.allControls` 读取设计器全局状态，获取所有控件的完整元数据（DisplayName、ControlKey、DefaultItems、DisplayRule、DefaultValue、DataField/编码、type、BOSchemaCode）。该方式直接读取设计器状态，不受 DOM 懒加载影响，编码最完整，但字段按编码顺序排序（非表单控件顺序）
 - **兜底路径（DOM 扫描）**：通过 `.designer.web [data-code]` 扫描 DOM 元素的 `data-code`、`data-controlkey`、`data-displayname` 等属性，结合 Vue 状态遍历和编码目录回填。适用于 allControls 不可用的情况
-- **FromCode 输出字段**：控件名称、控件编码、控件类型、默认值、关联表单、显示规则、选项值（含子表控件的子字段输出）
+- **FromCode 输出字段**：控件名称、控件编码、控件类型、默认值、关联表单、隐藏规则（始终输出，空值也保留行）、选项值（含子表控件的子字段输出）
 
 - **主路径**：Monaco API（`window.monaco.editor.getEditors()` / `getModels()`）
 - **兜底路径**：`.view-lines .view-line` DOM 读取（2026-05-29 新增）
