@@ -146,6 +146,9 @@
 - 其中10个小版本升级成一个中版本，10个中版本升级成一个大版本。
 - 每次更新一个中版本或者大版本，原有的小版本或者中版本都开始从0计算。
 
+### 1.6.2 - 2026-06-29
+- 氚云 FromCode 输出：主表控件和子表控件的「隐藏规则」行始终输出（即使为空也保留行），方便后续程序化解析处理隐藏条件
+
 ### 1.6.1 - 2026-06-18
 - 氚云 allControls 获取：修复 findDesignerAllControls 深度搜索逻辑，递归搜索 __vue__.$children/$data/$options 及全 DOM 元素，解决 allControls 不在 .designer.web.__vue__ 顶层属性的问题
 - 氚云 allControls 提取：新增 readAllControlField 辅助函数，优先从 entry.options 子对象读取属性（DisplayName/DefaultValue/BOSchemaCode/DisplayRule/DefaultItems），兼容氚云实际数据结构
