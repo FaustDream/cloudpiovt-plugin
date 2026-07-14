@@ -4,7 +4,8 @@
   PLATFORM_CONFIG,
   isOriginAllowed,
   loadConfig,
-  resolvePageTypeConfig
+  resolvePageTypeConfig,
+  resolveH3yunDesignMode
 } from "./lib/config.js";
 import {
   BIZ_RULE_USAGE_NOTICE,
@@ -27,6 +28,7 @@ import {
 } from "./lib/target-directory-state.js";
 import { buildReadmeWriteFiles, extractReadmeMetadataFromHtml } from "./lib/readme-parser.js";
 import {
+  addRecentTargetDirectory,
   getRecentTargetDirectories,
   removeRecentTargetDirectory
 } from "./lib/recent-target-directories.js";
@@ -64,18 +66,18 @@ import {
 
 const pageOriginEl = document.querySelector("#page-origin");
 const targetHandleEl = document.querySelector("#target-handle");
+const copyPathButton = document.querySelector("#copy-path-btn");
 const targetPathSectionEl = document.querySelector("#target-path-section");
-const targetPathToggleButton = document.querySelector("#target-path-toggle");
-const targetPathSummaryEl = document.querySelector("#target-path-summary");
-const targetPathPanelEl = document.querySelector("#target-path-panel");
-const recentPathsEl = document.querySelector("#recent-paths");
-const recentPathsEmptyEl = document.querySelector("#recent-paths-empty");
-const recentPathsListEl = document.querySelector("#recent-paths-list");
+const historyFlatItems = document.querySelector("#history-flat-items");
+const historyEmptyEl = document.querySelector("#history-empty");
+const historyMoreButton = document.querySelector("#history-more-btn");
 const refreshHandleButton = document.querySelector("#refresh-handle-btn");
 const statusOutput = document.querySelector("#status-output");
 const copyLogButton = document.querySelector("#copy-log-btn");
 const exportLogButton = document.querySelector("#export-log-btn");
 const exportDiagnosticButton = document.querySelector("#export-diagnostic-btn");
+const exportDropdownButton = document.querySelector("#export-dropdown-btn");
+const exportDropdownMenu = document.querySelector("#export-dropdown-menu");
 const frontendCaptureWriteButton = document.querySelector("#frontend-capture-write-btn");
 const frontendWritebackButton = document.querySelector("#frontend-writeback-btn");
 const bizruleCaptureWriteButton = document.querySelector("#bizrule-capture-write-btn");
@@ -85,19 +87,35 @@ const launcherMainIcon = document.querySelector("#launcher-main-icon");
 const launcherMenuButton = document.querySelector("#launcher-menu-btn");
 const launcherMenu = document.querySelector("#launcher-menu");
 const openOptionsButton = document.querySelector("#open-options-btn");
+const platformTabsEl = document.querySelector("#platform-tabs");
 const platformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab]"));
 const platformPanels = Array.from(document.querySelectorAll("[data-platform-panel]"));
 const h3yunCaptureAllButton = document.querySelector("#h3yun-capture-all-btn");
+const h3yunOneClickWritebackButton = document.querySelector("#h3yun-oneclick-writeback-btn");
 const h3yunFrontendWritebackButton = document.querySelector("#h3yun-frontend-writeback-btn");
 const h3yunBackendWritebackButton = document.querySelector("#h3yun-backend-writeback-btn");
+const h3yunSeparateWritebackRow = document.querySelector("#h3yun-separate-writeback-row");
+// 文件选择器弹层元素
+const filePickerOverlay = document.querySelector("#file-picker-overlay");
+const extraReadmeCheck = document.querySelector("#extra-readme-check");
+const extraAgentsCheck = document.querySelector("#extra-agents-check");
+const extraDesignCheck = document.querySelector("#extra-design-check");
+const filePickerConfirmButton = document.querySelector("#file-picker-confirm-btn");
+const filePickerSkipButton = document.querySelector("#file-picker-skip-btn");
 
 let currentPageContext = null;
-// 折叠状态只服务当前弹窗会话，避免把纯展示偏好写入业务配置。
-let isTargetPathExpanded = false;
+// 当前弹窗会话的配置快照，每次 init 刷新。
+let currentConfig = null;
 let currentTargetPath = "";
 let isPopupBusy = false;
+// 历史目录展开状态：默认展示前 3 条，对超出的条目折叠为"更多 (N个)"按钮。
+let isHistoryExpanded = false;
 // 运行日志只保存在当前弹窗会话中，便于用户复制/导出给作者排查，不持久化业务数据。
 const runtimeLogs = [];
+// 历史目录平铺展示上限，超出折叠。
+const HISTORY_VISIBLE_LIMIT = 3;
+// 文件选择器回调：挂起的写入操作，用户确认后继续执行。
+let pendingFilePickerCallback = null;
 // 弹窗生命周期很短，限制最近 80 条可以保留完整排查上下文，同时避免日志撑爆弹窗内存。
 const RUNTIME_LOG_LIMIT = 80;
 let lastDiagnosticPackage = null;
@@ -488,12 +506,25 @@ async function handleExportDiagnosticPackage() {
       "application/json;charset=utf-8"
     );
     setStatus("诊断 JSON 已导出，可直接发给作者定位问题。", { level: "success" });
+    setExportDropdownOpen(false);
   } catch (error) {
     setStatus(`导出诊断 JSON 失败。\n${error?.message || String(error)}`, {
       level: "error",
       suggestion: "处理建议：先点击复制日志；若需要结构化诊断，请重新执行失败操作后再导出。"
     });
   }
+}
+
+// 导出下拉菜单状态（当前弹窗会话内）
+let isExportDropdownOpen = false;
+
+function setExportDropdownOpen(isOpen) {
+  isExportDropdownOpen = Boolean(isOpen);
+  exportDropdownMenu.hidden = !isExportDropdownOpen;
+}
+
+function toggleExportDropdown() {
+  setExportDropdownOpen(!isExportDropdownOpen);
 }
 
 // 统一状态入口：既更新弹窗展示，也把同一条记录写入当前会话运行日志。
@@ -513,7 +544,24 @@ function setStatus(message, options = {}) {
     runtimeLogs.shift();
   }
 
-  statusOutput.textContent = formatLogEntry(entry);
+  // 清除旧状态类
+  statusOutput.classList.remove("is-success", "is-error", "is-idle");
+
+  if (level === "success") {
+    // 成功：单行绿色条
+    statusOutput.classList.add("is-success");
+    statusOutput.textContent = lines.join(" ") || "完成。";
+  } else if (level === "error") {
+    // 失败：展开红色日志区，保留 suggestion
+    statusOutput.classList.add("is-error");
+    statusOutput.textContent = formatLogEntry(entry);
+  } else if (lines.length === 0 || (lines.length === 1 && !lines[0].trim())) {
+    // 空态
+    statusOutput.classList.add("is-idle");
+    statusOutput.textContent = "等待操作。";
+  } else {
+    statusOutput.textContent = formatLogEntry(entry);
+  }
 }
 
 // 复制完整运行日志用于即时沟通；失败时保留当前错误并提示改用导出文件。
@@ -581,8 +629,18 @@ function setActivePlatform(platformKey, options = {}) {
 }
 
 // 弹窗初始化或页面刷新后，用实际页面平台回填默认标签，减少用户误点错误平台入口。
+// 平台已明确识别时隐藏标签行释放一行高度；unknown/default 时显示让用户手动选择。
 function syncActivePlatformFromPage(pageTypeConfig) {
   setActivePlatform(pageTypeConfig?.platformKey, { silent: true });
+
+  // 明确识别到具体平台（非 unknown/default）时隐藏标签行
+  const pageType = pageTypeConfig?.pageType;
+  const isKnownPlatform = pageType && pageType !== "default" && pageType !== "h3yun-default";
+  if (isKnownPlatform) {
+    platformTabsEl.classList.add("is-hidden");
+  } else {
+    platformTabsEl.classList.remove("is-hidden");
+  }
 }
 
 function setCopyableValue(element, options) {
@@ -641,82 +699,76 @@ function getDirectoryName(directoryPath) {
   return normalizedPath.split(/[\\/]/).filter(Boolean).pop() || normalizedPath;
 }
 
-function setTargetPathExpanded(isExpanded) {
-  isTargetPathExpanded = Boolean(isExpanded);
-  targetPathSectionEl.classList.toggle("is-expanded", isTargetPathExpanded);
-  targetPathPanelEl.hidden = !isTargetPathExpanded;
-  targetPathToggleButton.setAttribute("aria-expanded", isTargetPathExpanded ? "true" : "false");
-  const actionLabel = isTargetPathExpanded ? "收起" : "展开";
-  targetPathToggleButton.title = `点击${actionLabel}历史目录`;
-}
-
-function renderTargetPathSummary(historyCount = 0) {
-  targetPathSummaryEl.textContent = historyCount ? "历史目录" : "暂无历史目录";
-}
-
 /**
- * 历史目录只是 Native 绝对路径的快捷入口，点击时仍会回到统一的保存流程更新页面快照。
+ * 历史目录平铺展示：前 3 条直接展示，超出部分折叠为"更多 (N个)"按钮。
+ * 每条左侧圆点（当前选中高亮）+ 路径 + ✕ 移除，点击路径一键切换。
  */
-async function renderRecentTargetDirectories(activePath = "") {
+async function renderHistoryFlatList(activePath = "") {
   const recentTargetDirectories = await getRecentTargetDirectories();
-  recentPathsListEl.replaceChildren();
-  targetPathSectionEl.hidden = !recentTargetDirectories.length;
-  recentPathsEl.classList.toggle("recent-paths-has-items", Boolean(recentTargetDirectories.length));
-  renderTargetPathSummary(recentTargetDirectories.length);
+  historyFlatItems.replaceChildren();
+  historyMoreButton.hidden = true;
 
-  if (!recentTargetDirectories.length) {
-    recentPathsEmptyEl.hidden = false;
-    recentPathsListEl.hidden = true;
+  const hasHistory = recentTargetDirectories.length > 0;
+  targetPathSectionEl.hidden = !hasHistory;
+  historyEmptyEl.hidden = hasHistory;
+  historyFlatItems.hidden = !hasHistory;
+
+  if (!hasHistory) {
     return;
   }
 
-  recentPathsEmptyEl.hidden = true;
-  recentPathsListEl.hidden = false;
+  const visibleItems = isHistoryExpanded
+    ? recentTargetDirectories
+    : recentTargetDirectories.slice(0, HISTORY_VISIBLE_LIMIT);
 
   const fragment = document.createDocumentFragment();
-  for (const entry of recentTargetDirectories) {
+  for (const entry of visibleItems) {
     const isCurrentPath = entry.path === activePath;
     const listItem = document.createElement("li");
-    listItem.className = "recent-path-item";
+    listItem.className = isCurrentPath ? "history-item is-current" : "history-item";
+    listItem.title = entry.path;
+    listItem.dataset.historyPath = entry.path;
 
-    const useButton = document.createElement("button");
-    useButton.type = "button";
-    useButton.className = isCurrentPath ? "recent-path-entry recent-path-entry-current" : "recent-path-entry";
-    useButton.dataset.recentPath = entry.path;
-    useButton.title = `切换到 ${getDirectoryName(entry.path) || entry.path}`;
+    const dot = document.createElement("span");
+    dot.className = "history-dot";
+    dot.setAttribute("aria-hidden", "true");
 
-    const nameSpan = document.createElement("span");
-    nameSpan.className = "recent-path-name";
-    nameSpan.textContent = getDirectoryName(entry.path) || entry.path;
-    useButton.appendChild(nameSpan);
-
-    if (isCurrentPath) {
-      const currentBadge = document.createElement("span");
-      currentBadge.className = "recent-path-current-badge";
-      currentBadge.textContent = "当前";
-      useButton.appendChild(currentBadge);
-    }
+    const pathSpan = document.createElement("span");
+    pathSpan.className = "history-path";
+    pathSpan.textContent = getDirectoryName(entry.path) || entry.path;
 
     const removeButton = document.createElement("button");
+    removeButton.className = "history-remove";
     removeButton.type = "button";
-    removeButton.className = "recent-path-remove";
-    removeButton.dataset.removeRecentPath = entry.path;
-    removeButton.title = `移除历史目录：${getDirectoryName(entry.path) || entry.path}`;
-    removeButton.setAttribute("aria-label", `移除历史目录 ${getDirectoryName(entry.path) || entry.path}`);
-    removeButton.textContent = "×";
+    removeButton.textContent = "✕";
+    removeButton.title = "移除此目录";
+    removeButton.setAttribute("aria-label", `移除 ${getDirectoryName(entry.path) || entry.path}`);
+    removeButton.dataset.removeHistoryPath = entry.path;
 
-    listItem.append(useButton, removeButton);
+    listItem.append(dot, pathSpan, removeButton);
     fragment.appendChild(listItem);
   }
 
-  recentPathsListEl.appendChild(fragment);
-  syncRecentPathInteractionState();
+  historyFlatItems.appendChild(fragment);
+
+  // 超出展示上限时显示"更多"按钮
+  if (!isHistoryExpanded && recentTargetDirectories.length > HISTORY_VISIBLE_LIMIT) {
+    historyMoreButton.hidden = false;
+    historyMoreButton.textContent = `更多 (${recentTargetDirectories.length - HISTORY_VISIBLE_LIMIT} 个)`;
+    historyMoreButton.dataset.action = "expand";
+  } else if (isHistoryExpanded && recentTargetDirectories.length > HISTORY_VISIBLE_LIMIT) {
+    historyMoreButton.hidden = false;
+    historyMoreButton.textContent = "收起";
+    historyMoreButton.dataset.action = "collapse";
+  }
 }
 
 async function renderTargetPathSection(directoryPath) {
   currentTargetPath = String(directoryPath || "").trim();
-  await renderRecentTargetDirectories(currentTargetPath);
-  setTargetPathExpanded(isTargetPathExpanded);
+  // 当前路径展示真实值（非句柄名）
+  targetHandleEl.textContent = currentTargetPath || "未选择目录";
+  targetHandleEl.title = currentTargetPath || "";
+  await renderHistoryFlatList(currentTargetPath);
 }
 
 async function getActiveTab() {
@@ -777,11 +829,13 @@ async function updateDirectoryInfo(pageType, targetScope = "") {
   try {
     const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
     const targetPath = selection.kind === "native-path" ? selection.directoryPath : "";
-    const selectedLabel = targetPath
-      ? getDirectoryName(targetPath)
-      : (selection.handle?.name || "未选择目录");
-    targetHandleEl.textContent = selectedLabel;
-    targetHandleEl.title = targetPath || selectedLabel;
+    // 当前路径展示真实值（非句柄名）
+    targetHandleEl.textContent = targetPath || "未选择目录";
+    targetHandleEl.title = targetPath || "";
+    // 每次选择/更新目录即时落库到历史
+    if (targetPath) {
+      await addRecentTargetDirectory(targetPath, pageType);
+    }
     await renderTargetPathSection(targetPath);
     return true;
   } catch (error) {
@@ -789,11 +843,10 @@ async function updateDirectoryInfo(pageType, targetScope = "") {
     targetHandleEl.textContent = "读取失败";
     targetHandleEl.title = "读取失败";
     targetPathSectionEl.hidden = true;
-    renderTargetPathSummary(0);
-    recentPathsEmptyEl.hidden = false;
-    recentPathsListEl.hidden = true;
-    recentPathsListEl.replaceChildren();
-    setTargetPathExpanded(isTargetPathExpanded);
+    historyEmptyEl.hidden = false;
+    historyFlatItems.hidden = true;
+    historyFlatItems.replaceChildren();
+    historyMoreButton.hidden = true;
     setStatus(`读取目标目录失败。
 ${error?.message || String(error)}`);
     return false;
@@ -909,18 +962,30 @@ ${error?.message || String(error)}`);
   }
 }
 
-function handleToggleTargetPathPanel() {
+// 复制当前路径到剪贴板
+async function handleCopyTargetPath() {
   if (isPopupBusy) {
     return;
   }
+  try {
+    await navigator.clipboard.writeText(currentTargetPath);
+    setStatus(`已复制路径。\n${currentTargetPath}`, { level: "success" });
+  } catch (error) {
+    setStatus(`复制路径失败。\n${error?.message || String(error)}`);
+  }
+}
 
-  setTargetPathExpanded(!isTargetPathExpanded);
+// 历史目录展开/收起
+function handleHistoryMoreClick() {
+  isHistoryExpanded = !isHistoryExpanded;
+  renderHistoryFlatList(currentTargetPath);
 }
 
 /**
  * 点击历史目录时直接复用 Native 路径保存流程，避免分叉出另一套目录状态更新逻辑。
+ * 每次选择/更新目录即时落库到 addRecentTargetDirectory。
  */
-async function handleUseRecentPath(directoryPath) {
+async function handleUseHistoryPath(directoryPath) {
   const normalizedPath = String(directoryPath || "").trim();
   if (!normalizedPath || isPopupBusy) {
     return;
@@ -955,7 +1020,7 @@ async function handleUseRecentPath(directoryPath) {
   }
 }
 
-async function handleRemoveRecentPath(directoryPath) {
+async function handleRemoveHistoryPath(directoryPath) {
   const normalizedPath = String(directoryPath || "").trim();
   if (!normalizedPath || isPopupBusy) {
     return;
@@ -981,19 +1046,20 @@ async function handleRemoveRecentPath(directoryPath) {
   }
 }
 
-async function handleRecentPathsClick(event) {
-  const removeButton = event.target.closest("[data-remove-recent-path]");
+// 历史目录平铺列表点击处理：切换路径 / 移除路径
+async function handleHistoryFlatListClick(event) {
+  const removeButton = event.target.closest("[data-remove-history-path]");
   if (removeButton) {
     event.preventDefault();
     event.stopPropagation();
-    await runWithButtonBusy(removeButton, () => handleRemoveRecentPath(removeButton.dataset.removeRecentPath));
+    await runWithButtonBusy(removeButton, () => handleRemoveHistoryPath(removeButton.dataset.removeHistoryPath));
     return;
   }
 
-  const useButton = event.target.closest("[data-recent-path]");
-  if (useButton) {
+  const historyItem = event.target.closest("[data-history-path]");
+  if (historyItem) {
     event.preventDefault();
-    await runWithButtonBusy(useButton, () => handleUseRecentPath(useButton.dataset.recentPath));
+    await runWithButtonBusy(historyItem, () => handleUseHistoryPath(historyItem.dataset.historyPath));
   }
 }
 
@@ -1316,9 +1382,13 @@ async function writeReadmeFile(directorySelection, metadata, pageTypeConfig, pag
   await writeFilesToSelection(directorySelection, filesToWrite);
 }
 
-async function writeMissingWorkspaceDocumentFiles(directorySelection, documentInput, workspaceDocumentState) {
+/**
+ * 补写缺失的协作文件。
+ * @param {object} options - { generatedFiles, extraDocs } 门控选项
+ */
+async function writeMissingWorkspaceDocumentFiles(directorySelection, documentInput, workspaceDocumentState, options = {}) {
   // 业务规则或氚云局部抓取没有统一 FromCode 入口时，仍要补齐 AI 协作文件，已有人工内容保持不覆盖。
-  const filesToWrite = buildMissingWorkspaceDocumentFiles(documentInput, workspaceDocumentState);
+  const filesToWrite = buildMissingWorkspaceDocumentFiles(documentInput, workspaceDocumentState, options);
   if (!filesToWrite.length) {
     return [];
   }
@@ -1643,7 +1713,11 @@ async function appendWritebackRiskDiagnostic(operationId, pageContext, directory
   return nextResults;
 }
 
-async function handleCaptureAndWrite() {
+/**
+ * 云枢前端抓取写入。
+ * @param {object} extraDocs - 文件选择器一次性额外生成的协作文件，不回写持久配置
+ */
+async function handleCaptureAndWrite(extraDocs = {}) {
   setBusy(true);
   setStatus("正在抓取并写入...");
 
@@ -1663,6 +1737,8 @@ async function handleCaptureAndWrite() {
       throw new Error(originError);
     }
 
+    const platformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
+    const generatedFiles = (currentConfig?.generatedFiles || {})[platformKey] || {};
     const workspaceDocumentState = await getWorkspaceDocumentState(directorySelection);
 
     const [{ result }] = await chrome.scripting.executeScript({
@@ -1700,7 +1776,9 @@ ${exportPlan.details || exportPlan.errorCode || "未知错误"}`, {
     const exportedHtml = exportPlan.filesToWrite.find((item) => item.key === "html")?.content || "";
     const readmeMetadata = extractReadmeMetadataFromHtml(exportedHtml, result.pageUrl || tab.url);
     await writeReadmeFile(directorySelection, readmeMetadata, pageTypeConfig, result.pageUrl || tab.url, {
-      ...workspaceDocumentState
+      ...workspaceDocumentState,
+      generatedFiles,
+      extraDocs
     });
     await updateDirectoryInfo(pageType, targetScope);
 
@@ -1806,7 +1884,11 @@ ${error?.message || String(error)}`);
   }
 }
 
-async function handleBizruleCaptureAndWrite() {
+/**
+ * 云枢业务规则抓取写入。
+ * @param {object} extraDocs - 文件选择器一次性额外生成的协作文件
+ */
+async function handleBizruleCaptureAndWrite(extraDocs = {}) {
   setBusy(true);
   setStatus("正在抓取业务规则并写入...");
 
@@ -1825,6 +1907,9 @@ async function handleBizruleCaptureAndWrite() {
     if (originError) {
       throw new Error(originError);
     }
+
+    const platformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
+    const generatedFiles = (currentConfig?.generatedFiles || {})[platformKey] || {};
 
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -1863,7 +1948,8 @@ async function handleBizruleCaptureAndWrite() {
     const workspaceFiles = await writeMissingWorkspaceDocumentFiles(
       directorySelection,
       buildCloudpivotBizRuleWorkspaceDocumentInput(pageContext.pageTypeConfig, tab.url, result.fileName),
-      workspaceDocumentState
+      workspaceDocumentState,
+      { generatedFiles, extraDocs }
     );
     await updateDirectoryInfo(pageType, targetScope);
 
@@ -2139,8 +2225,12 @@ function buildH3yunWorkspaceDocumentInput(metadata, pageTypeConfig, pageUrl, cod
   };
 }
 
-// 一键抓取写入：并行抓取控件信息、前端 JS、后端 C# 并写入。
-async function handleH3yunCaptureAllAndWrite() {
+/**
+ * 氚云一键抓取写入。
+ * 列表设计模式（designMode === "list"）无图形控件，跳过 FromCode 的图形控件依赖，不误报"没有图形控件"。
+ * 按 generatedFiles 开关 + extraDocs 一次性覆写门控生成协作文件。
+ */
+async function handleH3yunCaptureAllAndWrite(extraDocs = {}) {
   setBusy(true);
   setStatus("正在一键抓取氚云页面...");
   try {
@@ -2151,6 +2241,7 @@ async function handleH3yunCaptureAllAndWrite() {
     if (pageTypeConfig.platformKey !== PLATFORM_CONFIG.h3yun.platformKey) {
       throw new Error(`氚云一键抓取写入仅支持氚云页面。当前页面：${describeOrigin(tab?.url || "")}`);
     }
+    const designMode = resolveH3yunDesignMode(pageTypeConfig);
     const workspaceDocumentState = await getWorkspaceDocumentState(directorySelection);
     const [metadata, frontendResult, backendResult] = await Promise.all([
       probeH3yunDesignerMetadata(tab),
@@ -2162,18 +2253,30 @@ async function handleH3yunCaptureAllAndWrite() {
     const codeFiles = [];
     let capturedFileCount = 0;
 
-    if (metadata?.ok && metadata.controls?.length) {
-      filesToWrite.push({ fileName: "FromCode.md", content: buildH3yunFromCodeContent(metadata) });
-      capturedFileCount += 1;
-    } else { skipped.push("图形控件"); }
+    // 列表设计模式跳过图形控件：该模式本身就没有图形设计区，不应误报"没有图形控件"。
+    if (designMode === "list") {
+      // 列表模式不要求图形控件，但仍尝试生成 FromCode.md 如果有数据
+      if (metadata?.ok && metadata.controls?.length) {
+        filesToWrite.push({ fileName: "FromCode.md", content: buildH3yunFromCodeContent(metadata) });
+        capturedFileCount += 1;
+      }
+    } else {
+      // 表单模式要求图形控件
+      if (metadata?.ok && metadata.controls?.length) {
+        filesToWrite.push({ fileName: "FromCode.md", content: buildH3yunFromCodeContent(metadata) });
+        capturedFileCount += 1;
+      } else {
+        skipped.push("图形控件");
+      }
+    }
     if (frontendResult?.ok && frontendResult.sourceContent) {
-      const frontendFileName = resolveH3yunFrontendFileName({ pageUrl: frontendResult.pageUrl || tab.url });
+      const frontendFileName = resolveH3yunFrontendFileName({ pageUrl: frontendResult.pageUrl || tab.url, designMode });
       codeFiles.push(frontendFileName);
       filesToWrite.push({ fileName: frontendFileName, content: frontendResult.sourceContent });
       capturedFileCount += 1;
     } else { skipped.push("前端 JS"); }
     if (backendResult?.ok && backendResult.sourceContent) {
-      const backendFileName = resolveH3yunBackendFileName({ sourceContent: backendResult.sourceContent, pageUrl: backendResult.pageUrl || tab.url });
+      const backendFileName = resolveH3yunBackendFileName({ sourceContent: backendResult.sourceContent, pageUrl: backendResult.pageUrl || tab.url, designMode });
       codeFiles.push(backendFileName);
       filesToWrite.push({ fileName: backendFileName, content: backendResult.sourceContent });
       capturedFileCount += 1;
@@ -2181,9 +2284,13 @@ async function handleH3yunCaptureAllAndWrite() {
     if (!capturedFileCount) {
       throw new Error("当前页面没有挂载图形控件、前端 JS 或后端 C# 编辑器。");
     }
+    // 按 generatedFiles 开关 + extraDocs 一次性覆写门控生成协作文件
+    const platformKey = PLATFORM_CONFIG.h3yun.platformKey;
+    const generatedFiles = (currentConfig?.generatedFiles || {})[platformKey] || {};
     filesToWrite.unshift(...buildMissingWorkspaceDocumentFiles(
       buildH3yunWorkspaceDocumentInput(metadata, pageTypeConfig, tab.url, codeFiles),
-      workspaceDocumentState
+      workspaceDocumentState,
+      { generatedFiles, extraDocs }
     ));
     await writeFilesToSelection(directorySelection, filesToWrite);
     await updateDirectoryInfo(pageType, targetScope);
@@ -2194,7 +2301,6 @@ async function handleH3yunCaptureAllAndWrite() {
       `未挂载：${skipped.join("、") || "无"}`,
       missingChildCodeCount ? `子表控件编码缺失：${missingChildCodeCount} 个` : "子表控件编码缺失：无"
     ]);
-    // 子表控件编码缺失时，将 DOM 诊断快照注入诊断包，便于导出后分析根因
     if (missingChildCodeCount && metadata?._diagnosticDomSnapshot) {
       if (lastDiagnosticPackage) {
         lastDiagnosticPackage.designerDomSnapshot = metadata._diagnosticDomSnapshot;
@@ -4586,11 +4692,170 @@ function bizRuleWritebackMain(input) {
   }
 }
 
+// ========== 文件选择器弹层 ==========
+
+/**
+ * 收集文件选择器弹层中用户勾选的一次性额外生成文件。
+ * 仅本次写入生效，不回写持久配置。
+ */
+function collectExtraDocs() {
+  return {
+    readme: extraReadmeCheck.checked,
+    agents: extraAgentsCheck.checked,
+    design: extraDesignCheck.checked
+  };
+}
+
+/**
+ * 根据当前配置重置文件选择器复选框到默认状态（按持久开关）。
+ */
+function resetFilePickerChecks() {
+  const platformKey = currentPageContext?.pageTypeConfig?.platformKey;
+  const generatedFiles = (currentConfig?.generatedFiles || {})[platformKey] || {};
+  extraReadmeCheck.checked = generatedFiles.readme === true;
+  extraAgentsCheck.checked = generatedFiles.agents === true;
+  extraDesignCheck.checked = generatedFiles.design === true;
+}
+
+/**
+ * 显示文件选择器弹层，返回 Promise 在用户确认/跳过时 resolve。
+ * @returns {Promise<{extraDocs: object, confirmed: boolean}>}
+ */
+function showFilePicker(platformKey) {
+  return new Promise((resolve) => {
+    // 重置复选框到持久开关默认值
+    const generatedFiles = (currentConfig?.generatedFiles || {})[platformKey] || {};
+    extraReadmeCheck.checked = generatedFiles.readme === true;
+    extraAgentsCheck.checked = generatedFiles.agents === true;
+    extraDesignCheck.checked = generatedFiles.design === true;
+    filePickerOverlay.hidden = false;
+
+    // 确认按钮：以勾选值作为 extraDocs
+    const onConfirm = () => {
+      cleanup();
+      resolve({ extraDocs: collectExtraDocs(), confirmed: true });
+    };
+
+    // 跳过按钮：直接写入，不带额外文件
+    const onSkip = () => {
+      cleanup();
+      resolve({ extraDocs: {}, confirmed: false });
+    };
+
+    const cleanup = () => {
+      filePickerOverlay.hidden = true;
+      filePickerConfirmButton.removeEventListener("click", onConfirm);
+      filePickerSkipButton.removeEventListener("click", onSkip);
+    };
+
+    filePickerConfirmButton.addEventListener("click", onConfirm);
+    filePickerSkipButton.addEventListener("click", onSkip);
+  });
+}
+
+/**
+ * 有文件选择器的云枢抓取写入入口。
+ * 先弹出文件选择器，用户确认后再执行抓取。
+ */
+async function handleCloudpivotCaptureWithFilePicker() {
+  const platformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
+  const { extraDocs } = await showFilePicker(platformKey);
+  await runWithButtonBusy(frontendCaptureWriteButton, () => handleCaptureAndWrite(extraDocs));
+}
+
+/**
+ * 有文件选择器的云枢业务规则抓取写入入口。
+ */
+async function handleCloudpivotBizRuleCaptureWithFilePicker() {
+  const platformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
+  const { extraDocs } = await showFilePicker(platformKey);
+  await runWithButtonBusy(bizruleCaptureWriteButton, () => handleBizruleCaptureAndWrite(extraDocs));
+}
+
+/**
+ * 有文件选择器的氚云抓取写入入口。
+ */
+async function handleH3yunCaptureWithFilePicker() {
+  const platformKey = PLATFORM_CONFIG.h3yun.platformKey;
+  const { extraDocs } = await showFilePicker(platformKey);
+  await runWithButtonBusy(h3yunCaptureAllButton, () => handleH3yunCaptureAllAndWrite(extraDocs));
+}
+
+// ========== 氚云一键回写 ==========
+
+/**
+ * 氚云一键回写：顺序执行前端回写 + 后端回写，复用已有 handleH3yunCodeWriteback。
+ * 任何一个回写失败均报告但继续执行另一个，最终汇总结果。
+ */
+async function handleH3yunOneClickWriteback() {
+  setBusy(true);
+  setStatus("正在一键回写氚云前后端...");
+  const results = [];
+  try {
+    for (const codeKind of ["frontend", "backend"]) {
+      try {
+        await handleH3yunCodeWriteback(codeKind);
+        results.push({ codeKind, ok: true });
+      } catch (error) {
+        results.push({ codeKind, ok: false, error: error?.message || String(error) });
+      }
+    }
+    const failed = results.filter((r) => !r.ok);
+    if (failed.length) {
+      setStatus(`氚云一键回写部分失败。\n${failed.map((r) => `${r.codeKind}: ${r.error}`).join("\n")}`, {
+        level: "error",
+        suggestion: "处理建议：请确认前后端编辑器区域已加载；可尝试分别回写。"
+      });
+    }
+  } finally {
+    setBusy(false);
+  }
+}
+
+// ========== 导出下拉 & 跨页监听 ==========
+
+// tabs.onActivated 监听器引用，用于弹窗关闭时移除避免泄漏
+let tabsActivatedListener = null;
+
+/**
+ * 活动标签切换时重新拉取 recentTargetDirectories 并渲染，实现跨网页历史目录同步。
+ */
+function setupCrossPageSync() {
+  if (tabsActivatedListener) return;
+  tabsActivatedListener = async () => {
+    // 弹窗关闭时不再做任何操作
+    if (!currentPageContext) return;
+    const pageContext = await updatePageInfo({ syncPlatform: true });
+    currentPageContext = pageContext;
+    renderCurrentPageUrl(pageContext.tab);
+    await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);
+  };
+  chrome.tabs.onActivated.addListener(tabsActivatedListener);
+}
+
+/**
+ * 弹窗关闭时移除监听器避免泄漏。
+ */
+function teardownCrossPageSync() {
+  if (tabsActivatedListener) {
+    chrome.tabs.onActivated.removeListener(tabsActivatedListener);
+    tabsActivatedListener = null;
+  }
+}
+window.addEventListener("pagehide", teardownCrossPageSync);
+window.addEventListener("unload", teardownCrossPageSync);
+
+// ========== 事件监听 ==========
+
 refreshHandleButton.addEventListener("click", () => runWithButtonBusy(refreshHandleButton, handleRefreshDirectoryHandle));
-frontendCaptureWriteButton.addEventListener("click", () => runWithButtonBusy(frontendCaptureWriteButton, handleCaptureAndWrite));
+copyPathButton.addEventListener("click", () => runWithButtonBusy(copyPathButton, handleCopyTargetPath));
+
+// 云枢抓取/回写：先弹出文件选择器
+frontendCaptureWriteButton.addEventListener("click", handleCloudpivotCaptureWithFilePicker);
 frontendWritebackButton.addEventListener("click", () => runWithButtonBusy(frontendWritebackButton, handleImportAndWriteBack));
-bizruleCaptureWriteButton.addEventListener("click", () => runWithButtonBusy(bizruleCaptureWriteButton, handleBizruleCaptureAndWrite));
+bizruleCaptureWriteButton.addEventListener("click", handleCloudpivotBizRuleCaptureWithFilePicker);
 bizruleWritebackButton.addEventListener("click", () => runWithButtonBusy(bizruleWritebackButton, handleBizruleWriteback));
+
 launcherMainButton.addEventListener("click", () => runWithButtonBusy(launcherMainButton, () => handleOpenCustomLauncher()));
 launcherMenuButton.addEventListener("click", (event) => {
   event.stopPropagation();
@@ -4598,9 +4863,7 @@ launcherMenuButton.addEventListener("click", (event) => {
 });
 launcherMenu.addEventListener("click", (event) => {
   const button = event.target.closest("[data-launcher-id]");
-  if (!button) {
-    return;
-  }
+  if (!button) { return; }
   event.preventDefault();
   runWithButtonBusy(button, () => handleOpenCustomLauncher(button.dataset.launcherId));
 });
@@ -4608,32 +4871,70 @@ document.addEventListener("click", (event) => {
   if (!event.target.closest("#launcher-control")) {
     setLauncherMenuOpen(false);
   }
+  // 点击导出下拉外部关闭
+  if (!event.target.closest("#export-dropdown")) {
+    setExportDropdownOpen(false);
+  }
 });
+
 openOptionsButton.addEventListener("click", () => chrome.runtime.openOptionsPage());
-h3yunCaptureAllButton.addEventListener("click", () => runWithButtonBusy(h3yunCaptureAllButton, handleH3yunCaptureAllAndWrite));
+
+// 导出下拉
+exportDropdownButton.addEventListener("click", (event) => {
+  event.stopPropagation();
+  toggleExportDropdown();
+});
+exportLogButton.addEventListener("click", handleExportRuntimeLog);
+exportDiagnosticButton.addEventListener("click", handleExportDiagnosticPackage);
+
+// 氚云操作
+h3yunCaptureAllButton.addEventListener("click", handleH3yunCaptureWithFilePicker);
+h3yunOneClickWritebackButton.addEventListener("click", () => runWithButtonBusy(h3yunOneClickWritebackButton, handleH3yunOneClickWriteback));
 h3yunFrontendWritebackButton.addEventListener("click", () => runWithButtonBusy(h3yunFrontendWritebackButton, () => handleH3yunCodeWriteback("frontend")));
 h3yunBackendWritebackButton.addEventListener("click", () => runWithButtonBusy(h3yunBackendWritebackButton, () => handleH3yunCodeWriteback("backend")));
+
+// 文件选择器弹层
+filePickerConfirmButton.addEventListener("click", () => {}); // 实际事件在 showFilePicker 中绑定
+filePickerSkipButton.addEventListener("click", () => {});
+
 for (const button of platformTabButtons) {
   button.addEventListener("click", handlePlatformTabClick);
 }
 pageOriginEl.addEventListener("click", handleCopyValue);
-targetPathToggleButton.addEventListener("click", handleToggleTargetPathPanel);
-recentPathsListEl.addEventListener("click", handleRecentPathsClick);
+
+// 历史目录平铺列表
+historyFlatItems.addEventListener("click", handleHistoryFlatListClick);
+historyMoreButton.addEventListener("click", handleHistoryMoreClick);
+
 copyLogButton.addEventListener("click", handleCopyRuntimeLog);
-exportLogButton.addEventListener("click", handleExportRuntimeLog);
-exportDiagnosticButton.addEventListener("click", handleExportDiagnosticPackage);
+
+// ========== 初始化 ==========
 
 async function init() {
-  renderLauncherControls(await loadConfig());
+  currentConfig = await loadConfig();
+  renderLauncherControls(currentConfig);
+
   const pageContext = await updatePageInfo();
+  currentPageContext = pageContext;
   renderCurrentPageUrl(pageContext.tab);
   const isDirectoryInfoReady = await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);
+
+  // 跨网页历史目录同步：每次选择/更新目录即时落库
+  setupCrossPageSync();
+
+  // 按设置控制一键回写与独立前后端回写按钮显隐
+  if (h3yunOneClickWritebackButton && h3yunSeparateWritebackRow) {
+    const oneClickEnabled = currentConfig?.h3yunOneClickWriteback !== false;
+    h3yunOneClickWritebackButton.hidden = !oneClickEnabled;
+    h3yunSeparateWritebackRow.hidden = oneClickEnabled;
+  }
+
   if (isDirectoryInfoReady) {
-    setStatus("等待操作。");
+    setStatus("等待操作。", { level: "idle" });
   }
 }
 
 init().catch((error) => {
   setStatus(`初始化失败。
-${error?.message || String(error)}`);
+${error?.message || String(error)}`, { level: "error" });
 });

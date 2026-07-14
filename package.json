@@ -2,11 +2,12 @@
   "type": "module",
   "scripts": {
     "check:js": "node --check background.js && node --check options.js && node --check popup.js && node --check lib/config.js && node --check lib/custom-launchers.js && node --check lib/h3yun-code.js && node --check lib/native-host.js && node --check lib/readme-parser.js && node --check lib/release-notes.js && node --check lib/workspace-documents.js && node --check lib/preflight-diagnostics.js",
-    "verify:launchers": "node scripts/verify-custom-launchers.mjs",
-    "verify:preflight": "node scripts/verify-preflight-diagnostics.mjs",
+    "verify:launchers": "node tests/scripts/verify-custom-launchers.mjs",
+    "verify:preflight": "node tests/scripts/verify-preflight-diagnostics.mjs",
     "verify": "npm run check:js && npm run verify:preflight && npm run verify:launchers",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test": "vitest run --config tests/vitest.config.js",
+    "test:coverage": "vitest run --config tests/vitest.config.js --coverage",
+    "test:all": "node tests/scripts/run-all-tests.mjs"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^4.1.9",

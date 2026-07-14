@@ -18,7 +18,13 @@ npm-debug.log*
 .env
 .env.local
 
-
-# Project: tests (local only, not deployed with extension)
+# Tests & Coverage (所有测试和覆盖率，本地使用，不同步到仓库)
+tests/
 coverage/
+
+# IDE
+.vscode/
 .codebuddy/
+
+# Docs (文档图片等暂不上传，保持仓库整洁)
+docs/

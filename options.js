@@ -1,6 +1,7 @@
 import {
   CLOUDPIVOT_READONLY_SETTINGS,
   DEFAULT_CONFIG,
+  DEFAULT_GENERATED_FILES,
   H3YUN_READONLY_SETTINGS,
   loadConfig,
   saveConfig
@@ -47,6 +48,7 @@ const toolbarActions = document.querySelector("#toolbar-actions");
 const mainTabButtons = Array.from(document.querySelectorAll("[data-main-tab]"));
 const mainPanels = Array.from(document.querySelectorAll("[data-main-panel]"));
 const autoCheckUpdatesField = document.querySelector("#auto-check-updates");
+const h3yunOneClickWritebackField = document.querySelector("#h3yun-oneclick-writeback");
 const checkUpdateButton = document.querySelector("#check-update-btn");
 const syncUpdateButton = document.querySelector("#sync-update-btn");
 const updateStatusOutput = document.querySelector("#update-status");
@@ -74,11 +76,25 @@ const fallbackPathCloudpivotInput = document.querySelector("#fallback-path-cloud
 const fallbackPathH3yunInput = document.querySelector("#fallback-path-h3yun");
 const pickFallbackDirCloudpivotButton = document.querySelector("#pick-fallback-dir-cloudpivot");
 const pickFallbackDirH3yunButton = document.querySelector("#pick-fallback-dir-h3yun");
+// 帮助抽屉
+const helpButton = document.querySelector("#help-btn");
+const helpOverlay = document.querySelector("#help-overlay");
+const helpCloseButton = document.querySelector("#help-close-btn");
+// 文件生成配置
+const genfilesCloudpivotTab = document.querySelector("#genfiles-cloudpivot-tab");
+const genfilesH3yunTab = document.querySelector("#genfiles-h3yun-tab");
+const genfilesCloudpivotGrid = document.querySelector("#genfiles-cloudpivot-grid");
+const genfilesH3yunGrid = document.querySelector("#genfiles-h3yun-grid");
+const genfilesPlatformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab][data-platform-group=\"genfiles\"]"));
+const genfilesPlatformPanels = Array.from(document.querySelectorAll("[data-platform-panel][data-platform-group=\"genfiles\"]"));
 
 let activeDocsTabKey = "reference";
 let activeDefaultDirTabKey = "cloudpivot";
+let activeGenfilesTabKey = "cloudpivot";
 let currentLaunchers = [];
 let selectedLauncherId = "";
+// 当前设置页的生成文件开关快照
+let currentGeneratedFiles = DEFAULT_GENERATED_FILES;
 
 function setStatus(message) {
   statusOutput.textContent = message;
@@ -254,8 +270,7 @@ async function runWithButtonBusy(button, task) {
   }
 }
 
-// 主标签切换：应用路径/默认目录/更新设置/运行日志/说明中心
-// 说明中心为只读，不显示保存/恢复按钮
+// 主标签切换：应用路径 / 默认目录 / 更新设置
 function setActiveMainTab(tabKey) {
   for (const button of mainTabButtons) {
     const isActive = button.dataset.mainTab === tabKey;
@@ -269,8 +284,8 @@ function setActiveMainTab(tabKey) {
     panel.hidden = !isActive;
   }
 
-  // 说明中心为只读参考，不显示保存/恢复按钮
-  toolbarActions.hidden = tabKey === "docs";
+  // 所有标签均可编辑，始终显示工具栏
+  toolbarActions.hidden = false;
 }
 
 function setActiveDocsTab(tabKey) {
@@ -655,13 +670,116 @@ function updateLauncher(launcherId, patch) {
   renderPathSummary({ customLaunchers: currentLaunchers });
 }
 
+/**
+ * 切换生成文件配置的平台标签（云枢/氚云）。
+ */
+function setActiveGenfilesTab(platformKey) {
+  activeGenfilesTabKey = platformKey === "h3yun" ? "h3yun" : "cloudpivot";
+  for (const button of genfilesPlatformTabButtons) {
+    const isActive = button.dataset.platformTab === activeGenfilesTabKey;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+  }
+  for (const panel of genfilesPlatformPanels) {
+    const isActive = panel.dataset.platformPanel === activeGenfilesTabKey;
+    panel.classList.toggle("is-active", isActive);
+    panel.hidden = !isActive;
+  }
+}
+
+/**
+ * 渲染单个平台的生成文件开关列表。
+ * @param {HTMLElement} gridEl - 容器元素
+ * @param {object} platformGenFiles - 平台开关对象
+ * @param {string} platformKey - "cloudpivot" | "h3yun"
+ */
+function renderGenfilesGrid(gridEl, platformGenFiles, platformKey) {
+  gridEl.replaceChildren();
+  const labels = {
+    fromCode: "FromCode.md — 编码上下文（始终生成）",
+    css: "CSS 样式文件",
+    js: "JS 脚本文件",
+    html: "HTML 模板文件",
+    cs: "C# 后端代码文件",
+    readme: "README.md — 用户需求文档",
+    agents: "AGENTS.md — AI 协作规则",
+    design: "DESIGN.md — 技术实现设计"
+  };
+  const fromCodeKeys = platformKey === "h3yun"
+    ? ["fromCode", "js", "cs", "readme", "agents", "design"]
+    : ["fromCode", "css", "js", "html", "readme", "agents", "design"];
+
+  for (const key of fromCodeKeys) {
+    const isFromCode = key === "fromCode";
+    const checked = platformGenFiles[key] === true;
+    const label = labels[key] || key;
+
+    const toggleLabel = document.createElement("label");
+    toggleLabel.className = "toggle-field";
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = checked;
+    input.disabled = isFromCode;
+    input.dataset.genfilesPlatform = platformKey;
+    input.dataset.genfilesKey = key;
+
+    const track = document.createElement("span");
+    track.className = "toggle-track";
+    track.setAttribute("aria-hidden", "true");
+
+    const copy = document.createElement("span");
+    copy.className = "toggle-copy";
+    const strong = document.createElement("strong");
+    strong.textContent = label;
+    const small = document.createElement("small");
+    small.textContent = isFromCode ? "必需文件，不可关闭" : (checked ? "当前开启" : "当前关闭");
+
+    copy.append(strong, small);
+    toggleLabel.append(input, track, copy);
+    gridEl.appendChild(toggleLabel);
+  }
+}
+
+/**
+ * 根据当前 currentGeneratedFiles 渲染两个平台的生成文件开关。
+ */
+function renderAllGenfilesGrids() {
+  renderGenfilesGrid(genfilesCloudpivotGrid, currentGeneratedFiles.cloudpivot || DEFAULT_GENERATED_FILES.cloudpivot, "cloudpivot");
+  renderGenfilesGrid(genfilesH3yunGrid, currentGeneratedFiles.h3yun || DEFAULT_GENERATED_FILES.h3yun, "h3yun");
+}
+
+/**
+ * 从 DOM 同步生成文件开关到 currentGeneratedFiles。
+ */
+function syncGenfilesFromDom() {
+  const inputs = document.querySelectorAll("[data-genfiles-platform][data-genfiles-key]");
+  for (const input of inputs) {
+    const platformKey = input.dataset.genfilesPlatform;
+    const key = input.dataset.genfilesKey;
+    if (!currentGeneratedFiles[platformKey]) {
+      currentGeneratedFiles[platformKey] = {};
+    }
+    currentGeneratedFiles[platformKey][key] = input.checked === true;
+  }
+}
+
+// 帮助抽屉开关
+function setHelpOpen(isOpen) {
+  helpOverlay.hidden = !isOpen;
+  document.body.classList.toggle("help-open", isOpen);
+}
+
 function renderConfig(config) {
   currentLaunchers = normalizeCustomLaunchers(config.customLaunchers);
+  currentGeneratedFiles = config.generatedFiles || DEFAULT_GENERATED_FILES;
   renderLauncherList();
   autoCheckUpdatesField.checked = config.autoCheckUpdates === true;
+  h3yunOneClickWritebackField.checked = config.h3yunOneClickWriteback !== false;
   renderPathSummary(config);
   renderFallbackDirectoryPaths(config.fallbackDirectoryPaths);
   renderUpdateResult(config.lastUpdateCheckResult);
+  renderAllGenfilesGrids();
   setStatus(
     [
       "配置已加载",
@@ -715,13 +833,16 @@ async function handleSubmit() {
 
   try {
     syncLaunchersFromForm();
+    syncGenfilesFromDom();
     const nextConfig = await saveConfig({
       customLaunchers: currentLaunchers,
       fallbackDirectoryPaths: {
         cloudpivot: String(fallbackPathCloudpivotInput.value || "").trim(),
         h3yun: String(fallbackPathH3yunInput.value || "").trim()
       },
-      autoCheckUpdates: autoCheckUpdatesField.checked
+      autoCheckUpdates: autoCheckUpdatesField.checked,
+      generatedFiles: currentGeneratedFiles,
+      h3yunOneClickWriteback: h3yunOneClickWritebackField.checked
     });
     renderConfig(nextConfig);
     setStatus("保存成功。");
@@ -744,7 +865,9 @@ async function handleReset() {
       customLaunchers: DEFAULT_CONFIG.customLaunchers,
       fallbackDirectoryPaths: DEFAULT_CONFIG.fallbackDirectoryPaths,
       autoCheckUpdates: DEFAULT_CONFIG.autoCheckUpdates,
-      lastUpdateCheckResult: DEFAULT_CONFIG.lastUpdateCheckResult
+      lastUpdateCheckResult: DEFAULT_CONFIG.lastUpdateCheckResult,
+      generatedFiles: DEFAULT_GENERATED_FILES,
+      h3yunOneClickWriteback: true
     });
     renderConfig(nextConfig);
     setStatus("已恢复默认配置。");
@@ -1107,6 +1230,7 @@ async function init() {
   setActivePlatform("reference", "cloudpivot");
   setActivePlatform("flow", "cloudpivot");
   setActiveDefaultDirTab("cloudpivot");
+  setActiveGenfilesTab("cloudpivot");
   setActiveMainTab("launchers");
   renderConfig(await loadConfig());
   await renderLastDiagnosticSummary();
@@ -1154,6 +1278,20 @@ for (const button of defaultDirPlatformTabButtons) {
 
 pickFallbackDirCloudpivotButton.addEventListener("click", () => runWithButtonBusy(pickFallbackDirCloudpivotButton, () => handlePickFallbackDirectory("cloudpivot")));
 pickFallbackDirH3yunButton.addEventListener("click", () => runWithButtonBusy(pickFallbackDirH3yunButton, () => handlePickFallbackDirectory("h3yun")));
+
+// 帮助抽屉
+helpButton.addEventListener("click", () => setHelpOpen(true));
+helpCloseButton.addEventListener("click", () => setHelpOpen(false));
+helpOverlay.addEventListener("click", (event) => {
+  if (event.target === helpOverlay) {
+    setHelpOpen(false);
+  }
+});
+
+// 生成文件平台标签
+for (const button of genfilesPlatformTabButtons) {
+  button.addEventListener("click", () => setActiveGenfilesTab(button.dataset.platformTab));
+}
 
 init().catch((error) => {
   setStatus(`配置加载失败。\n${error?.message || String(error)}`);

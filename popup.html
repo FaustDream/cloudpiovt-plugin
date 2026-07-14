@@ -23,12 +23,14 @@
             </div>
           </div>
         </div>
-        <div class="platform-tabs" role="tablist" aria-label="开发平台">
+        <!-- 平台标签：自动识别后隐藏，unknown/default 时显示 -->
+        <div class="platform-tabs" id="platform-tabs" role="tablist" aria-label="开发平台">
           <button id="cloudpivot-tab" class="platform-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="cloudpivot-panel" data-platform-tab="cloudpivot">云枢</button>
           <button id="h3yun-tab" class="platform-tab" type="button" role="tab" aria-selected="false" aria-controls="h3yun-panel" data-platform-tab="h3yun">氚云</button>
         </div>
       </section>
 
+      <!-- 当前目录卡片 -->
       <section class="card">
         <div class="meta-row">
           <span class="meta-label">当前页面</span>
@@ -38,62 +40,86 @@
           <span class="meta-label">当前路径</span>
           <div class="meta-value meta-value-inline">
             <span id="target-handle">未选择目录</span>
+            <button id="copy-path-btn" class="icon-btn" type="button" title="复制真实路径" aria-label="复制路径">📋</button>
             <button id="refresh-handle-btn" class="icon-btn" type="button" title="更新当前路径" aria-label="更新当前路径">↻</button>
           </div>
         </div>
+        <!-- 历史目录平铺列表 -->
         <div id="target-path-section" class="meta-row-stack path-section" hidden>
-          <div class="meta-row">
-            <span class="meta-label">历史目录</span>
-            <button id="target-path-toggle" class="path-toggle-btn" type="button" aria-expanded="false" aria-controls="target-path-panel">
-              <span id="target-path-summary" class="path-toggle-summary">暂无历史目录</span>
-              <span class="path-toggle-arrow" aria-hidden="true">▾</span>
-            </button>
-          </div>
-          <div id="target-path-panel" class="path-panel" hidden>
-            <div id="recent-paths" class="recent-paths">
-              <p id="recent-paths-empty" class="recent-paths-empty" hidden>暂无历史目录</p>
-              <ul id="recent-paths-list" class="recent-paths-list" hidden></ul>
-            </div>
+          <div id="history-flat-list" class="history-flat-list">
+            <p id="history-empty" class="recent-paths-empty">暂无历史目录</p>
+            <ul id="history-flat-items" class="history-flat-items" hidden></ul>
+            <button id="history-more-btn" class="history-more-btn" type="button" hidden>更多</button>
           </div>
         </div>
       </section>
 
+      <!-- 云枢操作面板 -->
       <section id="cloudpivot-panel" class="platform-panel platform-panel-active" role="tabpanel" aria-labelledby="cloudpivot-tab" data-platform-panel="cloudpivot">
         <section class="actions">
           <div class="action-row">
-            <button id="frontend-capture-write-btn" class="accent-btn" type="button">前端抓取写入</button>
-            <button id="frontend-writeback-btn" class="secondary-btn" type="button">前端回写</button>
+            <button id="frontend-capture-write-btn" class="accent-btn" type="button">⬇ 抓取</button>
+            <button id="frontend-writeback-btn" class="secondary-btn" type="button">⬆ 回写</button>
           </div>
-
           <div class="action-row">
-            <button id="bizrule-capture-write-btn" class="accent-btn" type="button">业务规则抓取写入</button>
-            <button id="bizrule-writeback-btn" class="secondary-btn" type="button">业务规则回写</button>
+            <button id="bizrule-capture-write-btn" class="accent-btn" type="button">⬇ 业务规则抓取</button>
+            <button id="bizrule-writeback-btn" class="secondary-btn" type="button">⬆ 业务规则回写</button>
           </div>
         </section>
       </section>
 
+      <!-- 氚云操作面板 -->
       <section id="h3yun-panel" class="platform-panel" role="tabpanel" aria-labelledby="h3yun-tab" data-platform-panel="h3yun" hidden>
-        <section class="card h3yun-card">
-          <div class="platform-card-header">
-            <span class="platform-name">氚云</span>
-          </div>
+        <section class="actions">
           <div class="action-row action-row-single">
-            <button id="h3yun-capture-all-btn" class="accent-btn" type="button">一键抓取写入</button>
+            <button id="h3yun-capture-all-btn" class="accent-btn" type="button">⬇ 一键抓取写入</button>
           </div>
+          <!-- 一键回写按钮（设置默认开启） -->
           <div class="action-row">
-            <button id="h3yun-frontend-writeback-btn" class="secondary-btn" type="button">前端代码回写</button>
-            <button id="h3yun-backend-writeback-btn" class="secondary-btn" type="button">后端代码回写</button>
+            <button id="h3yun-oneclick-writeback-btn" class="secondary-btn" type="button">⬆ 一键回写</button>
+          </div>
+          <!-- 独立前后端回写按钮（设置默认隐藏） -->
+          <div class="action-row" id="h3yun-separate-writeback-row" hidden>
+            <button id="h3yun-frontend-writeback-btn" class="secondary-btn" type="button">⬆ 前端回写</button>
+            <button id="h3yun-backend-writeback-btn" class="secondary-btn" type="button">⬆ 后端回写</button>
           </div>
         </section>
       </section>
 
+      <!-- 文件选择器弹层（写入前选择生成协作文件） -->
+      <div id="file-picker-overlay" class="file-picker-overlay" hidden>
+        <div class="file-picker-card">
+          <p class="file-picker-title">选择本次额外生成的协作文件</p>
+          <p class="file-picker-hint">仅本次写入生效，不改持久开关</p>
+          <label class="file-picker-check">
+            <input id="extra-readme-check" type="checkbox"> README.md
+          </label>
+          <label class="file-picker-check">
+            <input id="extra-agents-check" type="checkbox"> AGENTS.md
+          </label>
+          <label class="file-picker-check">
+            <input id="extra-design-check" type="checkbox"> DESIGN.md
+          </label>
+          <div class="file-picker-actions">
+            <button id="file-picker-confirm-btn" class="accent-btn" type="button">确认并写入</button>
+            <button id="file-picker-skip-btn" class="secondary-btn" type="button">跳过直接写入</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- 状态区 -->
       <section class="card status-card">
         <div class="status-header">
           <span>执行状态</span>
           <div class="status-actions">
+            <div class="export-dropdown" id="export-dropdown">
+              <button id="export-dropdown-btn" class="link-btn" type="button">导出 ▾</button>
+              <div id="export-dropdown-menu" class="export-dropdown-menu" hidden>
+                <button id="export-log-btn" class="export-menu-item" type="button">导出日志</button>
+                <button id="export-diagnostic-btn" class="export-menu-item" type="button">导出诊断</button>
+              </div>
+            </div>
             <button id="copy-log-btn" class="link-btn" type="button">复制日志</button>
-            <button id="export-log-btn" class="link-btn" type="button">导出日志</button>
-            <button id="export-diagnostic-btn" class="link-btn" type="button">导出诊断</button>
             <button id="open-options-btn" class="link-btn" type="button">设置</button>
           </div>
         </div>
