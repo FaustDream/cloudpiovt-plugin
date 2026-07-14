@@ -9,7 +9,7 @@
   </head>
   <body>
     <main class="page-shell">
-      <!-- 顶部标题栏：标题 + 状态指标并排 -->
+      <!-- 顶部标题栏 -->
       <header class="page-head">
         <div class="head-info">
           <p class="eyebrow">CloudPiOvt Plugin</p>
@@ -31,120 +31,183 @@
         </div>
       </header>
 
-      <!-- 主内容卡片 -->
-      <div class="main-card">
-        <!-- 顶部工具栏：标签 + 保存按钮 -->
-        <div class="card-toolbar">
-          <nav class="main-tabs" role="tablist" aria-label="设置主标签">
-            <button class="main-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="tab-launchers" data-main-tab="launchers">应用路径</button>
-            <button class="main-tab" type="button" role="tab" aria-selected="false" aria-controls="tab-default" data-main-tab="default">默认目录</button>
-            <button class="main-tab" type="button" role="tab" aria-selected="false" aria-controls="tab-update" data-main-tab="update">更新设置</button>
-            <button class="main-tab" type="button" role="tab" aria-selected="false" aria-controls="tab-logs" data-main-tab="logs">运行日志</button>
-            <button class="main-tab" type="button" role="tab" aria-selected="false" aria-controls="tab-docs" data-main-tab="docs">说明中心</button>
-          </nav>
-          <div class="toolbar-actions" id="toolbar-actions">
-            <button id="save-btn" class="save-btn" type="button">保存设置</button>
-            <button id="reset-btn" class="ghost-btn" type="button">恢复默认</button>
+      <!-- 双栏容器 -->
+      <div class="two-column-layout">
+        <!-- 左栏 60%：设置表单 -->
+        <div class="settings-column">
+          <!-- 工具栏：标签 + 保存按钮 + 帮助入口 -->
+          <div class="card-toolbar">
+            <nav class="main-tabs" role="tablist" aria-label="设置主标签">
+              <button class="main-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="tab-launchers" data-main-tab="launchers">应用路径</button>
+              <button class="main-tab" type="button" role="tab" aria-selected="false" aria-controls="tab-default" data-main-tab="default">默认目录</button>
+              <button class="main-tab" type="button" role="tab" aria-selected="false" aria-controls="tab-update" data-main-tab="update">更新设置</button>
+            </nav>
+            <div class="toolbar-actions" id="toolbar-actions">
+              <button id="help-btn" class="icon-text-btn" type="button" title="帮助">? 帮助</button>
+              <button id="save-btn" class="save-btn" type="button">保存设置</button>
+              <button id="reset-btn" class="ghost-btn" type="button">恢复默认</button>
+            </div>
+          </div>
+
+          <!-- 标签内容区 -->
+          <div class="tab-panels">
+
+            <!-- 应用路径 -->
+            <section id="tab-launchers" class="tab-panel is-active" role="tabpanel" data-main-panel="launchers">
+              <div class="panel-header">
+                <h2>应用路径</h2>
+                <p>配置代码编辑器的启动方式；置顶项将作为弹窗主按钮的默认打开软件。</p>
+              </div>
+              <div class="action-row">
+                <button id="discover-launchers-btn" class="ghost-btn" type="button">检测内置软件</button>
+                <button id="add-launcher-btn" class="ghost-btn" type="button">新增打开方式</button>
+              </div>
+              <div id="launcher-list" class="launcher-settings-list" aria-label="打开方式列表"></div>
+            </section>
+
+            <!-- 默认目录 -->
+            <section id="tab-default" class="tab-panel" role="tabpanel" data-main-panel="default" hidden>
+              <div class="panel-header">
+                <h2>默认目录</h2>
+                <p>设置各平台的兜底工作目录；当页面没有已选目录时自动使用对应平台的默认路径。</p>
+              </div>
+              <form id="default-dir-form">
+                <div class="platform-switch" role="tablist" aria-label="默认目录平台">
+                  <button id="default-dir-cloudpivot-tab" class="platform-switch-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="default-dir-cloudpivot-panel" data-platform-group="default-dir" data-platform-tab="cloudpivot">云枢</button>
+                  <button id="default-dir-h3yun-tab" class="platform-switch-tab" type="button" role="tab" aria-selected="false" aria-controls="default-dir-h3yun-panel" data-platform-group="default-dir" data-platform-tab="h3yun">氚云</button>
+                </div>
+                <div id="default-dir-cloudpivot-panel" class="platform-options-panel is-active" role="tabpanel" data-platform-group="default-dir" data-platform-panel="cloudpivot">
+                  <div class="default-dir-field">
+                    <label class="field">
+                      <span class="field-label">云枢默认目录</span>
+                      <input id="fallback-path-cloudpivot" type="text" placeholder="例如：D:\work\cloudpivot-project" data-fallback-platform="cloudpivot">
+                    </label>
+                    <button id="pick-fallback-dir-cloudpivot" class="ghost-btn" type="button" data-fallback-platform="cloudpivot">选择目录</button>
+                  </div>
+                </div>
+                <div id="default-dir-h3yun-panel" class="platform-options-panel" role="tabpanel" data-platform-group="default-dir" data-platform-panel="h3yun" hidden>
+                  <div class="default-dir-field">
+                    <label class="field">
+                      <span class="field-label">氚云默认目录</span>
+                      <input id="fallback-path-h3yun" type="text" placeholder="例如：D:\work\h3yun-project" data-fallback-platform="h3yun">
+                    </label>
+                    <button id="pick-fallback-dir-h3yun" class="ghost-btn" type="button" data-fallback-platform="h3yun">选择目录</button>
+                  </div>
+                </div>
+              </form>
+            </section>
+
+            <!-- 更新设置 -->
+            <section id="tab-update" class="tab-panel" role="tabpanel" data-main-panel="update" hidden>
+              <div class="panel-header">
+                <h2>更新设置</h2>
+                <p>通过 Native Host 执行 Git 命令检查并同步远程仓库；同步后需在扩展页重新加载。</p>
+              </div>
+              <form id="update-form">
+                <label class="toggle-field toggle-with-space">
+                  <input id="auto-check-updates" type="checkbox">
+                  <span class="toggle-track" aria-hidden="true"></span>
+                  <span class="toggle-copy">
+                    <strong>自动检查更新</strong>
+                    <small>默认关闭；开启后浏览器启动时创建每日检查任务。</small>
+                  </span>
+                </label>
+                <div class="action-row update-buttons">
+                  <button id="check-update-btn" class="ghost-btn" type="button">检查更新</button>
+                  <button id="sync-update-btn" class="ghost-btn" type="button" hidden>同步更新</button>
+                </div>
+                <pre id="update-status" class="status-output update-log">尚未检查更新。</pre>
+              </form>
+
+              <!-- 按平台文件生成开关 -->
+              <div class="panel-header" style="margin-top: 24px;">
+                <h2>文件生成配置</h2>
+                <p>按平台配置抓取时自动生成的文件类型；默认只生成平台代码文件与 FromCode.md。</p>
+              </div>
+              <div class="platform-switch" role="tablist" aria-label="文件生成平台">
+                <button id="genfiles-cloudpivot-tab" class="platform-switch-tab is-active" type="button" role="tab" aria-selected="true" data-platform-group="genfiles" data-platform-tab="cloudpivot">云枢</button>
+                <button id="genfiles-h3yun-tab" class="platform-switch-tab" type="button" role="tab" aria-selected="false" data-platform-group="genfiles" data-platform-tab="h3yun">氚云</button>
+              </div>
+              <div id="genfiles-cloudpivot-panel" class="platform-options-panel is-active" data-platform-group="genfiles" data-platform-panel="cloudpivot">
+                <div class="genfiles-grid" id="genfiles-cloudpivot-grid"></div>
+              </div>
+              <div id="genfiles-h3yun-panel" class="platform-options-panel" data-platform-group="genfiles" data-platform-panel="h3yun" hidden>
+                <div class="genfiles-grid" id="genfiles-h3yun-grid"></div>
+              </div>
+
+              <!-- 氚云一键回写开关 -->
+              <div class="panel-header" style="margin-top: 24px;">
+                <h2>氚云回写模式</h2>
+                <p>日常使用一键回写；开启后显示独立前后端回写按钮。</p>
+              </div>
+              <label class="toggle-field toggle-with-space">
+                <input id="h3yun-oneclick-writeback" type="checkbox">
+                <span class="toggle-track" aria-hidden="true"></span>
+                <span class="toggle-copy">
+                  <strong>一键回写</strong>
+                  <small>开启时弹窗显示"一键回写"按钮；关闭时显示独立"前端回写""后端回写"按钮。</small>
+                </span>
+              </label>
+
+              <!-- 运行日志折叠面板 -->
+              <details class="log-fold" id="log-fold">
+                <summary class="log-fold-summary">运行日志</summary>
+                <div class="log-fold-body">
+                  <div class="action-row">
+                    <button id="copy-diagnostic-summary-btn" class="ghost-btn" type="button">复制诊断摘要</button>
+                    <button id="export-last-diagnostic-btn" class="ghost-btn" type="button">导出最近诊断 JSON</button>
+                  </div>
+                  <p id="last-diagnostic-summary" class="diagnostic-summary">最近诊断：未生成</p>
+                  <pre id="settings-status" class="status-output">正在加载当前设置和运行日志...</pre>
+                </div>
+              </details>
+            </section>
           </div>
         </div>
 
-        <!-- 标签内容区 -->
-        <div class="tab-panels">
-          
-          <!-- 更新设置 -->
-          <section id="tab-update" class="tab-panel" role="tabpanel" data-main-panel="update" hidden>
-            <div class="panel-header">
-              <h2>更新设置</h2>
-              <p>通过 Native Host 执行 Git 命令检查并同步远程仓库；同步后需在扩展页重新加载。</p>
+        <!-- 右栏 40%：状态/帮助/快捷入口 -->
+        <div class="right-column">
+          <div class="right-card">
+            <h3>快捷入口</h3>
+            <div class="quick-actions">
+              <button id="goto-popup-btn" class="ghost-btn quick-action-btn" type="button">打开弹窗</button>
+              <p class="quick-hint">在支持的页面点击工具栏图标打开开发助手弹窗</p>
             </div>
-            <form id="update-form">
-              <label class="toggle-field toggle-with-space">
-                <input id="auto-check-updates" type="checkbox">
-                <span class="toggle-track" aria-hidden="true"></span>
-                <span class="toggle-copy">
-                  <strong>自动检查更新</strong>
-                  <small>默认关闭；开启后浏览器启动时创建每日检查任务。</small>
-                </span>
-              </label>
-              <div class="action-row update-buttons">
-                <button id="check-update-btn" class="ghost-btn" type="button">检查更新</button>
-                <button id="sync-update-btn" class="ghost-btn" type="button" hidden>同步更新</button>
-              </div>
-              <pre id="update-status" class="status-output update-log">尚未检查更新。</pre>
-            </form>
-          </section>
+          </div>
 
-          <!-- 应用路径 -->
-          <section id="tab-launchers" class="tab-panel is-active" role="tabpanel" data-main-panel="launchers">
-            <div class="panel-header">
-              <h2>应用路径</h2>
-              <p>配置代码编辑器的启动方式；置顶项将作为弹窗主按钮的默认打开软件。</p>
+          <div class="right-card">
+            <h3>帮助摘要</h3>
+            <div class="help-summary">
+              <div class="help-summary-item">
+                <strong>控件参考</strong>
+                <p>云枢/氚云控件类型与 FromCode 字段对照表</p>
+              </div>
+              <div class="help-summary-item">
+                <strong>推荐流程</strong>
+                <p>各平台抓取、回写、协作文件的标准操作步骤</p>
+              </div>
+              <div class="help-summary-item">
+                <strong>版本更新</strong>
+                <p>查看各版本改动内容与升级注意事项</p>
+              </div>
             </div>
-            <div class="action-row">
-              <button id="discover-launchers-btn" class="ghost-btn" type="button">检测内置软件</button>
-              <button id="add-launcher-btn" class="ghost-btn" type="button">新增打开方式</button>
-            </div>
-            <div id="launcher-list" class="launcher-settings-list" aria-label="打开方式列表"></div>
-          </section>
+          </div>
+        </div>
+      </div>
 
-          <!-- 默认目录 -->
-          <section id="tab-default" class="tab-panel" role="tabpanel" data-main-panel="default" hidden>
-            <div class="panel-header">
-              <h2>默认目录</h2>
-              <p>设置各平台的兜底工作目录；当页面没有已选目录时自动使用对应平台的默认路径。</p>
-            </div>
-            <form id="default-dir-form">
-              <div class="platform-switch" role="tablist" aria-label="默认目录平台">
-                <button id="default-dir-cloudpivot-tab" class="platform-switch-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="default-dir-cloudpivot-panel" data-platform-group="default-dir" data-platform-tab="cloudpivot">云枢</button>
-                <button id="default-dir-h3yun-tab" class="platform-switch-tab" type="button" role="tab" aria-selected="false" aria-controls="default-dir-h3yun-panel" data-platform-group="default-dir" data-platform-tab="h3yun">氚云</button>
-              </div>
-              <div id="default-dir-cloudpivot-panel" class="platform-options-panel is-active" role="tabpanel" data-platform-group="default-dir" data-platform-panel="cloudpivot">
-                <div class="default-dir-field">
-                  <label class="field">
-                    <span class="field-label">云枢默认目录</span>
-                    <input id="fallback-path-cloudpivot" type="text" placeholder="例如：D:\work\cloudpivot-project" data-fallback-platform="cloudpivot">
-                  </label>
-                  <button id="pick-fallback-dir-cloudpivot" class="ghost-btn" type="button" data-fallback-platform="cloudpivot">选择目录</button>
-                </div>
-              </div>
-              <div id="default-dir-h3yun-panel" class="platform-options-panel" role="tabpanel" data-platform-group="default-dir" data-platform-panel="h3yun" hidden>
-                <div class="default-dir-field">
-                  <label class="field">
-                    <span class="field-label">氚云默认目录</span>
-                    <input id="fallback-path-h3yun" type="text" placeholder="例如：D:\work\h3yun-project" data-fallback-platform="h3yun">
-                  </label>
-                  <button id="pick-fallback-dir-h3yun" class="ghost-btn" type="button" data-fallback-platform="h3yun">选择目录</button>
-                </div>
-              </div>
-            </form>
-          </section>
-
-          <!-- 运行日志 -->
-          <section id="tab-logs" class="tab-panel" role="tabpanel" data-main-panel="logs" hidden>
-            <div class="panel-header">
-              <h2>运行日志</h2>
-              <p>设置保存、路径选择和原生助手检测结果会显示在这里。</p>
-            </div>
-            <div class="action-row">
-              <button id="copy-diagnostic-summary-btn" class="ghost-btn" type="button">复制诊断摘要</button>
-              <button id="export-last-diagnostic-btn" class="ghost-btn" type="button">导出最近诊断 JSON</button>
-            </div>
-            <p id="last-diagnostic-summary" class="diagnostic-summary">最近诊断：未生成</p>
-            <pre id="settings-status" class="status-output">正在加载当前设置和运行日志...</pre>
-          </section>
-
-          <!-- 说明中心 -->
-          <section id="tab-docs" class="tab-panel" role="tabpanel" data-main-panel="docs" hidden>
-            <div class="panel-header">
-              <h2>说明中心</h2>
-              <p>控件参考、推荐流程、版本更新。</p>
-            </div>
-            <div class="docs-sub-tabs">
-              <div class="docs-switch" role="tablist" aria-label="说明类型">
-                <button id="docs-reference-tab" class="docs-switch-tab is-active" type="button" role="tab" aria-selected="true" data-docs-tab="reference">控件参考</button>
-                <button id="docs-flow-tab" class="docs-switch-tab" type="button" role="tab" aria-selected="false" data-docs-tab="flow">推荐流程</button>
-                <button id="docs-release-tab" class="docs-switch-tab" type="button" role="tab" aria-selected="false" data-docs-tab="release">版本更新</button>
-              </div>
+      <!-- 帮助抽屉 -->
+      <div id="help-overlay" class="help-overlay" hidden>
+        <div class="help-drawer">
+          <div class="help-drawer-head">
+            <h2>帮助中心</h2>
+            <button id="help-close-btn" class="icon-text-btn" type="button">✕ 关闭</button>
+          </div>
+          <div class="help-drawer-body">
+            <!-- 子标签 -->
+            <div class="docs-switch" role="tablist" aria-label="帮助类型">
+              <button id="docs-reference-tab" class="docs-switch-tab is-active" type="button" role="tab" aria-selected="true" data-docs-tab="reference">控件参考</button>
+              <button id="docs-flow-tab" class="docs-switch-tab" type="button" role="tab" aria-selected="false" data-docs-tab="flow">推荐流程</button>
+              <button id="docs-release-tab" class="docs-switch-tab" type="button" role="tab" aria-selected="false" data-docs-tab="release">版本更新</button>
             </div>
 
             <!-- 控件参考 -->
@@ -162,14 +225,7 @@
                   </div>
                   <div class="control-reference-table-wrap">
                     <table class="control-reference-table">
-                      <thead>
-                        <tr>
-                          <th scope="col">HTML 标签</th>
-                          <th scope="col">控件类型</th>
-                          <th scope="col">示例字段名</th>
-                          <th scope="col">说明</th>
-                        </tr>
-                      </thead>
+                      <thead><tr><th scope="col">HTML 标签</th><th scope="col">控件类型</th><th scope="col">示例字段名</th><th scope="col">说明</th></tr></thead>
                       <tbody id="cloudpivot-control-type-reference-body"></tbody>
                     </table>
                   </div>
@@ -184,14 +240,7 @@
                   </div>
                   <div class="control-reference-table-wrap">
                     <table class="control-reference-table">
-                      <thead>
-                        <tr>
-                          <th scope="col">氚云控件类型</th>
-                          <th scope="col">中文名称</th>
-                          <th scope="col">样例字段</th>
-                          <th scope="col">说明</th>
-                        </tr>
-                      </thead>
+                      <thead><tr><th scope="col">氚云控件类型</th><th scope="col">中文名称</th><th scope="col">样例字段</th><th scope="col">说明</th></tr></thead>
                       <tbody id="h3yun-control-type-reference-body"></tbody>
                     </table>
                   </div>
@@ -210,22 +259,10 @@
                   <article class="platform-info-card">
                     <h4>推荐流程</h4>
                     <div class="usage-doc compact-usage">
-                      <article class="usage-item">
-                        <h5>1. 绑定当前页面目录</h5>
-                        <p>在云枢表单、列表或业务规则页面打开弹窗，点击"更新目标目录"，为当前页面类型建立独立目录快照。</p>
-                      </article>
-                      <article class="usage-item">
-                        <h5>2. 前端先抓取再回写</h5>
-                        <p>表单页写入 form-index.html / form-style.css / form-script.js；列表页写入 list-index.html / list-style.css / list-script.js。本地修改后用"前端回写"同步。</p>
-                      </article>
-                      <article class="usage-item">
-                        <h5>3. 业务规则保持单页单 model</h5>
-                        <p>进入业务规则页后先抓取 .java 文件，本地改完再回写；同一页面不要同时打开多个业务规则，避免命中错误 Monaco model。</p>
-                      </article>
-                      <article class="usage-item">
-                        <h5>4. 用协作文件对齐上下文</h5>
-                        <p>抓取会按需补齐 README.md、AGENTS.md、DESIGN.md，并刷新 FromCode.md；云枢 JS 通过业务规则传参协作。</p>
-                      </article>
+                      <article class="usage-item"><h5>1. 绑定当前页面目录</h5><p>在云枢表单、列表或业务规则页面打开弹窗，点击"更新目标目录"，为当前页面类型建立独立目录快照。</p></article>
+                      <article class="usage-item"><h5>2. 前端先抓取再回写</h5><p>表单页写入 form-index.html / form-style.css / form-script.js；列表页写入 list-index.html / list-style.css / list-script.js。本地修改后用"前端回写"同步。</p></article>
+                      <article class="usage-item"><h5>3. 业务规则保持单页单 model</h5><p>进入业务规则页后先抓取 .java 文件，本地改完再回写；同一页面不要同时打开多个业务规则，避免命中错误 Monaco model。</p></article>
+                      <article class="usage-item"><h5>4. 用协作文件对齐上下文</h5><p>抓取会按需补齐 README.md、AGENTS.md、DESIGN.md，并刷新 FromCode.md；云枢 JS 通过业务规则传参协作。</p></article>
                     </div>
                   </article>
                   <article class="platform-info-card">
@@ -239,22 +276,10 @@
                   <article class="platform-info-card">
                     <h4>推荐流程</h4>
                     <div class="usage-doc compact-usage">
-                      <article class="usage-item">
-                        <h5>1. 打开氚云表单设计器</h5>
-                        <p>进入 h3yun.com 表单设计页面后切到弹窗"氚云"标签，先确认页面已经加载图形控件、前端 JS 或后端 C# 区域。</p>
-                      </article>
-                      <article class="usage-item">
-                        <h5>2. 使用一键抓取写入</h5>
-                        <p>一次补齐 README.md、AGENTS.md、DESIGN.md、FromCode.md，并写入表单 ID 对应的 .js 文件和 C# 类名对应的 .cs 文件；未挂载区域会跳过。</p>
-                      </article>
-                      <article class="usage-item">
-                        <h5>3. 在本地维护设计与代码</h5>
-                        <p>README.md 用于用户填写需求，DESIGN.md 用于 AI 整理实现逻辑和代码文件，FromCode.md 用于核对字段编码；氚云 JS 和 C# 通过 Ajax 互通。</p>
-                      </article>
-                      <article class="usage-item">
-                        <h5>4. 分别回写前端和后端</h5>
-                        <p>前端代码回写读取同表单 ID 的 .js 文件，后端代码回写读取 C# 类名 .cs 文件，按当前页面 Monaco model 写回。</p>
-                      </article>
+                      <article class="usage-item"><h5>1. 打开氚云表单设计器</h5><p>进入 h3yun.com 表单设计页面后切到弹窗"氚云"标签，先确认页面已经加载图形控件、前端 JS 或后端 C# 区域。</p></article>
+                      <article class="usage-item"><h5>2. 使用一键抓取写入</h5><p>一次补齐 README.md、AGENTS.md、DESIGN.md、FromCode.md，并写入表单 ID 对应的 .js 文件和 C# 类名对应的 .cs 文件；未挂载区域会跳过。</p></article>
+                      <article class="usage-item"><h5>3. 在本地维护设计与代码</h5><p>README.md 用于用户填写需求，DESIGN.md 用于 AI 整理实现逻辑和代码文件，FromCode.md 用于核对字段编码；氚云 JS 和 C# 通过 Ajax 互通。</p></article>
+                      <article class="usage-item"><h5>4. 分别回写前端和后端</h5><p>前端代码回写读取同表单 ID 的 .js 文件，后端代码回写读取 C# 类名 .cs 文件，按当前页面 Monaco model 写回。</p></article>
                     </div>
                   </article>
                   <article class="platform-info-card">
@@ -269,9 +294,8 @@
             <div id="docs-release-panel" class="docs-sub-panel" data-docs-panel="release" hidden>
               <div id="release-notes-list" class="release-timeline"></div>
             </div>
-          </section>
+          </div>
         </div>
-
       </div>
     </main>
 

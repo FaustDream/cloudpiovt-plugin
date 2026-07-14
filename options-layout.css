@@ -1,28 +1,26 @@
+/* 滚动行为与布局偏移保护 */
 html {
   scroll-behavior: smooth;
 }
 
-.page-layout {
-  display: block;
+/* 帮助抽屉打开时锁定 body 滚动 */
+body.help-open {
+  overflow: hidden;
 }
 
-.content-shell {
-  min-width: 0;
-}
-
+/* 因标签面板切换的滚动定位偏移补偿 */
 .config-section,
 .status-output {
   scroll-margin-top: 20px;
 }
 
-/* 两栏布局下保留滚动定位偏移 */
 .settings-column .config-section {
   scroll-margin-top: 16px;
 }
 
 @media (max-width: 720px) {
   .settings-column,
-  .docs-column {
+  .right-column {
     border-radius: 16px;
   }
 }
