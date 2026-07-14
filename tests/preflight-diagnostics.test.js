@@ -20,7 +20,7 @@ import {
   saveLastDiagnosticPackage,
   loadLastDiagnosticPackage,
   LAST_DIAGNOSTIC_PACKAGE_KEY
-} from "../lib/preflight-diagnostics.js";
+} from "../lib/services/preflight-diagnostics.js";
 
 // =============================================================================
 // PREFLIGHT_SEVERITY / PREFLIGHT_OPERATION_IDS - 常量验证

@@ -5,7 +5,7 @@ import {
   H3YUN_READONLY_SETTINGS,
   loadConfig,
   saveConfig
-} from "./lib/config.js";
+} from "../../lib/config.js";
 import {
   applyDiscoveredLaunchers,
   createCustomLauncherDraft,
@@ -14,11 +14,11 @@ import {
   getLauncherIconPath,
   normalizeCustomLaunchers,
   pinLauncher
-} from "./lib/custom-launchers.js";
+} from "../../lib/services/custom-launchers.js";
 import {
   CONTROL_TYPE_REFERENCE,
   H3YUN_CONTROL_TYPE_REFERENCE
-} from "./lib/control-metadata.js";
+} from "../../lib/platform/control-metadata.js";
 import {
   deleteLauncherIcon,
   discoverNativeLaunchers,
@@ -27,9 +27,9 @@ import {
   pickNativeEditor,
   probeNativeHost,
   saveLauncherIcon
-} from "./lib/native-host.js";
-import { CURRENT_EXTENSION_VERSION, RELEASE_NOTES } from "./lib/release-notes.js";
-import { checkForUpdate, syncFromGit } from "./lib/update-check.js";
+} from "../../lib/services/native-host.js";
+import { CURRENT_EXTENSION_VERSION, RELEASE_NOTES } from "../../lib/release-notes.js";
+import { checkForUpdate, syncFromGit } from "../../lib/services/update-check.js";
 import {
   PREFLIGHT_OPERATION_IDS,
   PREFLIGHT_SEVERITY,
@@ -40,7 +40,7 @@ import {
   loadLastDiagnosticPackage,
   saveLastDiagnosticPackage,
   summarizeDiagnosticPackage
-} from "./lib/preflight-diagnostics.js";
+} from "../../lib/services/preflight-diagnostics.js";
 
 const saveButton = document.querySelector("#save-btn");
 const resetButton = document.querySelector("#reset-btn");

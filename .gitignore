@@ -25,6 +25,3 @@ coverage/
 # IDE
 .vscode/
 .codebuddy/
-
-# Docs (文档图片等暂不上传，保持仓库整洁)
-docs/

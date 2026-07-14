@@ -23,7 +23,7 @@
     "https://raw.githubusercontent.com/FaustDream/chrome-plugin/*"
   ],
   "background": {
-    "service_worker": "background.js",
+    "service_worker": "src/background/background.js",
     "type": "module"
   },
   "action": {
@@ -33,7 +33,7 @@
       "48": "assets/icons/extension/icon-48.png",
       "128": "assets/icons/extension/icon-128.png"
     },
-    "default_popup": "popup.html"
+    "default_popup": "src/pages/popup.html"
   },
-  "options_page": "options.html"
+  "options_page": "src/pages/options.html"
 }

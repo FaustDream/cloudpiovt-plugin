@@ -6,11 +6,11 @@
   loadConfig,
   resolvePageTypeConfig,
   resolveH3yunDesignMode
-} from "./lib/config.js";
+} from "../../lib/config.js";
 import {
   BIZ_RULE_USAGE_NOTICE,
   buildBizRuleMissingFileDetails
-} from "./lib/bizrule-constraints.js";
+} from "../../lib/platform/bizrule-constraints.js";
 import {
   ensureTargetDirectorySelection,
   fileExistsInSelection,
@@ -18,36 +18,36 @@ import {
   refreshTargetDirectorySelection,
   supportsDirectoryPicker,
   writeFilesToSelection
-} from "./lib/target-directory-access.js";
+} from "../../lib/directory/target-directory-access.js";
 import {
   createTargetDirectoryPageScope,
   ensureTargetDirectorySnapshot,
   getStoredDirectoryPath,
   getStoredTargetDirectorySelection,
   saveNativeTargetDirectorySelection
-} from "./lib/target-directory-state.js";
-import { buildReadmeWriteFiles, extractReadmeMetadataFromHtml } from "./lib/readme-parser.js";
+} from "../../lib/directory/target-directory-state.js";
+import { buildReadmeWriteFiles, extractReadmeMetadataFromHtml } from "../../lib/platform/readme-parser.js";
 import {
   addRecentTargetDirectory,
   getRecentTargetDirectories,
   removeRecentTargetDirectory
-} from "./lib/recent-target-directories.js";
+} from "../../lib/directory/recent-target-directories.js";
 import {
   launchNativeEditor,
   pickNativeDirectory,
   probeNativeHost,
   statNativeDirectoryFiles
-} from "./lib/native-host.js";
+} from "../../lib/services/native-host.js";
 import {
   buildH3yunFromCodeContent,
   resolveH3yunBackendFileName,
   resolveH3yunFrontendFileName
-} from "./lib/h3yun-code.js";
+} from "../../lib/platform/h3yun-code.js";
 import {
   buildMissingWorkspaceDocumentFiles,
   LEGACY_WORKSPACE_DOCUMENT_FILE_NAMES,
   WORKSPACE_DOCUMENT_FILE_NAMES
-} from "./lib/workspace-documents.js";
+} from "../../lib/services/workspace-documents.js";
 import {
   PREFLIGHT_OPERATION_IDS,
   PREFLIGHT_SEVERITY,
@@ -57,12 +57,12 @@ import {
   formatPreflightStatusLines,
   hasBlockingPreflightResult,
   saveLastDiagnosticPackage
-} from "./lib/preflight-diagnostics.js";
+} from "../../lib/services/preflight-diagnostics.js";
 import {
   getAvailableLaunchers,
   getLauncherIconPath,
   selectDefaultLauncher
-} from "./lib/custom-launchers.js";
+} from "../../lib/services/custom-launchers.js";
 
 const pageOriginEl = document.querySelector("#page-origin");
 const targetHandleEl = document.querySelector("#target-handle");

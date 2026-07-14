@@ -16,7 +16,7 @@ import {
   resolveH3yunFrontendFileName,
   buildH3yunFromCodeContent,
   hasMissingH3yunChildCodes
-} from "../lib/h3yun-code.js";
+} from "../lib/platform/h3yun-code.js";
 
 // =============================================================================
 // 常量验证
