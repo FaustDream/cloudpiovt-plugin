@@ -1,7 +1,7 @@
 {
   "type": "module",
   "scripts": {
-    "check:js": "node --check background.js && node --check options.js && node --check popup.js && node --check lib/config.js && node --check lib/custom-launchers.js && node --check lib/h3yun-code.js && node --check lib/native-host.js && node --check lib/readme-parser.js && node --check lib/release-notes.js && node --check lib/workspace-documents.js && node --check lib/preflight-diagnostics.js",
+    "check:js": "node --check src/background/background.js && node --check src/pages/options.js && node --check src/pages/popup.js && node --check lib/config.js && node --check lib/services/custom-launchers.js && node --check lib/platform/h3yun-code.js && node --check lib/services/native-host.js && node --check lib/platform/readme-parser.js && node --check lib/release-notes.js && node --check lib/services/workspace-documents.js && node --check lib/services/preflight-diagnostics.js",
     "verify:launchers": "node tests/scripts/verify-custom-launchers.mjs",
     "verify:preflight": "node tests/scripts/verify-preflight-diagnostics.mjs",
     "verify": "npm run check:js && npm run verify:preflight && npm run verify:launchers",

@@ -1,17 +1,16 @@
-import { loadConfig } from "./lib/config.js";
-import { resolvePageTypeConfig } from "./lib/config.js";
-import { clearTargetDirectoryHandlesByScopePrefix } from "./lib/file-handle-db.js";
+import { loadConfig, resolvePageTypeConfig } from "../../lib/config.js";
+import { clearTargetDirectoryHandlesByScopePrefix } from "../../lib/directory/file-handle-db.js";
 import {
   clearTargetDirectoryPathsByScopePrefix,
   clearTargetDirectorySnapshotsByScopePrefix,
   createTargetDirectoryPageScope,
   ensureTargetDirectorySnapshot
-} from "./lib/target-directory-state.js";
+} from "../../lib/directory/target-directory-state.js";
 import {
   checkForUpdate,
   UPDATE_CHECK_ALARM_NAME,
   UPDATE_CHECK_PERIOD_MINUTES
-} from "./lib/update-check.js";
+} from "../../lib/services/update-check.js";
 
 // tab.url 可能在新建页早期为空，统一从 url/pendingUrl 中取可用页面地址。
 function getTabPageUrl(tab) {
