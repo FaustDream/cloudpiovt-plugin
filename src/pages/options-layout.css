@@ -1,9 +1,6 @@
 /* 滚动行为与布局偏移保护 */
 html { scroll-behavior: smooth; }
 
-/* 弹窗编辑打开时锁定 body 滚动 */
-body.edit-open { overflow: hidden; }
-
 @media (max-width: 640px) {
   .section { border-radius: 12px; }
 }

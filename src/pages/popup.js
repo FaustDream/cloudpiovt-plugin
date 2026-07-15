@@ -33,7 +33,6 @@ import {
   removeRecentTargetDirectory
 } from "../../lib/directory/recent-target-directories.js";
 import {
-  launchNativeEditor,
   pickNativeDirectory,
   probeNativeHost,
   statNativeDirectoryFiles
@@ -96,10 +95,6 @@ const frontendCaptureWriteButton = document.querySelector("#frontend-capture-wri
 const frontendWritebackButton = document.querySelector("#frontend-writeback-btn");
 const bizruleCaptureWriteButton = document.querySelector("#bizrule-capture-write-btn");
 const bizruleWritebackButton = document.querySelector("#bizrule-writeback-btn");
-const launcherMainButton = document.querySelector("#launcher-main-btn");
-const launcherMainIcon = document.querySelector("#launcher-main-icon");
-const launcherMenuButton = document.querySelector("#launcher-menu-btn");
-const launcherMenu = document.querySelector("#launcher-menu");
 const openOptionsButton = document.querySelector("#open-options-btn");
 const platformTabsEl = document.querySelector("#platform-tabs");
 const platformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab]"));
@@ -135,10 +130,6 @@ const RUNTIME_LOG_LIMIT = 80;
 let lastDiagnosticPackage = null;
 // 当前弹窗选中的平台标签，只影响 UI 展示，不直接决定页面实际适配类型。
 let activePlatformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
-let currentLaunchers = [];
-let defaultLauncher = null;
-let isLauncherMenuOpen = false;
-
 const H3YUN_CODE_EDITOR_CONFIG = {
   frontend: {
     codeKind: "frontend",
@@ -186,63 +177,6 @@ function syncRecentPathInteractionState() {
   }
 }
 
-function syncLauncherInteractionState() {
-  const hasDefaultLauncher = Boolean(defaultLauncher);
-  launcherMainButton.disabled = isPopupBusy || !hasDefaultLauncher;
-  launcherMenuButton.disabled = isPopupBusy || !getAvailableLaunchers(currentLaunchers).length;
-  for (const element of launcherMenu.querySelectorAll("button")) {
-    element.disabled = isPopupBusy;
-  }
-}
-
-function setLauncherMenuOpen(isOpen) {
-  isLauncherMenuOpen = Boolean(isOpen);
-  launcherMenu.hidden = !isLauncherMenuOpen;
-  launcherMenuButton.setAttribute("aria-expanded", isLauncherMenuOpen ? "true" : "false");
-}
-
-function renderLauncherMenuItem(launcher) {
-  const button = document.createElement("button");
-  button.className = "launcher-menu-item";
-  button.type = "button";
-  button.setAttribute("role", "menuitem");
-  button.dataset.launcherId = launcher.launcherId;
-  const icon = document.createElement("img");
-  icon.className = "launcher-menu-icon";
-  icon.src = getLauncherIconPath(launcher, 16);
-  icon.alt = "";
-  const name = document.createElement("span");
-  name.className = "launcher-menu-name";
-  name.textContent = launcher.name;
-  button.append(icon, name);
-  return button;
-}
-
-function renderLauncherControls(config) {
-  currentLaunchers = Array.isArray(config?.customLaunchers) ? config.customLaunchers : [];
-  defaultLauncher = selectDefaultLauncher(currentLaunchers);
-  const availableLaunchers = getAvailableLaunchers(currentLaunchers);
-
-  if (defaultLauncher) {
-    launcherMainIcon.src = getLauncherIconPath(defaultLauncher, 16);
-    launcherMainButton.title = `用 ${defaultLauncher.name} 打开当前目录`;
-    launcherMainButton.setAttribute("aria-label", `用 ${defaultLauncher.name} 打开当前目录`);
-  } else {
-    launcherMainIcon.src = getLauncherIconPath({ iconKey: "file-explorer" }, 16);
-    launcherMainButton.title = "请先在设置页配置打开方式";
-    launcherMainButton.setAttribute("aria-label", "请先在设置页配置打开方式");
-    setLauncherMenuOpen(false);
-  }
-
-  // 图标加载失败时隐蔽破损图标避免视觉干扰
-  launcherMainIcon.onerror = () => {
-    launcherMainIcon.style.display = "none";
-  };
-
-  launcherMenu.replaceChildren(...availableLaunchers.map(renderLauncherMenuItem));
-  syncLauncherInteractionState();
-}
-
 function setBusy(isBusy) {
   isPopupBusy = Boolean(isBusy);
   frontendCaptureWriteButton.disabled = isBusy;
@@ -250,7 +184,6 @@ function setBusy(isBusy) {
   bizruleCaptureWriteButton.disabled = isBusy;
   bizruleWritebackButton.disabled = isBusy;
   refreshHandleButton.disabled = isBusy;
-  syncLauncherInteractionState();
   h3yunCaptureAllButton.disabled = isBusy;
   h3yunFrontendWritebackButton.disabled = isBusy;
   h3yunBackendWritebackButton.disabled = isBusy;
@@ -878,43 +811,6 @@ async function ensureDirectoryAccessForOperation(pageType, mode, targetScope) {
   return ensureTargetDirectorySelection(pageType, mode, targetScope);
 }
 
-// 打开编辑器必须拿到 Native Host 绝对路径，只有句柄快照时返回空值并触发重新选择。
-async function resolveLaunchTargetPath(pageType, targetScope) {
-  const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
-  if (selection.kind === "native-path" && selection.directoryPath) {
-    return selection.directoryPath;
-  }
-
-  return "";
-}
-
-async function ensureLaunchTargetPath(pageType, targetScope) {
-  const existingPath = await resolveLaunchTargetPath(pageType, targetScope);
-  if (existingPath) {
-    return existingPath;
-  }
-
-  const initialPath = await getStoredDirectoryPath(pageType, targetScope);
-  const response = await pickNativeDirectory(initialPath);
-  if (!response?.ok) {
-    if (response?.cancelled) {
-      const error = new Error("已取消选择目标目录。");
-      error.name = "AbortError";
-      throw error;
-    }
-    throw new Error(response?.error || "选择目标目录失败。");
-  }
-
-  const directoryPath = String(response.directoryPath || "").trim();
-  if (!directoryPath) {
-    throw new Error("原生助手未返回目标目录绝对路径。");
-  }
-
-  await saveNativeTargetDirectorySelection(pageType, directoryPath, targetScope);
-  await updateDirectoryInfo(pageType, targetScope);
-  return directoryPath;
-}
-
 async function refreshDirectoryHandle(pageType, targetScope) {
   // 刷新按钮应优先从弹窗正在展示的当前路径打开系统目录选择框，避免用户被带到未知默认目录。
   const selection = await refreshTargetDirectorySelection(pageType, targetScope, currentTargetPath);
@@ -1080,104 +976,6 @@ async function handleHistoryFlatListClick(event) {
   if (historyItem) {
     event.preventDefault();
     await runWithButtonBusy(historyItem, () => handleUseHistoryPath(historyItem.dataset.historyPath));
-  }
-}
-
-function findLauncherById(launcherId) {
-  return currentLaunchers.find((launcher) => launcher.launcherId === launcherId) || null;
-}
-
-function createLauncherPreflightResult(operationId, launcher) {
-  if (!launcher) {
-    return createPreflightResult({
-      operationId,
-      checkId: "launcher.selection",
-      severity: PREFLIGHT_SEVERITY.blocker,
-      ok: false,
-      errorCode: "NO_AVAILABLE_LAUNCHER",
-      evidence: "No enabled launcher with executablePath",
-      nextAction: "打开设置页，在\"打开方式\"中启用并配置至少一个软件路径。"
-    });
-  }
-
-  return createPreflightResult({
-    operationId,
-    checkId: "launcher.selection",
-    severity: launcher.executablePath ? PREFLIGHT_SEVERITY.info : PREFLIGHT_SEVERITY.blocker,
-    ok: Boolean(launcher.executablePath),
-    errorCode: launcher.executablePath ? "" : "LAUNCHER_PATH_MISSING",
-    evidence: `launcherId=${launcher.launcherId} | iconKey=${launcher.iconKey} | executablePath=${launcher.executablePath || ""} | argumentsTemplate=${launcher.argumentsTemplate || ""}`,
-    nextAction: launcher.executablePath ? "" : "打开设置页为该打开方式配置应用路径。",
-    data: {
-      launcherId: launcher.launcherId,
-      iconKey: launcher.iconKey,
-      name: launcher.name,
-      executablePath: launcher.executablePath,
-      argumentsTemplate: launcher.argumentsTemplate
-    }
-  });
-}
-
-async function handleOpenCustomLauncher(launcherId = "") {
-  setBusy(true);
-  let launcher = null;
-  let launcherLabel = "打开方式";
-  setStatus(`正在打开 ${launcherLabel}...`);
-
-  try {
-    const config = await loadConfig();
-    renderLauncherControls(config);
-    launcher = launcherId ? findLauncherById(launcherId) : selectDefaultLauncher(currentLaunchers);
-    launcherLabel = launcher?.name || "打开方式";
-    setStatus(`正在打开 ${launcherLabel}...`);
-
-    await runOperationWithPreflight(
-      PREFLIGHT_OPERATION_IDS.nativeOpenCustomLauncher,
-      async ({ pageContext }) => {
-        const { pageType, targetScope } = pageContext;
-        if (!launcher?.executablePath) {
-          throw new Error("请先在设置页配置可用打开方式。");
-        }
-
-        const targetPath = await ensureLaunchTargetPath(pageType, targetScope);
-
-        const response = await launchNativeEditor({
-          executablePath: launcher.executablePath,
-          argumentsTemplate: launcher.argumentsTemplate,
-          targetPath
-        });
-
-        if (!response?.ok) {
-          throw new Error(response?.error || `打开 ${launcher.name} 失败。`);
-        }
-
-        setStatus([
-          `${launcher.name} 已打开目标目录。`,
-          `页面类型：${getCurrentPageContext().pageTypeConfig.pageLabel}`,
-          `目标目录：${targetPath}`,
-          `launcherId：${launcher.launcherId}`,
-          `iconKey：${launcher.iconKey}`,
-          `可执行文件：${launcher.executablePath}`,
-          `参数模板：${launcher.argumentsTemplate || "{rawPath}"}`
-        ]);
-      },
-      {
-        requireNativeHost: true,
-        skipExecutableContextCheck: true,
-        collectExtraResults: async ({ operationId }) => [
-          createLauncherPreflightResult(operationId, launcher)
-        ]
-      }
-    );
-  } catch (error) {
-    if (error?.name === "AbortError") {
-      setStatus(`已取消打开 ${launcherLabel}。`);
-      return;
-    }
-    setStatus(`打开 ${launcherLabel} 失败。\n${error?.message || String(error)}`);
-  } finally {
-    setLauncherMenuOpen(false);
-    setBusy(false);
   }
 }
 
@@ -4878,21 +4676,7 @@ frontendWritebackButton.addEventListener("click", () => runWithButtonBusy(fronte
 bizruleCaptureWriteButton.addEventListener("click", handleCloudpivotBizRuleCaptureWithFilePicker);
 bizruleWritebackButton.addEventListener("click", () => runWithButtonBusy(bizruleWritebackButton, handleBizruleWriteback));
 
-launcherMainButton.addEventListener("click", () => runWithButtonBusy(launcherMainButton, () => handleOpenCustomLauncher()));
-launcherMenuButton.addEventListener("click", (event) => {
-  event.stopPropagation();
-  setLauncherMenuOpen(!isLauncherMenuOpen);
-});
-launcherMenu.addEventListener("click", (event) => {
-  const button = event.target.closest("[data-launcher-id]");
-  if (!button) { return; }
-  event.preventDefault();
-  runWithButtonBusy(button, () => handleOpenCustomLauncher(button.dataset.launcherId));
-});
 document.addEventListener("click", (event) => {
-  if (!event.target.closest("#launcher-control")) {
-    setLauncherMenuOpen(false);
-  }
   // 点击导出下拉外部关闭
   if (!event.target.closest("#export-dropdown")) {
     setExportDropdownOpen(false);
@@ -4934,7 +4718,6 @@ copyLogButton.addEventListener("click", handleCopyRuntimeLog);
 
 async function init() {
   currentConfig = await loadConfig();
-  renderLauncherControls(currentConfig);
 
   const pageContext = await updatePageInfo();
   currentPageContext = pageContext;

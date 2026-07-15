@@ -168,123 +168,6 @@ body {
 
 .section.is-collapsed .section-body { display: none; }
 
-/* ========== 启动器表格 ========== */
-.launcher-toolbar {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.launcher-table-wrap {
-  overflow-x: auto;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-}
-
-.launcher-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 580px;
-}
-
-.launcher-table th {
-  padding: 8px 12px;
-  background: var(--panel-soft);
-  font-size: 11px;
-  font-weight: 800;
-  color: var(--muted);
-  text-align: left;
-  border-bottom: 1px solid var(--border);
-  white-space: nowrap;
-}
-
-.launcher-table td {
-  padding: 6px 10px;
-  border-bottom: 1px solid rgba(207, 219, 213, 0.5);
-  font-size: 13px;
-  vertical-align: middle;
-}
-
-.launcher-table tbody tr:last-child td { border-bottom: 0; }
-
-.launcher-table tbody tr:hover { background: rgba(40, 88, 77, 0.03); }
-
-.col-icon { width: 44px; text-align: center; }
-.col-name { width: 140px; }
-.col-path { min-width: 0; }
-.col-status { width: 60px; text-align: center; }
-.col-actions { width: 36px; text-align: center; }
-
-.launcher-icon-cell {
-  width: 28px; height: 28px;
-  object-fit: contain;
-  vertical-align: middle;
-}
-
-.launcher-name-cell {
-  cursor: pointer;
-  font-weight: 800;
-  color: var(--primary);
-}
-
-.launcher-name-cell:hover { text-decoration: underline; }
-
-.launcher-path-cell {
-  max-width: 300px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--muted);
-  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
-  font-size: 12px;
-}
-
-.launcher-status-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
-  white-space: nowrap;
-}
-
-.launcher-status-badge.is-pinned {
-  background: rgba(40, 88, 77, 0.1);
-  color: var(--primary);
-}
-
-.launcher-status-badge.is-enabled {
-  background: rgba(45, 138, 86, 0.08);
-  color: var(--success);
-}
-
-.launcher-status-badge.is-disabled {
-  background: rgba(102, 115, 109, 0.08);
-  color: var(--muted);
-}
-
-.launcher-menu-btn {
-  appearance: none;
-  border: 0;
-  background: none;
-  cursor: pointer;
-  font-size: 16px;
-  color: var(--muted);
-  padding: 0 4px;
-  line-height: 1;
-}
-
-.launcher-menu-btn:hover { color: var(--ink); }
-
-.empty-hint {
-  padding: 20px;
-  text-align: center;
-  color: var(--muted);
-  font-size: 13px;
-}
-
 /* ========== 默认目录 ========== */
 .default-dir-row {
   display: flex;
@@ -570,85 +453,6 @@ body {
   color: var(--muted);
 }
 
-/* ========== 弹窗编辑 ========== */
-.launcher-edit-popover {
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-}
-
-.launcher-edit-popover[hidden] { display: none; }
-
-.popover-mask {
-  position: absolute;
-  inset: 0;
-  background: rgba(28, 43, 37, 0.25);
-  backdrop-filter: blur(2px);
-}
-
-.popover-card {
-  position: absolute;
-  top: 50%; left: 50%;
-  transform: translate(-50%, -50%);
-  width: 440px;
-  max-width: calc(100vw - 32px);
-  padding: 20px 24px;
-  background: #fff;
-  border-radius: 16px;
-  box-shadow: 0 16px 48px rgba(28, 43, 37, 0.18);
-}
-
-.popover-card h3 {
-  margin: 0 0 16px;
-  font-size: 17px;
-}
-
-.edit-launcher-actions {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 12px;
-}
-
-.edit-launcher-buttons {
-  display: flex;
-  gap: 8px;
-}
-
-/* ========== 操作菜单 ========== */
-.context-menu {
-  position: fixed;
-  z-index: 150;
-  min-width: 140px;
-  padding: 4px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: #fff;
-  box-shadow: 0 8px 28px rgba(28, 43, 37, 0.14);
-}
-
-.context-menu[hidden] { display: none; }
-
-.context-item {
-  display: block;
-  width: 100%;
-  padding: 8px 12px;
-  border: 0;
-  border-radius: 7px;
-  background: none;
-  font: inherit;
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  color: var(--ink);
-  transition: background 100ms ease;
-}
-
-.context-item:hover { background: var(--panel-soft); }
-
-.context-item-danger { color: var(--danger); }
-.context-item-danger:hover { background: rgba(192, 57, 43, 0.06); }
-
 /* ========== 通用组件 ========== */
 button {
   appearance: none;
@@ -760,28 +564,6 @@ button:disabled { opacity: 0.6; cursor: wait; }
   border-color: var(--primary);
 }
 
-/* ========== 图标上传 ========== */
-.launcher-icon-upload {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 8px;
-  background: var(--ghost);
-  font-size: 12px;
-  font-weight: 800;
-  cursor: pointer;
-  transition: background 120ms ease;
-}
-
-.launcher-icon-upload:hover { background: var(--ghost-hover); }
-
-.launcher-icon-upload input {
-  position: absolute;
-  inline-size: 1px; block-size: 1px;
-  opacity: 0; pointer-events: none;
-}
-
 /* ========== 操作行 ========== */
 .action-row {
   display: flex;
@@ -848,10 +630,5 @@ button:disabled { opacity: 0.6; cursor: wait; }
   .top-bar-status { display: none; }
   .section-head { flex-wrap: wrap; }
   .section-desc { display: none; }
-  .launcher-table { min-width: 0; font-size: 12px; }
-  .launcher-table th, .launcher-table td { padding: 5px 6px; }
-  .col-path { display: none; }
-  .col-status { width: 50px; }
   .default-dir-row { flex-direction: column; align-items: stretch; }
-  .popover-card { width: calc(100vw - 32px); padding: 16px; }
 }

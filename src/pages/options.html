@@ -26,37 +26,7 @@
       <!-- 状态栏 toast -->
       <div class="toast" id="toast" hidden></div>
 
-      <!-- 分区一：应用路径 -->
-      <section class="section" data-section="launchers">
-        <div class="section-head" role="button" tabindex="0" aria-expanded="true">
-          <span class="section-arrow">▲</span>
-          <h2 class="section-title">应用路径</h2>
-          <p class="section-desc">配置代码编辑器的启动方式；置顶项将作为弹窗主按钮的默认打开软件。</p>
-        </div>
-        <div class="section-body">
-          <div class="launcher-toolbar">
-            <button id="add-launcher-btn" class="ghost-btn-sm" type="button">+ 新增</button>
-            <button id="discover-launchers-btn" class="ghost-btn-sm" type="button">检测内置软件</button>
-          </div>
-          <div class="launcher-table-wrap">
-            <table class="launcher-table" id="launcher-table">
-              <thead>
-                <tr>
-                  <th class="col-icon"></th>
-                  <th class="col-name">显示名称</th>
-                  <th class="col-path">路径</th>
-                  <th class="col-status">状态</th>
-                  <th class="col-actions"></th>
-                </tr>
-              </thead>
-              <tbody id="launcher-tbody"></tbody>
-            </table>
-          </div>
-          <p class="empty-hint" id="launcher-empty" hidden>暂无打开方式，点击"+ 新增"添加。</p>
-        </div>
-      </section>
-
-      <!-- 分区二：默认目录 -->
+      <!-- 分区一：默认目录 -->
       <section class="section" data-section="defaultdir">
         <div class="section-head" role="button" tabindex="0" aria-expanded="true">
           <span class="section-arrow">▲</span>
@@ -163,45 +133,6 @@
         </div>
       </section>
     </main>
-
-    <!-- 启动器行内编辑弹窗 -->
-    <div class="launcher-edit-popover" id="launcher-edit-popover" hidden>
-      <div class="popover-mask"></div>
-      <div class="popover-card">
-        <h3 id="edit-popover-title">编辑启动器</h3>
-        <label class="field">
-          <span class="field-label">显示名称</span>
-          <input id="edit-launcher-name" type="text" placeholder="例如：Cursor">
-        </label>
-        <label class="field">
-          <span class="field-label">应用路径</span>
-          <input id="edit-launcher-path" type="text" placeholder="例如：C:\Tools\App\app.exe">
-          <button id="edit-pick-exe-btn" class="ghost-btn-sm" type="button" style="margin-top:6px">选择应用</button>
-        </label>
-        <label class="field">
-          <span class="field-label">参数模板</span>
-          <input id="edit-launcher-args" type="text" placeholder='"{rawPath}"'>
-        </label>
-        <div class="edit-launcher-actions">
-          <label class="launcher-icon-upload">
-            上传图标
-            <input type="file" accept="image/png,image/webp" id="edit-launcher-icon-input">
-          </label>
-          <div class="edit-launcher-buttons">
-            <button id="edit-launcher-save-btn" class="save-btn" type="button">确定</button>
-            <button id="edit-launcher-cancel-btn" class="ghost-btn-sm" type="button">取消</button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 启动器操作菜单 -->
-    <div class="context-menu" id="launcher-menu" hidden>
-      <button class="context-item" data-menu-action="pin">设为置顶</button>
-      <button class="context-item" data-menu-action="enable">切换启用</button>
-      <button class="context-item" data-menu-action="edit">编辑</button>
-      <button class="context-item context-item-danger" data-menu-action="delete">删除</button>
-    </div>
 
     <script type="module" src="options.js"></script>
   </body>
