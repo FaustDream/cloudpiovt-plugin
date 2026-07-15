@@ -220,6 +220,11 @@ function renderLauncherControls(config) {
     setLauncherMenuOpen(false);
   }
 
+  // 图标加载失败时隐蔽破损图标避免视觉干扰
+  launcherMainIcon.onerror = () => {
+    launcherMainIcon.style.display = "none";
+  };
+
   launcherMenu.replaceChildren(...availableLaunchers.map(renderLauncherMenuItem));
   syncLauncherInteractionState();
 }
@@ -2181,6 +2186,8 @@ async function handleH3yunCodeWriteback(codeKind) {
       level: "error",
       suggestion: "处理建议：确认氚云页面已切到对应前端/后端代码区域并完全加载；若仍失败，请导出日志发给作者排查 Monaco model 匹配。"
     });
+    // 重新抛出错误，让上层调用者（如一键回写）能感知失败，避免误报成功。
+    throw error;
   } finally {
     setBusy(false);
   }
@@ -4787,28 +4794,28 @@ async function handleH3yunCaptureWithFilePicker() {
  * 氚云一键回写：顺序执行前端回写 + 后端回写，复用已有 handleH3yunCodeWriteback。
  * 任何一个回写失败均报告但继续执行另一个，最终汇总结果。
  */
+/**
+ * 氚云一键回写：顺序执行前端 + 后端回写。
+ * handleH3yunCodeWriteback 已管理 busy 状态，此处仅做结果汇总。
+ */
 async function handleH3yunOneClickWriteback() {
-  setBusy(true);
   setStatus("正在一键回写氚云前后端...");
   const results = [];
-  try {
-    for (const codeKind of ["frontend", "backend"]) {
-      try {
-        await handleH3yunCodeWriteback(codeKind);
-        results.push({ codeKind, ok: true });
-      } catch (error) {
-        results.push({ codeKind, ok: false, error: error?.message || String(error) });
-      }
+  for (const codeKind of ["frontend", "backend"]) {
+    try {
+      await handleH3yunCodeWriteback(codeKind);
+      results.push({ codeKind, ok: true });
+    } catch (_error) {
+      // handleH3yunCodeWriteback 已在内部设置了具体错误状态，此处仅记录失败
+      results.push({ codeKind, ok: false });
     }
-    const failed = results.filter((r) => !r.ok);
-    if (failed.length) {
-      setStatus(`氚云一键回写部分失败。\n${failed.map((r) => `${r.codeKind}: ${r.error}`).join("\n")}`, {
-        level: "error",
-        suggestion: "处理建议：请确认前后端编辑器区域已加载；可尝试分别回写。"
-      });
-    }
-  } finally {
-    setBusy(false);
+  }
+  const failed = results.filter((r) => !r.ok);
+  if (failed.length) {
+    setStatus(`氚云一键回写部分失败：${failed.map((r) => r.codeKind).join("、")}`, {
+      level: "error",
+      suggestion: "处理建议：请确认前后端编辑器区域已加载；可尝试分别回写。"
+    });
   }
 }
 
