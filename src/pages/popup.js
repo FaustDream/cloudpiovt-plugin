@@ -658,6 +658,17 @@ function cleanInlineText(value) {
 // ========== 搜索输入框 & 下拉列表组件 ==========
 
 /**
+ * 规范化搜索关键字：去除首尾空白，合并中间连续空白为单个空格。
+ * @param {string} value - 原始输入
+ * @returns {string} 规范化后的字符串
+ */
+function normalizeContentString(value) {
+  return String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * 根据输入关键字匹配历史目录记录。
  * 匹配规则：用户输入的关键字与末级目录名做模糊匹配（忽略大小写）。
  * @param {string} query - 用户输入的关键字
