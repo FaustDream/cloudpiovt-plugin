@@ -3,31 +3,95 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>开发助手 - 设置</title>
+    <title>开发助手</title>
     <link rel="stylesheet" href="options.css">
     <link rel="stylesheet" href="options-layout.css">
   </head>
   <body>
     <main class="page-shell">
-      <!-- 顶栏 sticky -->
+      <!-- 顶栏 sticky：仅保留操作按钮 -->
       <header class="top-bar">
-        <div class="top-bar-brand">
-          <h1 class="top-bar-title">开发助手设置</h1>
-        </div>
-        <div class="top-bar-status" id="top-bar-status"></div>
-        <div class="top-bar-actions">
-          <button id="expand-all-btn" class="ghost-btn-sm" type="button" title="全部展开/折叠">展开/折叠</button>
-          <button id="save-btn" class="save-btn" type="button">保存</button>
-          <button id="reset-btn" class="ghost-btn-sm" type="button">恢复</button>
+        <div class="top-bar-row">
+          <div class="top-bar-actions">
+            <button id="expand-all-btn" class="ghost-btn-sm" type="button" title="全部展开/折叠">展开/折叠</button>
+            <button id="save-btn" class="save-btn" type="button">保存</button>
+            <button id="reset-btn" class="ghost-btn-sm" type="button">恢复</button>
+          </div>
         </div>
       </header>
 
       <!-- 状态栏 toast -->
       <div class="toast" id="toast" hidden></div>
 
-      <!-- 分区一：默认目录 -->
+      <!-- 侧边栏 + 内容区双栏布局 -->
+      <div class="page-layout">
+        <nav class="sidebar" id="sidebar-nav" aria-label="设置导航">
+          <!-- 功能导航 -->
+          <ul class="sidebar-list">
+            <li class="sidebar-item is-active" data-nav-target="nativehost">
+              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              <span>助手连接</span>
+            </li>
+            <li class="sidebar-item" data-nav-target="defaultdir">
+              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>默认目录</span>
+            </li>
+            <li class="sidebar-item" data-nav-target="update">
+              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+              <span>更新设置</span>
+            </li>
+            <li class="sidebar-item" data-nav-target="genfiles">
+              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <span>文件生成</span>
+            </li>
+            <li class="sidebar-item" data-nav-target="diagnostic">
+              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span>问题排查</span>
+            </li>
+            <li class="sidebar-item" data-nav-target="help">
+              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span>使用说明</span>
+            </li>
+            <li class="sidebar-item" data-nav-target="release">
+              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              <span>版本更新记录</span>
+            </li>
+          </ul>
+        </nav>
+
+        <div class="content-area">
+
+          <!-- 分区零：助手连接 -->
+          <section class="section" data-section="nativehost">
+            <div class="section-head" role="button" tabindex="0" aria-expanded="true">
+              <span class="section-icon" aria-hidden="true">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              </span>
+              <span class="section-arrow">▲</span>
+              <h2 class="section-title">助手连接</h2>
+              <p class="section-desc" id="native-host-desc">原生助手状态与连接管理。</p>
+            </div>
+            <div class="section-body">
+              <div class="native-host-info">
+                <div class="native-host-status" id="top-bar-status">
+                  <span class="status-dot" id="status-dot"></span>
+                  <span>检测中…</span>
+                </div>
+              </div>
+              <div class="action-row">
+                <button id="test-native-host-btn" class="ghost-btn-sm" type="button">测试连接</button>
+                <button id="install-native-host-btn" class="ghost-btn-sm" type="button" hidden>安装原生助手</button>
+              </div>
+              <p class="native-host-hint">原生助手用于文件系统读写、目录选择、Git 同步。请运行 <code>scripts\install-native-host.cmd</code> 安装。</p>
+            </div>
+          </section>
+
+          <!-- 分区一：默认目录 -->
       <section class="section" data-section="defaultdir">
         <div class="section-head" role="button" tabindex="0" aria-expanded="true">
+          <span class="section-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+          </span>
           <span class="section-arrow">▲</span>
           <h2 class="section-title">默认目录</h2>
           <p class="section-desc">当页面没有已选目录时自动使用对应平台的默认路径。</p>
@@ -50,12 +114,15 @@
         </div>
       </section>
 
-      <!-- 分区三：更新与文件生成 -->
+      <!-- 分区二：更新设置 -->
       <section class="section" data-section="update">
         <div class="section-head" role="button" tabindex="0" aria-expanded="true">
+          <span class="section-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          </span>
           <span class="section-arrow">▲</span>
-          <h2 class="section-title">更新与文件生成</h2>
-          <p class="section-desc" id="update-section-desc">版本、更新偏好与按平台文件生成开关。</p>
+          <h2 class="section-title">更新设置</h2>
+          <p class="section-desc" id="update-section-desc">版本检查、自动更新与诊断工具。</p>
         </div>
         <div class="section-body">
           <!-- 版本横幅：仅在有新版本时显示 -->
@@ -79,9 +146,20 @@
             <span class="update-last-check" id="update-last-check"></span>
           </div>
 
-          <div class="update-sub-sep"></div>
+        </div>
+      </section>
 
-          <!-- 文件生成 + 氚云回写模式 -->
+      <!-- 分区三：文件生成 -->
+      <section class="section" data-section="genfiles">
+        <div class="section-head" role="button" tabindex="0" aria-expanded="true">
+          <span class="section-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          </span>
+          <span class="section-arrow">▲</span>
+          <h2 class="section-title">文件生成</h2>
+          <p class="section-desc">按平台配置文件生成开关与氚云回写模式。</p>
+        </div>
+        <div class="section-body">
           <div class="genfiles-area">
             <div class="genfiles-header">
               <label class="dir-platform-select">
@@ -95,35 +173,76 @@
             <div class="genfiles-toggles" id="genfiles-toggles"></div>
           </div>
 
-          <div class="update-sub-sep"></div>
-
-          <label class="toggle-inline">
-            <input id="h3yun-oneclick-writeback" type="checkbox">
-            <span class="toggle-track" aria-hidden="true"></span>
-            <span>氚云一键回写模式（开启时弹窗显示"一键回写"按钮）</span>
-          </label>
-
-          <!-- 诊断工具折叠 -->
-          <details class="log-fold" id="log-fold">
-            <summary class="log-fold-summary">诊断工具</summary>
-            <div class="log-fold-body">
-              <p id="last-diagnostic-summary" class="diagnostic-summary">最近诊断：未生成</p>
-              <div class="action-row">
-                <button id="copy-diagnostic-summary-btn" class="ghost-btn-sm" type="button">复制诊断摘要</button>
-                <button id="export-last-diagnostic-btn" class="ghost-btn-sm" type="button">导出最近诊断</button>
-              </div>
-              <pre id="status-output" class="status-output">正在加载...</pre>
-            </div>
-          </details>
+          <div id="h3yun-writeback-row" hidden>
+            <label class="toggle-inline">
+              <input id="h3yun-oneclick-writeback" type="checkbox">
+              <span class="toggle-track" aria-hidden="true"></span>
+              <span>氚云一键回写模式（开启时弹窗显示"一键回写"按钮）</span>
+            </label>
+          </div>
         </div>
       </section>
 
-      <!-- 分区四：使用说明 -->
+      <!-- 分区二点五：问题排查 -->
+      <section class="section" data-section="diagnostic">
+        <div class="section-head" role="button" tabindex="0" aria-expanded="true">
+          <span class="section-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </span>
+          <span class="section-arrow">▲</span>
+          <h2 class="section-title">问题排查</h2>
+          <p class="section-desc">扩展状态概览、运行日志与诊断导出。</p>
+        </div>
+        <div class="section-body">
+          <div class="action-row" style="margin-bottom: var(--spacing-md); flex-wrap: wrap;">
+            <button id="diag-health-check-btn" class="ghost-btn-sm" type="button">🩺 全面检查</button>
+            <button id="diag-copy-all-btn" class="ghost-btn-sm" type="button">📋 复制全部信息</button>
+            <button id="copy-diagnostic-summary-btn" class="ghost-btn-sm" type="button">复制摘要</button>
+            <button id="export-last-diagnostic-btn" class="ghost-btn-sm" type="button">导出诊断</button>
+            <button id="diag-export-btn" class="ghost-btn-sm" type="button">📦 导出 JSON</button>
+          </div>
+
+          <!-- 扩展信息概览 -->
+          <div class="diag-info-row">
+            <span class="diag-label">扩展版本</span>
+            <span class="diag-value" id="diag-version">—</span>
+          </div>
+          <div class="diag-info-row">
+            <span class="diag-label">原生助手</span>
+            <span class="diag-value" id="diag-native-host">检测中…</span>
+          </div>
+          <div class="diag-info-row">
+            <span class="diag-label">权限状态</span>
+            <span class="diag-value" id="diag-permissions">—</span>
+          </div>
+          <div class="diag-info-row">
+            <span class="diag-label">浏览器</span>
+            <span class="diag-value" id="diag-browser">—</span>
+          </div>
+          <div class="diag-info-row">
+            <span class="diag-label">上次诊断</span>
+            <span class="diag-value" id="diag-last-check">未生成</span>
+          </div>
+
+          <div class="update-sub-sep"></div>
+
+          <!-- 诊断摘要 -->
+          <p id="last-diagnostic-summary" class="diagnostic-summary">点击"全面检查"开始排查。</p>
+
+          <!-- 运行日志区 -->
+          <pre id="status-output" class="status-output">点击全面检查后显示结果…</pre>
+        </div>
+      </section>
+
+      <!-- 分区三：使用说明 -->
       <section class="section" data-section="help">
         <div class="section-head" role="button" tabindex="0" aria-expanded="true">
+          <span class="section-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </span>
           <span class="section-arrow">▲</span>
           <h2 class="section-title">使用说明</h2>
-          <p class="section-desc">各平台控件参考、推荐流程与内置规则。</p>
+          <p class="section-desc">各平台控件参考与内置规则。</p>
         </div>
         <div class="section-body">
           <div class="platform-switch" role="tablist" aria-label="使用说明平台">
@@ -133,24 +252,13 @@
 
           <!-- 云枢面板 -->
           <div id="help-cloudpivot-panel" class="help-platform-panel is-active" data-help-panel="cloudpivot">
-            <div class="help-sub-row">
-              <div class="help-sub-card">
-                <h4>控件参考</h4>
-                <div class="help-table-wrap">
-                  <table class="help-ref-table">
-                    <thead><tr><th>HTML 标签</th><th>控件类型</th><th>说明</th></tr></thead>
-                    <tbody id="cloudpivot-control-ref-body"></tbody>
-                  </table>
-                </div>
-              </div>
-              <div class="help-sub-card">
-                <h4>推荐流程</h4>
-                <div class="help-flow-list" id="cloudpivot-flow-list">
-                  <p class="help-flow-item">1. 在云枢表单/列表页打开弹窗，点击"更新目标目录"建立页面目录绑定。</p>
-                  <p class="help-flow-item">2. 前端抓取写入：表单页 → form-* 文件；列表页 → list-* 文件。本地修改后用"前端回写"同步。</p>
-                  <p class="help-flow-item">3. 业务规则：进入后先抓取 .java，改完再回写；同一页面不要同时打开多个业务规则。</p>
-                  <p class="help-flow-item">4. 协作文件：抓取按需补 README/AGENTS/DESIGN/FromCode；云枢 JS 通过业务规则传参协作。</p>
-                </div>
+            <div class="help-sub-card">
+              <h4>控件参考</h4>
+              <div class="help-table-wrap">
+                <table class="help-ref-table">
+                  <thead><tr><th>HTML 标签</th><th>控件类型</th><th>说明</th></tr></thead>
+                  <tbody id="cloudpivot-control-ref-body"></tbody>
+                </table>
               </div>
             </div>
             <div class="help-rules">
@@ -161,24 +269,13 @@
 
           <!-- 氚云面板 -->
           <div id="help-h3yun-panel" class="help-platform-panel" data-help-panel="h3yun" hidden>
-            <div class="help-sub-row">
-              <div class="help-sub-card">
-                <h4>控件参考</h4>
-                <div class="help-table-wrap">
-                  <table class="help-ref-table">
-                    <thead><tr><th>控件类型</th><th>中文名称</th><th>说明</th></tr></thead>
-                    <tbody id="h3yun-control-ref-body"></tbody>
-                  </table>
-                </div>
-              </div>
-              <div class="help-sub-card">
-                <h4>推荐流程</h4>
-                <div class="help-flow-list" id="h3yun-flow-list">
-                  <p class="help-flow-item">1. 打开氚云表单设计器页面，确认前端 JS 或后端 C# 区域已加载。</p>
-                  <p class="help-flow-item">2. 一键抓取写入：读取控件信息、前端 JS、后端 C#，并补齐协作文件；未挂载区域自动跳过。</p>
-                  <p class="help-flow-item">3. 本地维护：README 写需求，DESIGN 整理实现逻辑，FromCode.md 核对字段编码；JS/C# 通过 Ajax 互通。</p>
-                  <p class="help-flow-item">4. 分别回写：前端 .js 通过 Monaco model API 写回 #jsText；后端 .cs 写回 #csText。</p>
-                </div>
+            <div class="help-sub-card">
+              <h4>控件参考</h4>
+              <div class="help-table-wrap">
+                <table class="help-ref-table">
+                  <thead><tr><th>控件类型</th><th>中文名称</th><th>说明</th></tr></thead>
+                  <tbody id="h3yun-control-ref-body"></tbody>
+                </table>
               </div>
             </div>
             <div class="help-rules">
@@ -189,9 +286,12 @@
         </div>
       </section>
 
-      <!-- 分区五：版本更新记录 -->
+      <!-- 分区四：版本更新记录 -->
       <section class="section" data-section="release">
         <div class="section-head" role="button" tabindex="0" aria-expanded="true">
+          <span class="section-icon" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          </span>
           <span class="section-arrow">▲</span>
           <h2 class="section-title">版本更新记录</h2>
         </div>
@@ -201,6 +301,9 @@
           <div class="release-full" id="release-full" hidden></div>
         </div>
       </section>
+
+        </div><!-- .content-area -->
+      </div><!-- .page-layout -->
     </main>
 
     <script type="module" src="options.js"></script>

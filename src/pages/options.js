@@ -30,6 +30,8 @@ import {
 
 // ========== DOM 引用 ==========
 const topBarStatus = document.querySelector("#top-bar-status");
+const testNativeHostBtn = document.querySelector("#test-native-host-btn");
+const installNativeHostBtn = document.querySelector("#install-native-host-btn");
 const saveBtn = document.querySelector("#save-btn");
 const resetBtn = document.querySelector("#reset-btn");
 const expandAllBtn = document.querySelector("#expand-all-btn");
@@ -84,12 +86,23 @@ let releaseExpanded = false;
 const RECENT_RELEASE_COUNT = 3;
 
 // 折叠状态持久化
+// 默认：默认目录和更新与文件生成展开，使用说明和版本更新记录折叠
 const COLLAPSE_KEY = "options_collapse_state";
+const DEFAULT_COLLAPSE_STATE = {
+  nativehost: false,  // 展开
+  defaultdir: false,  // 展开
+  update: false,      // 展开
+  genfiles: false,    // 展开
+  diagnostic: true,   // 折叠
+  help: true,         // 折叠
+  release: true       // 折叠
+};
 function loadCollapseState() {
   try {
     const raw = localStorage.getItem(COLLAPSE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch { return {}; }
+    if (raw) return JSON.parse(raw);
+  } catch { /* ignore */ }
+  return { ...DEFAULT_COLLAPSE_STATE };
 }
 function saveCollapseState(state) {
   localStorage.setItem(COLLAPSE_KEY, JSON.stringify(state));
@@ -157,16 +170,130 @@ expandAllBtn.addEventListener("click", () => {
   saveCollapseState(allCollapsed ? {} : Object.fromEntries(sections.map((s) => [s.dataset.section, true])));
 });
 
+// ========== 侧边栏导航 ==========
+const sidebarNav = document.querySelector("#sidebar-nav");
+const sidebarItems = Array.from(document.querySelectorAll(".sidebar-item[data-nav-target]"));
+
+// 点击侧边栏项 → 滚动到对应分区并展开
+for (const item of sidebarItems) {
+  item.addEventListener("click", () => {
+    const targetKey = item.dataset.navTarget;
+    const targetSection = document.querySelector(`section[data-section="${targetKey}"]`);
+    if (!targetSection) return;
+
+    // 展开目标分区
+    const wasCollapsed = targetSection.classList.contains("is-collapsed");
+    targetSection.classList.remove("is-collapsed");
+    targetSection.querySelector(".section-head").setAttribute("aria-expanded", "true");
+    if (wasCollapsed) {
+      const state = loadCollapseState();
+      delete state[targetKey];
+      saveCollapseState(state);
+    }
+
+    // 平滑滚动到分区顶部（减去 sticky 顶栏高度）
+    const topBarH = document.querySelector(".top-bar")?.offsetHeight || 52;
+    const scrollTop = targetSection.getBoundingClientRect().top + window.scrollY - topBarH - 16;
+    window.scrollTo({ top: scrollTop, behavior: "smooth" });
+  });
+}
+
+// 滚动监听 → 高亮当前分区对应的侧边栏项
+let scrollSpyTimer = 0;
+function updateSidebarActive() {
+  const topBarH = document.querySelector(".top-bar")?.offsetHeight || 52;
+  const scrollMid = window.scrollY + topBarH + 60;
+
+  let activeKey = "nativehost";
+  for (const section of sections) {
+    const rect = section.getBoundingClientRect();
+    const sectionTop = rect.top + window.scrollY;
+    if (scrollMid >= sectionTop) {
+      activeKey = section.dataset.section;
+    }
+  }
+
+  for (const item of sidebarItems) {
+    item.classList.toggle("is-active", item.dataset.navTarget === activeKey);
+  }
+}
+
+window.addEventListener("scroll", () => {
+  clearTimeout(scrollSpyTimer);
+  scrollSpyTimer = setTimeout(updateSidebarActive, 80);
+}, { passive: true });
+
+// 初始化侧边栏高亮
+updateSidebarActive();
+
 // ========== 顶栏状态 ==========
 function updateTopBarStatus() {
-  const parts = [`v${CURRENT_EXTENSION_VERSION}`];
+  const statusDot = document.querySelector("#status-dot");
   if (hostAvailable) {
-    parts.push(`已连接 (${hostStatus?.hostName || "native-host"})`);
+    const hostName = hostStatus?.hostName || "native-host";
+    const hostVer = hostStatus?.version || "";
+    topBarStatus.innerHTML = `<span class="status-dot is-online" id="status-dot"></span><span>已连接：${hostName}${hostVer ? " " + hostVer : ""}</span>`;
+    testNativeHostBtn.hidden = false;
+    installNativeHostBtn.hidden = true;
   } else {
-    parts.push("未安装");
+    topBarStatus.innerHTML = `<span class="status-dot is-offline" id="status-dot"></span><span>未连接 — ${hostStatus?.error || "原生助手未安装或不可用"}</span>`;
+    testNativeHostBtn.hidden = true;
+    installNativeHostBtn.hidden = false;
   }
-  topBarStatus.textContent = parts.join(" · ");
+  updateDiagnosticInfo();
 }
+
+// 刷新问题排查面板的实时信息
+function updateDiagnosticInfo() {
+  const diagVersion = document.querySelector("#diag-version");
+  const diagNativeHost = document.querySelector("#diag-native-host");
+  const diagPermissions = document.querySelector("#diag-permissions");
+  const diagBrowser = document.querySelector("#diag-browser");
+  const diagLastCheck = document.querySelector("#diag-last-check");
+  const manifest = chrome.runtime.getManifest();
+
+  if (diagVersion) diagVersion.textContent = `${manifest.name} v${CURRENT_EXTENSION_VERSION}`;
+  if (diagNativeHost) {
+    if (hostAvailable) {
+      diagNativeHost.textContent = `已连接 — ${hostStatus?.hostName || ""} ${hostStatus?.version || ""}`;
+      diagNativeHost.style.color = "var(--color-success)";
+    } else {
+      diagNativeHost.textContent = `未连接 — ${hostStatus?.error || "不可用"}`;
+      diagNativeHost.style.color = "var(--color-danger)";
+    }
+  }
+  if (diagPermissions) {
+    diagPermissions.textContent = (manifest.permissions || []).join("、") || "无特殊权限";
+  }
+  if (diagBrowser) {
+    diagBrowser.textContent = navigator.userAgent;
+  }
+  if (diagLastCheck) {
+    loadLastDiagnosticPackage().then(pkg => {
+      if (diagLastCheck && pkg) {
+        diagLastCheck.textContent = `${pkg.createdAt || ""} (${pkg.operationId || ""})`;
+      }
+    });
+  }
+}
+
+// 测试原生助手连接
+testNativeHostBtn.addEventListener("click", () => runWithButtonBusy(testNativeHostBtn, async () => {
+  hostStatus = await probeNativeHost();
+  hostAvailable = hostStatus.available;
+  updateTopBarStatus();
+  if (hostAvailable) {
+    showToast(`原生助手已连接：${hostStatus.hostName} ${hostStatus.version}`);
+  } else {
+    showToast(`连接失败：${hostStatus.error || "未知错误"}`);
+  }
+}));
+
+// 安装原生助手：打开安装脚本所在目录供用户手动运行
+installNativeHostBtn.addEventListener("click", () => {
+  // 脚本路径：scripts\install-native-host.cmd
+  showToast("请在项目目录运行 scripts\\install-native-host.cmd 安装原生助手");
+});
 
 // ========== 默认目录 ==========
 let fallbackPaths = { cloudpivot: "", h3yun: "" };
@@ -398,7 +525,14 @@ function syncGenfilesFromDom() {
 
 genfilesPlatform.addEventListener("change", () => {
   renderGenfilesToggles(genfilesPlatform.value);
+  toggleH3yunWritebackRow();
 });
+
+// 氚云回写模式开关仅在选择氚云平台时显示
+function toggleH3yunWritebackRow() {
+  const row = document.querySelector("#h3yun-writeback-row");
+  if (row) row.hidden = genfilesPlatform.value !== "h3yun";
+}
 
 // ========== 诊断 ==========
 async function renderLastDiagnosticSummary() {
@@ -451,6 +585,122 @@ async function handleCopyDiagnosticSummary() {
 
 copyDiagnosticSummaryBtn.addEventListener("click", () => runWithButtonBusy(copyDiagnosticSummaryBtn, handleCopyDiagnosticSummary));
 exportLastDiagnosticBtn.addEventListener("click", () => runWithButtonBusy(exportLastDiagnosticBtn, handleExportLastDiagnostic));
+
+// ========== 问题排查功能按钮 ==========
+const diagHealthCheckBtn = document.querySelector("#diag-health-check-btn");
+const diagCopyAllBtn = document.querySelector("#diag-copy-all-btn");
+const diagExportBtn = document.querySelector("#diag-export-btn");
+
+// 全面检查：收集所有运行时信息并生成诊断包
+async function handleDiagHealthCheck() {
+  setStatusOutput("正在收集诊断信息…");
+  try {
+    // 探测原生助手
+    const hs = await probeNativeHost();
+    hostStatus = hs;
+    hostAvailable = hs.available;
+    updateTopBarStatus();
+
+    // 获取权限信息
+    const manifest = chrome.runtime.getManifest();
+    const permSummary = manifest.permissions?.join(", ") || "无";
+
+    // 收集上次诊断
+    const lastPkg = await loadLastDiagnosticPackage();
+
+    // 生成新诊断包
+    const preflightResults = [
+      createPreflightResult({
+        operationId: "diagnostic.healthCheck",
+        checkId: "nativeHost.ping",
+        severity: hs.available ? PREFLIGHT_SEVERITY.info : PREFLIGHT_SEVERITY.warning,
+        ok: hs.available,
+        evidence: hs.available ? `${hs.hostName} ${hs.version}` : (hs.error || "unavailable"),
+        nextAction: hs.available ? "" : "运行 scripts\\install-native-host.cmd 安装原生助手",
+        data: hs
+      })
+    ];
+    await saveLastDiagnosticPackage(buildDiagnosticPackage({
+      extension: { name: manifest.name, version: manifest.version },
+      browser: { userAgent: navigator.userAgent },
+      operationId: "diagnostic.healthCheck",
+      preflightResults,
+      nativeHost: hs,
+      logs: [],
+      pageProbe: {},
+      directorySnapshot: {}
+    }));
+    await renderLastDiagnosticSummary();
+
+    // 构建状态报告
+    const lines = [
+      "=== 问题排查报告 ===",
+      `时间：${new Date().toLocaleString()}`,
+      `扩展：${manifest.name} v${manifest.version}`,
+      `浏览器：${navigator.userAgent}`,
+      "",
+      `原生助手：${hs.available ? "✅ 已连接" : "❌ 未连接"}`,
+      hs.available ? `  名称：${hs.hostName}` : "",
+      hs.available ? `  版本：${hs.version}` : `  错误：${hs.error || "未知"}`,
+      "",
+      `权限：${permSummary}`,
+      "",
+      hs.available ? "所有核心功能可用。" : "原生助手未安装，目录选择、Git 同步等功能不可用。",
+      hs.available ? `建议：定期运行全面检查确保一切正常。` : "",
+      lastPkg ? `\n最近诊断：${lastPkg.createdAt || "未知"} (${lastPkg.operationId || ""})` : "",
+      "",
+      `---`,
+      `提示：可点击"复制全部信息"将报告发送给开发者排查。`
+    ].filter(Boolean);
+    setStatusOutput(lines.join("\n"));
+    updateDiagnosticInfo();
+    showToast("全面检查完成");
+  } catch (error) {
+    setStatusOutput(`检查失败：${error?.message || String(error)}`);
+  }
+}
+
+// 复制全部诊断信息到剪贴板
+async function handleDiagCopyAll() {
+  const info = [
+    `开发助手问题排查报告`,
+    `导出时间：${new Date().toLocaleString()}`,
+    "",
+    document.querySelector("#diag-version")?.textContent || "",
+    document.querySelector("#diag-native-host")?.textContent || "",
+    document.querySelector("#diag-permissions")?.textContent || "",
+    document.querySelector("#diag-browser")?.textContent || "",
+    document.querySelector("#diag-last-check")?.textContent || "",
+    "",
+    "--- 运行日志 ---",
+    statusOutput.textContent || "无"
+  ].join("\n");
+
+  try {
+    await navigator.clipboard.writeText(info);
+    showToast("诊断信息已复制到剪贴板");
+  } catch {
+    showToast("复制失败，请手动选中输出区内容");
+  }
+}
+
+// 导出当前诊断 JSON
+async function handleDiagExport() {
+  const pkg = await loadLastDiagnosticPackage();
+  if (!pkg) {
+    // 即时生成一个
+    const manifest = chrome.runtime.getManifest();
+    const now = { extension: { name: manifest.name, version: manifest.version }, browser: { userAgent: navigator.userAgent }, operationId: "diagnostic.manualExport", createdAt: new Date().toISOString() };
+    downloadJsonFile(`cloudpiovt-plugin-diagnostic-${buildDownloadTimestamp()}.json`, now);
+  } else {
+    downloadJsonFile(`cloudpiovt-plugin-diagnostic-${buildDownloadTimestamp()}.json`, pkg);
+  }
+  showToast("诊断 JSON 已导出");
+}
+
+diagHealthCheckBtn.addEventListener("click", () => runWithButtonBusy(diagHealthCheckBtn, handleDiagHealthCheck));
+diagCopyAllBtn.addEventListener("click", handleDiagCopyAll);
+diagExportBtn.addEventListener("click", () => runWithButtonBusy(diagExportBtn, handleDiagExport));
 
 // ========== 使用说明渲染 ==========
 function setActiveHelpPlatform(platformKey) {
@@ -602,6 +852,7 @@ function renderAllConfigUI(config) {
   h3yunOneClickWritebackField.checked = config.h3yunOneClickWriteback !== false;
 
   renderGenfilesToggles(genfilesPlatform.value);
+  toggleH3yunWritebackRow();
   renderUpdateResult(config.lastUpdateCheckResult);
   updateTopBarStatus();
   setStatusOutput("配置已加载。");
@@ -623,11 +874,7 @@ async function init() {
   renderAllConfigUI(config);
   await renderLastDiagnosticSummary();
 
-  setStatusOutput(
-    hostAvailable
-      ? `配置已加载。\n原生助手已连接：${hostStatus.hostName} ${hostStatus.version}`
-      : "配置已加载。\n原生助手未安装。"
-  );
+  setStatusOutput(hostAvailable ? "配置已加载。" : "配置已加载。原生助手未安装，部分功能不可用。");
 }
 
 init().catch((error) => {
