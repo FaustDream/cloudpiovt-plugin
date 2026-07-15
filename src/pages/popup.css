@@ -475,6 +475,48 @@ body {
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* 抓取按钮组：主按钮 + 齿轮配置 */
+.capture-btn-group {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+}
+
+.capture-btn-main {
+  border-top-right-radius: 0 !important;
+  border-bottom-right-radius: 0 !important;
+  flex: 1;
+}
+
+/* 抓取按钮旁的齿轮配置按钮 */
+.capture-gear-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  padding: 0;
+  border: 1px solid var(--color-primary);
+  border-left: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.capture-gear-btn:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  transform: translateY(-1px);
+}
+
+.capture-gear-btn:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
 /* ========== 按钮 ========== */
 button {
   appearance: none;
