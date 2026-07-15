@@ -857,19 +857,12 @@ pub fn discover_launchers() -> HostResponse {
         .collect::<Vec<_>>();
     let idea = find_first_existing_path(&idea_candidates);
 
-    let git_bash = find_first_existing_path(&[
-        PathBuf::from("C:\\Program Files\\Git\\git-bash.exe"),
-        PathBuf::from("C:\\Program Files (x86)\\Git\\git-bash.exe"),
-        PathBuf::from(user_profile).join("scoop").join("apps").join("git").join("current").join("git-bash.exe"),
-    ]);
-
     HostResponse {
         ok: Some(true),
         launchers: Some(vec![
             launcher_entry("builtin-vscode", "vscode", "VS Code", "\"{rawPath}\"", vscode),
             launcher_entry("builtin-idea", "intellij-idea", "IntelliJ IDEA", "\"{rawPath}\"", idea),
             launcher_entry("builtin-file-explorer", "file-explorer", "File Explorer", "\"{rawPath}\"", file_explorer),
-            launcher_entry("builtin-git-bash", "git-bash", "Git Bash", "--cd=\"{rawPath}\"", git_bash),
         ]),
         ..Default::default()
     }
