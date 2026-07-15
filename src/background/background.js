@@ -81,10 +81,14 @@ function checkForUpdateSafely() {
 snapshotExistingTabsSafely();
 refreshUpdateAlarmSafely();
 
-chrome.runtime.onInstalled.addListener(snapshotExistingTabsSafely);
-chrome.runtime.onInstalled.addListener(refreshUpdateAlarmSafely);
-chrome.runtime.onStartup.addListener(snapshotExistingTabsSafely);
-chrome.runtime.onStartup.addListener(refreshUpdateAlarmSafely);
+// 合并 onInstalled / onStartup 的多个操作到单个 listener，避免同事件多次注册。
+function bootstrapExtension() {
+  snapshotExistingTabsSafely();
+  refreshUpdateAlarmSafely();
+}
+
+chrome.runtime.onInstalled.addListener(bootstrapExtension);
+chrome.runtime.onStartup.addListener(bootstrapExtension);
 
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === UPDATE_CHECK_ALARM_NAME) {

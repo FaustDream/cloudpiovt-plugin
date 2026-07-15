@@ -14,7 +14,8 @@
           <div class="hero-launchers">
             <div class="launcher-control" id="launcher-control">
               <button id="launcher-main-btn" class="launcher-main-btn" type="button" aria-label="打开默认软件" disabled>
-                <img id="launcher-main-icon" class="launcher-main-icon" src="../../assets/icons/launchers/file-explorer-16.png" alt="">
+                <!-- 初始占位图标，init() 后会通过 renderLauncherControls 动态替换为实际启动器图标 -->
+                <img id="launcher-main-icon" class="launcher-main-icon" src="../../assets/icons/launchers/file-explorer-16.png" alt="打开方式">
               </button>
               <button id="launcher-menu-btn" class="launcher-menu-btn" type="button" aria-label="展开打开方式" aria-expanded="false" aria-controls="launcher-menu" disabled>
                 <span aria-hidden="true">▾</span>
