@@ -2073,10 +2073,15 @@ async function handleBizruleWritebackInternal() {
   }
 }
 
-function resolveH3yunCodeFileName(codeKind, result, pageUrl) {
+/**
+ * 根据回写探测结果解析氚云本地文件名。
+ * 列表设计模式下前端 JS 需追加 _ListViewController 后缀与 CS 配对，
+ * 后端 CS 类名已自带此后缀无需额外处理。
+ */
+function resolveH3yunCodeFileName(codeKind, result, pageUrl, designMode) {
   return codeKind === "backend"
-    ? resolveH3yunBackendFileName({ sourceContent: result?.sourceContent, pageUrl })
-    : resolveH3yunFrontendFileName({ pageUrl });
+    ? resolveH3yunBackendFileName({ sourceContent: result?.sourceContent, pageUrl, designMode })
+    : resolveH3yunFrontendFileName({ pageUrl, designMode });
 }
 
 // 氚云操作必须在 h3yun.com 页面执行；目录仍复用页面快照，保证和云枢目录状态隔离。
@@ -2127,11 +2132,12 @@ async function handleH3yunCodeWriteback(codeKind) {
     if (pageContext.pageTypeConfig.platformKey !== PLATFORM_CONFIG.h3yun.platformKey) {
       throw new Error(`氚云${config.label}回写仅支持氚云页面。当前页面：${describeOrigin(tab?.url || "")}`);
     }
+    const designMode = resolveH3yunDesignMode(pageContext.pageTypeConfig);
     const probeResult = await probeH3yunCodeEditor(tab, codeKind);
     if (!probeResult?.ok) {
       throw new Error(probeResult?.details || `${config.selector} 未找到可回写编辑器`);
     }
-    const fileName = resolveH3yunCodeFileName(codeKind, probeResult, probeResult.pageUrl || tab.url);
+    const fileName = resolveH3yunCodeFileName(codeKind, probeResult, probeResult.pageUrl || tab.url, designMode);
     const importResult = await readCodeFileByName(directorySelection, fileName);
     await appendWritebackRiskDiagnostic(
       codeKind === "backend"
