@@ -55,14 +55,12 @@
       <!-- 氚云操作面板 -->
       <section id="h3yun-panel" class="platform-panel" role="tabpanel" aria-labelledby="h3yun-tab" data-platform-panel="h3yun" hidden>
         <section class="actions">
-          <div class="action-row action-row-single">
-            <button id="h3yun-capture-all-btn" class="accent-btn" type="button">⬇ 一键抓取写入</button>
-          </div>
-          <!-- 一键回写按钮（设置默认开启） -->
+          <!-- 抓取 + 一键回写并排 -->
           <div class="action-row">
+            <button id="h3yun-capture-all-btn" class="accent-btn" type="button">⬇ 一键抓取写入</button>
             <button id="h3yun-oneclick-writeback-btn" class="secondary-btn" type="button">⬆ 一键回写</button>
           </div>
-          <!-- 独立前后端回写按钮（设置默认隐藏） -->
+          <!-- 独立前后端回写并排 -->
           <div class="action-row" id="h3yun-separate-writeback-row" hidden>
             <button id="h3yun-frontend-writeback-btn" class="secondary-btn" type="button">⬆ 前端回写</button>
             <button id="h3yun-backend-writeback-btn" class="secondary-btn" type="button">⬆ 后端回写</button>

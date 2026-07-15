@@ -180,6 +180,7 @@ function setBusy(isBusy) {
   bizruleWritebackButton.disabled = isBusy;
   refreshHandleButton.disabled = isBusy;
   h3yunCaptureAllButton.disabled = isBusy;
+  h3yunOneClickWritebackButton.disabled = isBusy;
   h3yunFrontendWritebackButton.disabled = isBusy;
   h3yunBackendWritebackButton.disabled = isBusy;
   for (const button of platformTabButtons) {
@@ -4724,9 +4725,15 @@ async function init() {
 
   // 按设置控制一键回写与独立前后端回写按钮显隐
   if (h3yunOneClickWritebackButton && h3yunSeparateWritebackRow) {
+    /* 一键回写与分离回写互斥 */
     const oneClickEnabled = currentConfig?.h3yunOneClickWriteback !== false;
     h3yunOneClickWritebackButton.hidden = !oneClickEnabled;
     h3yunSeparateWritebackRow.hidden = oneClickEnabled;
+    /* 隐藏一键回写时，抓取按钮所在行变为单列 */
+    const captureRow = h3yunOneClickWritebackButton.closest(".action-row");
+    if (captureRow) {
+      captureRow.style.gridTemplateColumns = oneClickEnabled ? "" : "minmax(0, 1fr)";
+    }
   }
 
   if (isDirectoryInfoReady) {

@@ -1,6 +1,5 @@
 /* ============================================================
- * 开发助手 Popup - 心流鼠标设计规范 v2.2
- * 安静的工具，不打扰的陪伴
+ * 开发助手 Popup 样式
  * ============================================================ */
 
 /* === 设计 Token === */
@@ -83,6 +82,11 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+/* 全局 hidden 覆盖，防止 display: inline-flex 等类名覆盖原生 hidden */
+[hidden] {
+  display: none !important;
 }
 
 body {
@@ -581,10 +585,6 @@ button:disabled {
   box-shadow: var(--shadow-dropdown);
 }
 
-.export-dropdown-menu[hidden] {
-  display: none;
-}
-
 .export-menu-item {
   padding: 6px 10px;
   border: none;
@@ -648,7 +648,7 @@ button:disabled {
   text-align: center;
 }
 
-/* ========== 文件选择器弹层（心流鼠标 Modal 风格） ========== */
+/* ========== 文件选择器弹层 ========== */
 .file-picker-overlay {
   position: fixed;
   inset: 0;
@@ -756,19 +756,11 @@ button:disabled {
   }
 }
 
-.file-picker-overlay[hidden] {
-  display: none;
-}
-
 /* ========== 响应式适配 ========== */
 @media (max-width: 440px) {
   .popup-shell {
     width: auto;
     min-width: 360px;
     padding: var(--spacing-md);
-  }
-
-  .action-row {
-    grid-template-columns: minmax(0, 1fr);
   }
 }
