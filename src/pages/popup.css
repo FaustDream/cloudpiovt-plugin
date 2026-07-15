@@ -143,6 +143,34 @@ body {
   align-items: flex-start;
 }
 
+/* 单行紧凑布局：页面标签 + origin + 分隔符 + 路径文件夹名 + 操作按钮 */
+.meta-row-inline {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+/* 页面与路径之间的分隔符 */
+.meta-sep {
+  color: var(--border);
+  font-size: 12px;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* 路径文件夹名称：紧凑标签样式 */
+.path-tag {
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
 .meta-row-stack {
   display: grid;
   gap: 8px;
