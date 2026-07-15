@@ -1,8 +1,6 @@
 import {
-  CLOUDPIVOT_READONLY_SETTINGS,
   DEFAULT_CONFIG,
   DEFAULT_GENERATED_FILES,
-  H3YUN_READONLY_SETTINGS,
   loadConfig,
   saveConfig
 } from "../../lib/config.js";
@@ -15,10 +13,6 @@ import {
   normalizeCustomLaunchers,
   pinLauncher
 } from "../../lib/services/custom-launchers.js";
-import {
-  CONTROL_TYPE_REFERENCE,
-  H3YUN_CONTROL_TYPE_REFERENCE
-} from "../../lib/platform/control-metadata.js";
 import {
   deleteLauncherIcon,
   discoverNativeLaunchers,
@@ -42,91 +36,573 @@ import {
   summarizeDiagnosticPackage
 } from "../../lib/services/preflight-diagnostics.js";
 
-const saveButton = document.querySelector("#save-btn");
-const resetButton = document.querySelector("#reset-btn");
-const toolbarActions = document.querySelector("#toolbar-actions");
-const mainTabButtons = Array.from(document.querySelectorAll("[data-main-tab]"));
-const mainPanels = Array.from(document.querySelectorAll("[data-main-panel]"));
+// ========== DOM 引用 ==========
+const topBarStatus = document.querySelector("#top-bar-status");
+const saveBtn = document.querySelector("#save-btn");
+const resetBtn = document.querySelector("#reset-btn");
+const expandAllBtn = document.querySelector("#expand-all-btn");
+const toastEl = document.querySelector("#toast");
+const sections = Array.from(document.querySelectorAll("[data-section]"));
+
+// 应用路径
+const launcherTbody = document.querySelector("#launcher-tbody");
+const launcherEmpty = document.querySelector("#launcher-empty");
+const addLauncherBtn = document.querySelector("#add-launcher-btn");
+const discoverLaunchersBtn = document.querySelector("#discover-launchers-btn");
+const launcherMenu = document.querySelector("#launcher-menu");
+let menuTargetLauncherId = "";
+
+// 编辑弹窗
+const editPopover = document.querySelector("#launcher-edit-popover");
+const editPopoverTitle = document.querySelector("#edit-popover-title");
+const editLauncherName = document.querySelector("#edit-launcher-name");
+const editLauncherPath = document.querySelector("#edit-launcher-path");
+const editLauncherArgs = document.querySelector("#edit-launcher-args");
+const editPickExeBtn = document.querySelector("#edit-pick-exe-btn");
+const editLauncherIconInput = document.querySelector("#edit-launcher-icon-input");
+const editLauncherSaveBtn = document.querySelector("#edit-launcher-save-btn");
+const editLauncherCancelBtn = document.querySelector("#edit-launcher-cancel-btn");
+let editingLauncherId = "";
+
+// 默认目录
+const defaultDirPlatform = document.querySelector("#default-dir-platform");
+const defaultDirPath = document.querySelector("#default-dir-path");
+const pickDefaultDirBtn = document.querySelector("#pick-default-dir-btn");
+
+// 更新
+const updateBanner = document.querySelector("#update-banner");
+const updateBannerText = document.querySelector("#update-banner-text");
+const updateStatusText = document.querySelector("#update-status-text");
+const updateLastCheck = document.querySelector("#update-last-check");
 const autoCheckUpdatesField = document.querySelector("#auto-check-updates");
+const checkUpdateBtn = document.querySelector("#check-update-btn");
+const syncUpdateBtn = document.querySelector("#sync-update-btn");
+
+// 文件生成
+const genfilesPlatform = document.querySelector("#genfiles-platform");
+const genfilesToggles = document.querySelector("#genfiles-toggles");
 const h3yunOneClickWritebackField = document.querySelector("#h3yun-oneclick-writeback");
-const checkUpdateButton = document.querySelector("#check-update-btn");
-const syncUpdateButton = document.querySelector("#sync-update-btn");
-const updateStatusOutput = document.querySelector("#update-status");
-const discoverLaunchersButton = document.querySelector("#discover-launchers-btn");
-const addLauncherButton = document.querySelector("#add-launcher-btn");
-const launcherListEl = document.querySelector("#launcher-list");
-const copyDiagnosticSummaryButton = document.querySelector("#copy-diagnostic-summary-btn");
-const exportLastDiagnosticButton = document.querySelector("#export-last-diagnostic-btn");
+
+// 诊断
+const statusOutput = document.querySelector("#status-output");
+const copyDiagnosticSummaryBtn = document.querySelector("#copy-diagnostic-summary-btn");
+const exportLastDiagnosticBtn = document.querySelector("#export-last-diagnostic-btn");
 const lastDiagnosticSummaryEl = document.querySelector("#last-diagnostic-summary");
-const releaseNotesList = document.querySelector("#release-notes-list");
-const cloudpivotReadonlyList = document.querySelector("#cloudpivot-readonly-settings-list");
-const h3yunReadonlyList = document.querySelector("#h3yun-readonly-settings-list");
-const cloudpivotControlTypeReferenceBody = document.querySelector("#cloudpivot-control-type-reference-body");
-const h3yunControlTypeReferenceBody = document.querySelector("#h3yun-control-type-reference-body");
-const statusOutput = document.querySelector("#settings-status");
-const docsTabButtons = Array.from(document.querySelectorAll("[data-docs-tab]"));
-const docsPanels = Array.from(document.querySelectorAll("[data-docs-panel]"));
-const platformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab][data-platform-group]"));
-const platformPanels = Array.from(document.querySelectorAll("[data-platform-panel][data-platform-group]"));
-const defaultDirPlatformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab][data-platform-group=\"default-dir\"]"));
-const fallbackPathCloudpivotInput = document.querySelector("#fallback-path-cloudpivot");
-const fallbackPathH3yunInput = document.querySelector("#fallback-path-h3yun");
-const pickFallbackDirCloudpivotButton = document.querySelector("#pick-fallback-dir-cloudpivot");
-const pickFallbackDirH3yunButton = document.querySelector("#pick-fallback-dir-h3yun");
-// 帮助抽屉
-const helpButton = document.querySelector("#help-btn");
-const helpOverlay = document.querySelector("#help-overlay");
-const helpCloseButton = document.querySelector("#help-close-btn");
-// 文件生成配置
-const genfilesCloudpivotTab = document.querySelector("#genfiles-cloudpivot-tab");
-const genfilesH3yunTab = document.querySelector("#genfiles-h3yun-tab");
-const genfilesCloudpivotGrid = document.querySelector("#genfiles-cloudpivot-grid");
-const genfilesH3yunGrid = document.querySelector("#genfiles-h3yun-grid");
-const genfilesPlatformTabButtons = Array.from(document.querySelectorAll("[data-platform-tab][data-platform-group=\"genfiles\"]"));
-const genfilesPlatformPanels = Array.from(document.querySelectorAll("[data-platform-panel][data-platform-group=\"genfiles\"]"));
 
-let activeDocsTabKey = "reference";
-let activeDefaultDirTabKey = "cloudpivot";
-let activeGenfilesTabKey = "cloudpivot";
+// 帮助
+const releasePills = document.querySelector("#release-pills");
+const releaseCompact = document.querySelector("#release-compact");
+const releaseMoreBtn = document.querySelector("#release-more-btn");
+const releaseFull = document.querySelector("#release-full");
+
+// ========== 状态 ==========
 let currentLaunchers = [];
-let selectedLauncherId = "";
-// 当前设置页的生成文件开关快照
 let currentGeneratedFiles = DEFAULT_GENERATED_FILES;
+let currentConfig = null;
+let hostAvailable = false;
+let hostStatus = null;
+let releaseExpanded = false;
+const RECENT_RELEASE_COUNT = 3;
 
-function setStatus(message) {
+// 折叠状态持久化
+const COLLAPSE_KEY = "options_collapse_state";
+function loadCollapseState() {
+  try {
+    const raw = localStorage.getItem(COLLAPSE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch { return {}; }
+}
+function saveCollapseState(state) {
+  localStorage.setItem(COLLAPSE_KEY, JSON.stringify(state));
+}
+
+// ========== Toast ==========
+let toastTimer = 0;
+function showToast(message) {
+  toastEl.textContent = message;
+  toastEl.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastEl.hidden = true; }, 2500);
+}
+
+function setStatusOutput(message) {
   statusOutput.textContent = message;
 }
 
-function setUpdateStatus(message) {
-  updateStatusOutput.textContent = message;
+// ========== 按钮忙状态 ==========
+async function runWithButtonBusy(button, task) {
+  button?.classList.add("is-running");
+  button?.setAttribute("aria-busy", "true");
+  try { return await task(); }
+  finally {
+    button?.classList.remove("is-running");
+    button?.removeAttribute("aria-busy");
+  }
 }
 
-function buildDownloadTimestamp() {
-  return new Date().toISOString().replace(/[:.]/g, "-");
-}
-
-function downloadJsonFile(fileName, data) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-function buildExtensionDiagnosticContext() {
-  return {
-    extension: {
-      name: chrome.runtime.getManifest().name,
-      version: chrome.runtime.getManifest().version
-    },
-    browser: {
-      userAgent: navigator.userAgent
+// ========== 分区折叠 ==========
+function applyCollapseState(state) {
+  for (const section of sections) {
+    const key = section.dataset.section;
+    if (state[key] === true) {
+      section.classList.add("is-collapsed");
+      section.querySelector(".section-head").setAttribute("aria-expanded", "false");
+    } else {
+      section.classList.remove("is-collapsed");
+      section.querySelector(".section-head").setAttribute("aria-expanded", "true");
     }
-  };
+  }
+}
+
+for (const section of sections) {
+  const head = section.querySelector(".section-head");
+  head.addEventListener("click", () => {
+    const key = section.dataset.section;
+    const isCollapsed = !section.classList.contains("is-collapsed");
+    section.classList.toggle("is-collapsed", isCollapsed);
+    head.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+    const state = loadCollapseState();
+    if (isCollapsed) state[key] = true;
+    else delete state[key];
+    saveCollapseState(state);
+  });
+}
+
+expandAllBtn.addEventListener("click", () => {
+  const allCollapsed = sections.every((s) => s.classList.contains("is-collapsed"));
+  for (const section of sections) {
+    const key = section.dataset.section;
+    section.classList.toggle("is-collapsed", !allCollapsed);
+    section.querySelector(".section-head").setAttribute("aria-expanded", allCollapsed ? "true" : "false");
+  }
+  saveCollapseState(allCollapsed ? {} : Object.fromEntries(sections.map((s) => [s.dataset.section, true])));
+});
+
+// ========== 顶栏状态 ==========
+function updateTopBarStatus(config) {
+  const parts = [`v${CURRENT_EXTENSION_VERSION}`];
+  if (hostAvailable) {
+    parts.push(`已连接 (${hostStatus?.hostName || "native-host"})`);
+  } else {
+    parts.push("未安装");
+  }
+  const count = getAvailableLaunchers(config?.customLaunchers || currentLaunchers).length;
+  parts.push(`${count} 个可用`);
+  topBarStatus.textContent = parts.join(" · ");
+}
+
+// ========== 启动器表格渲染 ==========
+function renderLauncherTable() {
+  currentLaunchers = normalizeCustomLaunchers(currentLaunchers);
+  launcherTbody.replaceChildren();
+
+  if (currentLaunchers.length === 0) {
+    launcherEmpty.hidden = false;
+    document.querySelector(".launcher-table-wrap").hidden = true;
+    return;
+  }
+
+  launcherEmpty.hidden = true;
+  document.querySelector(".launcher-table-wrap").hidden = false;
+
+  for (const launcher of currentLaunchers) {
+    const tr = document.createElement("tr");
+    tr.dataset.launcherId = launcher.launcherId;
+
+    // 图标
+    const tdIcon = document.createElement("td");
+    tdIcon.className = "col-icon";
+    const img = document.createElement("img");
+    img.className = "launcher-icon-cell";
+    img.src = getLauncherIconPath(launcher, 48);
+    img.alt = "";
+    img.onerror = () => { img.style.display = "none"; };
+    tdIcon.appendChild(img);
+
+    // 名称
+    const tdName = document.createElement("td");
+    tdName.className = "col-name";
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "launcher-name-cell";
+    nameSpan.textContent = launcher.name;
+    nameSpan.title = "点击编辑";
+    nameSpan.addEventListener("click", () => openLauncherEditor(launcher));
+    tdName.appendChild(nameSpan);
+
+    // 路径
+    const tdPath = document.createElement("td");
+    tdPath.className = "col-path";
+    const pathSpan = document.createElement("span");
+    pathSpan.className = "launcher-path-cell";
+    pathSpan.textContent = launcher.executablePath || "—";
+    pathSpan.title = launcher.executablePath || "未配置路径";
+    tdPath.appendChild(pathSpan);
+
+    // 状态
+    const tdStatus = document.createElement("td");
+    tdStatus.className = "col-status";
+    const badge = document.createElement("span");
+    badge.className = "launcher-status-badge";
+    if (launcher.pinned) {
+      badge.classList.add("is-pinned");
+      badge.textContent = "置顶";
+    } else if (launcher.enabled && launcher.executablePath) {
+      badge.classList.add("is-enabled");
+      badge.textContent = "已启用";
+    } else {
+      badge.classList.add("is-disabled");
+      badge.textContent = "未启用";
+    }
+    tdStatus.appendChild(badge);
+
+    // 操作
+    const tdActions = document.createElement("td");
+    tdActions.className = "col-actions";
+    const menuBtn = document.createElement("button");
+    menuBtn.className = "launcher-menu-btn";
+    menuBtn.textContent = "⋮";
+    menuBtn.title = "操作";
+    menuBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      openLauncherMenu(launcher.launcherId, e);
+    });
+    tdActions.appendChild(menuBtn);
+
+    tr.append(tdIcon, tdName, tdPath, tdStatus, tdActions);
+    launcherTbody.appendChild(tr);
+  }
+}
+
+// ========== 启动器操作菜单 ==========
+function openLauncherMenu(launcherId, event) {
+  menuTargetLauncherId = launcherId;
+  const launcher = findCurrentLauncher(launcherId);
+  if (!launcher) return;
+
+  // 更新菜单项文本
+  const items = launcherMenu.querySelectorAll(".context-item");
+  for (const item of items) {
+    const action = item.dataset.menuAction;
+    if (action === "pin") {
+      item.textContent = launcher.pinned ? "取消置顶" : "设为置顶";
+    } else if (action === "delete") {
+      item.hidden = launcher.builtin;
+    }
+  }
+
+  const rect = event.target.getBoundingClientRect();
+  launcherMenu.style.left = `${Math.min(rect.left, window.innerWidth - 160)}px`;
+  launcherMenu.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 180)}px`;
+  launcherMenu.hidden = false;
+}
+
+function closeLauncherMenu() {
+  launcherMenu.hidden = true;
+  menuTargetLauncherId = "";
+}
+
+launcherMenu.addEventListener("click", async (e) => {
+  const item = e.target.closest(".context-item");
+  if (!item) return;
+  closeLauncherMenu();
+  const action = item.dataset.menuAction;
+  const launcher = findCurrentLauncher(menuTargetLauncherId);
+  if (!launcher) return;
+
+  if (action === "pin") {
+    if (launcher.pinned) {
+      currentLaunchers = normalizeCustomLaunchers(currentLaunchers.map((l) => l.launcherId === launcher.launcherId ? { ...l, pinned: false } : l));
+    } else {
+      currentLaunchers = pinLauncher(currentLaunchers, launcher.launcherId);
+    }
+    renderLauncherTable();
+    showToast("置顶状态已更新");
+  } else if (action === "enable") {
+    currentLaunchers = normalizeCustomLaunchers(currentLaunchers.map((l) => l.launcherId === launcher.launcherId ? { ...l, enabled: !l.enabled } : l));
+    renderLauncherTable();
+    showToast(`已${launcher.enabled ? "禁用" : "启用"}`);
+  } else if (action === "edit") {
+    openLauncherEditor(launcher);
+  } else if (action === "delete") {
+    await handleDeleteLauncher(launcher);
+  }
+});
+
+document.addEventListener("click", (e) => {
+  if (!launcherMenu.hidden && !launcherMenu.contains(e.target) && !e.target.classList.contains("launcher-menu-btn")) {
+    closeLauncherMenu();
+  }
+});
+
+// ========== 启动器编辑弹窗 ==========
+function openLauncherEditor(launcher) {
+  editingLauncherId = launcher.launcherId;
+  // 内置启动器只允许编辑名称和路径，不允许删除
+  editPopoverTitle.textContent = launcher.builtin ? `编辑 ${launcher.name}` : `编辑 ${launcher.name || "自定义软件"}`;
+  editLauncherName.value = launcher.name;
+  editLauncherPath.value = launcher.executablePath || "";
+  editLauncherArgs.value = launcher.argumentsTemplate || getDefaultArgumentsTemplate(launcher);
+  editPopover.hidden = false;
+  document.body.classList.add("edit-open");
+}
+
+function closeLauncherEditor() {
+  editPopover.hidden = true;
+  document.body.classList.remove("edit-open");
+  editingLauncherId = "";
+}
+
+editLauncherCancelBtn.addEventListener("click", closeLauncherEditor);
+editPopover.querySelector(".popover-mask")?.addEventListener("click", closeLauncherEditor);
+
+editLauncherSaveBtn.addEventListener("click", () => {
+  const launcher = findCurrentLauncher(editingLauncherId);
+  if (!launcher) return;
+
+  currentLaunchers = normalizeCustomLaunchers(currentLaunchers.map((l) => {
+    if (l.launcherId !== editingLauncherId) return l;
+    return {
+      ...l,
+      name: editLauncherName.value.trim() || l.name,
+      executablePath: editLauncherPath.value.trim(),
+      argumentsTemplate: editLauncherArgs.value.trim() || getDefaultArgumentsTemplate(l)
+    };
+  }));
+  renderLauncherTable();
+  closeLauncherEditor();
+  showToast("启动器已更新");
+});
+
+editPickExeBtn.addEventListener("click", async () => {
+  const launcher = findCurrentLauncher(editingLauncherId);
+  if (!launcher) return;
+  await runWithButtonBusy(editPickExeBtn, async () => {
+    await pickLauncherExecutablePathForEdit(launcher);
+  });
+});
+
+async function pickLauncherExecutablePathForEdit(launcher) {
+  const hostStatus = await probeNativeHost();
+  if (!hostStatus.available) {
+    showToast("原生助手未安装");
+    return;
+  }
+  const response = await pickNativeEditor(launcher.executablePath || launcher.name);
+  if (!response?.ok) {
+    if (!response?.cancelled) showToast(response?.error || "选择应用失败");
+    return;
+  }
+  editLauncherPath.value = response.executablePath || "";
+  editLauncherName.value = launcher.builtin ? launcher.name : (response.displayName || editLauncherName.value);
+}
+
+editLauncherIconInput.addEventListener("change", async (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const launcher = findCurrentLauncher(editingLauncherId);
+  if (!launcher) return;
+  try {
+    await handleLauncherIconUpload(launcher, file);
+    renderLauncherTable();
+    showToast("图标已更新");
+  } catch (err) {
+    showToast(`图标上传失败：${err.message}`);
+  } finally {
+    e.target.value = "";
+  }
+});
+
+// ========== 启动器操作 ==========
+function findCurrentLauncher(launcherId) {
+  return currentLaunchers.find((l) => l.launcherId === launcherId) || null;
+}
+
+async function handleDeleteLauncher(launcher) {
+  if (launcher.builtin) { showToast("内置启动器不可删除"); return; }
+  const hostStatus = await probeNativeHost();
+  if (hostStatus.available) {
+    try { await deleteLauncherIcon({ iconKey: launcher.iconKey }); } catch {}
+  }
+  currentLaunchers = normalizeCustomLaunchers(currentLaunchers.filter((l) => l.launcherId !== launcher.launcherId));
+  renderLauncherTable();
+  showToast("启动器已删除");
+}
+
+async function handleAddLauncher() {
+  const draft = createCustomLauncherDraft({ seed: Date.now().toString(36) }, currentLaunchers);
+  currentLaunchers = normalizeCustomLaunchers([...currentLaunchers, draft]);
+  renderLauncherTable();
+  showToast("已新增打开方式");
+}
+
+async function handleDiscoverLaunchers() {
+  const hostStatus = await probeNativeHost();
+  if (!hostStatus.available) { showToast("原生助手未安装"); return; }
+  const response = await discoverNativeLaunchers();
+  if (!response?.ok) throw new Error(response?.error || "检测失败");
+  currentLaunchers = applyDiscoveredLaunchers(currentLaunchers, response.launchers || []);
+  renderLauncherTable();
+  const found = (response.launchers || []).filter((l) => l.executablePath).map((l) => l.name);
+  showToast(`检测完成：${found.length ? found.join("、") : "无新发现"}`);
+}
+
+async function handleLauncherIconUpload(launcher, file) {
+  if (!file) return;
+  if (!["image/png", "image/webp"].includes(file.type)) throw new Error("仅支持 png/webp");
+  if (file.size > 512 * 1024) throw new Error("图标不能超过 512KB");
+  const hostStatus = await probeNativeHost();
+  if (!hostStatus.available) throw new Error("原生助手未安装");
+  const reader = new FileReader();
+  const dataUrl = await new Promise((resolve, reject) => {
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("读取文件失败"));
+    reader.readAsDataURL(file);
+  });
+  const response = await saveLauncherIcon({ iconKey: launcher.iconKey, fileName: file.name, content: dataUrl });
+  if (!response?.ok) throw new Error(response?.error || "保存图标失败");
+}
+
+addLauncherBtn.addEventListener("click", () => runWithButtonBusy(addLauncherBtn, handleAddLauncher));
+discoverLaunchersBtn.addEventListener("click", () => runWithButtonBusy(discoverLaunchersBtn, handleDiscoverLaunchers));
+
+// ========== 默认目录 ==========
+let fallbackPaths = { cloudpivot: "", h3yun: "" };
+let activeDefaultDirPlatform = "cloudpivot";
+
+function setDefaultDirPlatform(platform) {
+  activeDefaultDirPlatform = platform;
+  defaultDirPlatform.value = platform;
+  defaultDirPath.value = fallbackPaths[platform] || "";
+  // 同步更新选择按钮的数据属性
+  pickDefaultDirBtn.dataset.platform = platform;
+}
+
+defaultDirPlatform.addEventListener("change", () => setDefaultDirPlatform(defaultDirPlatform.value));
+
+pickDefaultDirBtn.addEventListener("click", async () => {
+  await runWithButtonBusy(pickDefaultDirBtn, () => handlePickFallbackDirectory(activeDefaultDirPlatform));
+});
+
+async function handlePickFallbackDirectory(platformKey) {
+  const hostStatus = await probeNativeHost();
+  if (!hostStatus.available) { showToast("原生助手未安装，请手动输入路径"); return; }
+  const currentPath = defaultDirPath.value.trim();
+  const response = await pickNativeDirectory(currentPath);
+  if (!response?.ok) {
+    if (!response?.cancelled) showToast(response?.error || "选择目录失败");
+    return;
+  }
+  defaultDirPath.value = response.directoryPath || "";
+  const label = platformKey === "h3yun" ? "氚云" : "云枢";
+  showToast(`${label}默认目录已更新`);
+}
+
+// 同步 fallbackPaths 从输入框到内存
+function syncFallbackPaths() {
+  if (activeDefaultDirPlatform === "cloudpivot") {
+    fallbackPaths.cloudpivot = defaultDirPath.value.trim();
+  } else {
+    fallbackPaths.h3yun = defaultDirPath.value.trim();
+  }
+}
+
+// 切换平台前先保存当前输入
+defaultDirPlatform.addEventListener("focus", () => syncFallbackPaths());
+defaultDirPath.addEventListener("change", () => syncFallbackPaths());
+
+// ========== 更新模块 ==========
+function formatUpdateCheckTime(value) {
+  if (!value) return "未检查";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function renderUpdateResult(result) {
+  syncUpdateBtn.hidden = true;
+
+  if (!result) {
+    updateBanner.hidden = true;
+    updateStatusText.hidden = false;
+    updateStatusText.textContent = "尚未检查更新。";
+    return;
+  }
+
+  if (!result.ok) {
+    updateBanner.hidden = true;
+    updateStatusText.hidden = false;
+    updateStatusText.textContent = `检查更新失败：${result.error || "未知错误"}`;
+    return;
+  }
+
+  if (result.synced) {
+    updateBanner.hidden = false;
+    updateStatusText.hidden = true;
+    updateBannerText.textContent = `已同步到最新版本 (v${result.currentVersion || CURRENT_EXTENSION_VERSION})。请在 chrome://extensions 重新加载。`;
+    updateBanner.style.background = "rgba(45, 138, 86, 0.08)";
+    updateBanner.style.border = "1px solid rgba(45, 138, 86, 0.2)";
+    updateBannerText.style.color = "var(--success)";
+    return;
+  }
+
+  if (result.updateAvailable) {
+    updateBanner.hidden = false;
+    updateStatusText.hidden = true;
+    updateBannerText.textContent = `发现新版本：v${result.currentVersion || CURRENT_EXTENSION_VERSION} → v${result.latestVersion || "?"}`;
+    updateBanner.style.background = "rgba(183, 121, 31, 0.07)";
+    updateBanner.style.border = "1px solid rgba(183, 121, 31, 0.18)";
+    updateBannerText.style.color = "var(--warn)";
+    syncUpdateBtn.hidden = false;
+  } else {
+    updateBanner.hidden = true;
+    updateStatusText.hidden = false;
+    updateStatusText.textContent = `已是最新版本 (v${CURRENT_EXTENSION_VERSION})。`;
+  }
+
+  updateLastCheck.textContent = `上次检查：${formatUpdateCheckTime(result.checkedAt)}`;
+}
+
+async function handleCheckUpdate() {
+  const result = await checkForUpdate();
+  renderUpdateResult(result);
+  // 保存结果到 config
+  if (currentConfig) {
+    currentConfig.lastUpdateCheckResult = result;
+  }
+}
+
+async function handleSyncUpdate() {
+  const hostStatus = await probeNativeHost();
+  const preflightResults = [
+    createNativeHostPreflightResult(hostStatus),
+    createUpdateOverwriteRiskResult()
+  ];
+  setStatusOutput([
+    "自动预检完成。",
+    `operationId=${PREFLIGHT_OPERATION_IDS.updateSync}`,
+    ...formatPreflightStatusLines(preflightResults)
+  ].join("\n"));
+
+  if (hasBlockingPreflightResult(preflightResults)) {
+    await saveLastDiagnosticPackage(buildDiagnosticPackage({
+      ...buildExtensionDiagnosticContext(),
+      operationId: PREFLIGHT_OPERATION_IDS.updateSync,
+      logs: [], pageProbe: {}, directorySnapshot: {},
+      preflightResults, nativeHost: hostStatus
+    }));
+    await renderLastDiagnosticSummary();
+    return;
+  }
+
+  const result = await syncFromGit();
+  await saveLastDiagnosticPackage(buildDiagnosticPackage({
+    ...buildExtensionDiagnosticContext(),
+    operationId: PREFLIGHT_OPERATION_IDS.updateSync,
+    logs: [], pageProbe: {}, directorySnapshot: {},
+    preflightResults, nativeHost: hostStatus, updateSync: result
+  }));
+  await renderLastDiagnosticSummary();
+  renderUpdateResult(result);
 }
 
 function createNativeHostPreflightResult(hostStatus) {
@@ -140,7 +616,6 @@ function createNativeHostPreflightResult(hostStatus) {
       data: hostStatus
     });
   }
-
   return createPreflightResult({
     operationId: PREFLIGHT_OPERATION_IDS.updateSync,
     checkId: "nativeHost.ping",
@@ -159,22 +634,98 @@ function createUpdateOverwriteRiskResult() {
     checkId: "update.gitResetRisk",
     severity: PREFLIGHT_SEVERITY.warning,
     ok: true,
-    errorCode: "",
     evidence: "syncFromGit uses git reset --hard origin/master through Native Host",
-    nextAction: "",
-    data: {
-      command: "git reset --hard origin/master"
-    }
+    data: { command: "git reset --hard origin/master" }
   });
 }
 
+checkUpdateBtn.addEventListener("click", () => runWithButtonBusy(checkUpdateBtn, handleCheckUpdate));
+syncUpdateBtn.addEventListener("click", () => runWithButtonBusy(syncUpdateBtn, handleSyncUpdate));
+
+// ========== 文件生成渲染 ==========
+const GENFILE_LABELS = {
+  fromCode: "FromCode.md",
+  css: "CSS 样式",
+  js: "JS 脚本",
+  html: "HTML 模板",
+  cs: "C# 后端",
+  readme: "README.md",
+  agents: "AGENTS.md",
+  design: "DESIGN.md"
+};
+
+const GENFILE_DESC = {
+  fromCode: "必需文件",
+  css: "表单/列表样式",
+  js: "表单/列表脚本",
+  html: "表单/列表模板",
+  cs: "后端代码",
+  readme: "需求文档",
+  agents: "AI 规则",
+  design: "设计文档"
+};
+
+function getGenfileKeys(platform) {
+  return platform === "h3yun"
+    ? ["fromCode", "js", "cs", "readme", "agents", "design"]
+    : ["fromCode", "css", "js", "html", "readme", "agents", "design"];
+}
+
+function renderGenfilesToggles(platform) {
+  genfilesToggles.replaceChildren();
+  const keys = getGenfileKeys(platform);
+  const platformGenFiles = currentGeneratedFiles[platform] || DEFAULT_GENERATED_FILES[platform];
+
+  for (const key of keys) {
+    const isFromCode = key === "fromCode";
+    const checked = platformGenFiles[key] === true;
+    const label = GENFILE_LABELS[key] || key;
+    const desc = GENFILE_DESC[key] || "";
+
+    const tag = document.createElement("label");
+    tag.className = `genfile-tag ${checked ? "is-checked" : ""} ${isFromCode ? "is-required" : ""}`;
+    tag.title = desc;
+
+    const input = document.createElement("input");
+    input.type = "checkbox";
+    input.checked = checked;
+    input.disabled = isFromCode;
+    input.dataset.genfilesPlatform = platform;
+    input.dataset.genfilesKey = key;
+    input.addEventListener("change", () => {
+      tag.classList.toggle("is-checked", input.checked);
+      syncGenfilesFromDom();
+    });
+
+    const text = document.createElement("span");
+    text.textContent = label;
+
+    tag.append(input, text);
+    genfilesToggles.appendChild(tag);
+  }
+}
+
+function syncGenfilesFromDom() {
+  const inputs = document.querySelectorAll("[data-genfiles-platform][data-genfiles-key]");
+  for (const input of inputs) {
+    const pk = input.dataset.genfilesPlatform;
+    const gk = input.dataset.genfilesKey;
+    if (!currentGeneratedFiles[pk]) currentGeneratedFiles[pk] = {};
+    currentGeneratedFiles[pk][gk] = input.checked === true;
+  }
+}
+
+genfilesPlatform.addEventListener("change", () => {
+  renderGenfilesToggles(genfilesPlatform.value);
+});
+
+// ========== 诊断 ==========
 async function renderLastDiagnosticSummary() {
   const packageData = await loadLastDiagnosticPackage();
   if (!packageData) {
     lastDiagnosticSummaryEl.textContent = "最近诊断：未生成";
     return null;
   }
-
   lastDiagnosticSummaryEl.textContent = [
     `最近诊断：${packageData.createdAt || "未知时间"}`,
     `operationId=${packageData.operationId || "unknown"}`
@@ -182,228 +733,82 @@ async function renderLastDiagnosticSummary() {
   return packageData;
 }
 
-function renderPathSummary(config) {
-  // 注意：path-summary 元素已从页面移除，以下逻辑保留供其他内部调用兼容
-  const availableCount = getAvailableLaunchers(config.customLaunchers).length;
-  // 不再更新 DOM 元素
+function buildExtensionDiagnosticContext() {
+  return {
+    extension: { name: chrome.runtime.getManifest().name, version: chrome.runtime.getManifest().version },
+    browser: { userAgent: navigator.userAgent }
+  };
 }
 
-function formatUpdateCheckTime(value) {
-  if (!value) {
-    return "未检查";
-  }
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return value;
-  }
-  return date.toLocaleString("zh-CN", { hour12: false });
+function buildDownloadTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
-function renderUpdateResult(result) {
-  if (syncUpdateButton) {
-    syncUpdateButton.hidden = true;
-  }
-
-  if (!result) {
-    setUpdateStatus("尚未检查更新。");
-    return;
-  }
-
-  if (!result.ok) {
-    setUpdateStatus(
-      [
-        "检查更新失败。",
-        `时间：${formatUpdateCheckTime(result.checkedAt)}`,
-        `原因：${result.error || "未知错误"}`
-      ].join("\n")
-    );
-    return;
-  }
-
-  // 同步完成提示：扩展文件已更新，需要重新加载才能生效
-  if (result.synced) {
-    setUpdateStatus(
-      [
-        "已从 Git 远程同步到最新版本。",
-        `当前版本：${result.currentVersion || CURRENT_EXTENSION_VERSION}`,
-        `同步时间：${formatUpdateCheckTime(result.checkedAt)}`,
-        "请在 chrome://extensions 重新加载扩展以生效。"
-      ].join("\n")
-    );
-    return;
-  }
-
-  const lines = [
-    result.updateAvailable ? "发现新版本，可点击按钮同步更新。" : "当前已是最新版本。",
-    `当前版本：${result.currentVersion || CURRENT_EXTENSION_VERSION}`,
-    `远程版本：${result.latestVersion || "未知"}`,
-    `检查时间：${formatUpdateCheckTime(result.checkedAt)}`
-  ];
-
-  if (result.updateAvailable && syncUpdateButton) {
-    syncUpdateButton.hidden = false;
-  }
-
-  setUpdateStatus(lines.join("\n"));
+function downloadJsonFile(fileName, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = fileName;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-// 设置页涉及保存配置和原生助手选择应用，按钮运行态用于提示用户当前动作仍在处理。
-async function runWithButtonBusy(button, task) {
-  button?.classList.add("is-running");
-  button?.setAttribute("aria-busy", "true");
-  try {
-    return await task();
-  } finally {
-    button?.classList.remove("is-running");
-    button?.removeAttribute("aria-busy");
-  }
+async function handleExportLastDiagnostic() {
+  const packageData = await loadLastDiagnosticPackage();
+  if (!packageData) { showToast("暂无诊断数据"); return; }
+  downloadJsonFile(`cloudpiovt-plugin-diagnostic-${buildDownloadTimestamp()}.json`, packageData);
+  await renderLastDiagnosticSummary();
+  showToast("诊断 JSON 已导出");
 }
 
-// 主标签切换：应用路径 / 默认目录 / 更新设置
-function setActiveMainTab(tabKey) {
-  for (const button of mainTabButtons) {
-    const isActive = button.dataset.mainTab === tabKey;
-    button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-selected", isActive ? "true" : "false");
-  }
-
-  for (const panel of mainPanels) {
-    const isActive = panel.dataset.mainPanel === tabKey;
-    panel.classList.toggle("is-active", isActive);
-    panel.hidden = !isActive;
-  }
-
-  // 所有标签均可编辑，始终显示工具栏
-  toolbarActions.hidden = false;
+async function handleCopyDiagnosticSummary() {
+  const packageData = await renderLastDiagnosticSummary();
+  if (!packageData) { showToast("暂无诊断数据"); return; }
+  await navigator.clipboard.writeText(summarizeDiagnosticPackage(packageData));
+  showToast("诊断摘要已复制");
 }
 
-function setActiveDocsTab(tabKey) {
-  const normalizedTabKey = ["flow", "release"].includes(tabKey) ? tabKey : "reference";
-  activeDocsTabKey = normalizedTabKey;
+copyDiagnosticSummaryBtn.addEventListener("click", () => runWithButtonBusy(copyDiagnosticSummaryBtn, handleCopyDiagnosticSummary));
+exportLastDiagnosticBtn.addEventListener("click", () => runWithButtonBusy(exportLastDiagnosticBtn, handleExportLastDiagnostic));
 
-  // 说明中心用标签页承载说明内容，避免控件表格、流程和版本记录同时拉长设置页。
-  for (const button of docsTabButtons) {
-    const isActive = button.dataset.docsTab === normalizedTabKey;
-    button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-selected", isActive ? "true" : "false");
-  }
-
-  for (const panel of docsPanels) {
-    const isActive = panel.dataset.docsPanel === normalizedTabKey;
-    panel.classList.toggle("is-active", isActive);
-    panel.hidden = !isActive;
-  }
-}
-
-function setActivePlatform(groupKey, platformKey) {
-  const normalizedGroupKey = groupKey === "flow" ? "flow" : "reference";
-  const normalizedPlatformKey = platformKey === "h3yun" ? "h3yun" : "cloudpivot";
-
-  // 平台标签按说明分组独立切换，控件参考和推荐流程可以各自保留用户最近查看的平台。
-  for (const button of platformTabButtons) {
-    if (button.dataset.platformGroup !== normalizedGroupKey) {
-      continue;
-    }
-    const isActive = button.dataset.platformTab === normalizedPlatformKey;
-    button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-selected", isActive ? "true" : "false");
-  }
-
-  for (const panel of platformPanels) {
-    if (panel.dataset.platformGroup !== normalizedGroupKey) {
-      continue;
-    }
-    const isActive = panel.dataset.platformPanel === normalizedPlatformKey;
-    panel.classList.toggle("is-active", isActive);
-    panel.hidden = !isActive;
-  }
-}
-
-/**
- * 默认目录区块用独立的平台标签切换云枢/氚云，不与说明中心的控件参考、推荐流程标签联动。
- */
-function setActiveDefaultDirTab(platformKey) {
-  const normalizedPlatformKey = platformKey === "h3yun" ? "h3yun" : "cloudpivot";
-  activeDefaultDirTabKey = normalizedPlatformKey;
-
-  for (const button of defaultDirPlatformTabButtons) {
-    const isActive = button.dataset.platformTab === normalizedPlatformKey;
-    button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-selected", isActive ? "true" : "false");
-  }
-
-  const panels = document.querySelectorAll("[data-platform-group=\"default-dir\"][data-platform-panel]");
-  for (const panel of panels) {
-    const isActive = panel.dataset.platformPanel === normalizedPlatformKey;
-    panel.classList.toggle("is-active", isActive);
-    panel.hidden = !isActive;
-  }
-}
-
-/**
- * 将配置中的兜底目录路径填入设置页输入框。
- */
-function renderFallbackDirectoryPaths(fallbackDirectoryPaths) {
-  fallbackPathCloudpivotInput.value = String(fallbackDirectoryPaths?.cloudpivot || "");
-  fallbackPathH3yunInput.value = String(fallbackDirectoryPaths?.h3yun || "");
-}
-
-/**
- * 通过原生助手打开系统目录选择框，将用户选中的目录路径填入对应平台的输入框。
- * 原生助手不可用时提示用户手动粘贴路径。
- */
-async function handlePickFallbackDirectory(platformKey) {
-  const hostStatus = await probeNativeHost();
-  if (!hostStatus.available) {
-    setStatus("当前未安装原生助手，请先双击 scripts\\install-native-host.cmd；也可以临时手动粘贴目录路径后保存。");
-    return;
-  }
-
-  const platformLabel = platformKey === "h3yun" ? "氚云" : "云枢";
-  const inputEl = platformKey === "h3yun" ? fallbackPathH3yunInput : fallbackPathCloudpivotInput;
-  const currentPath = String(inputEl?.value || "").trim();
-
-  const response = await pickNativeDirectory(currentPath);
-  if (!response?.ok) {
-    if (response?.cancelled) {
-      setStatus(`已取消选择${platformLabel}默认目录。`);
-      return;
-    }
-    throw new Error(response?.error || `选择${platformLabel}默认目录失败。`);
-  }
-
-  const directoryPath = String(response.directoryPath || "").trim();
-  if (!directoryPath) {
-    throw new Error("原生助手未返回目录路径。");
-  }
-
-  inputEl.value = directoryPath;
-  setStatus(`${platformLabel}默认目录已选择：${directoryPath}；点击保存设置后生效。`);
-}
-
-function renderReadonlyList(listElement, settings) {
-  // 内置规则按平台分别渲染，后续调整某个平台说明时不会影响另一侧的维护语境。
-  listElement.replaceChildren(
-    ...settings.map((text) => {
-      const item = document.createElement("li");
-      item.className = "readonly-list-item";
-      item.textContent = text;
-      return item;
+// ========== 帮助 / 版本记录 ==========
+function renderReleaseNotes() {
+  // 版本标记
+  releasePills.replaceChildren(
+    ...RELEASE_NOTES.map((release) => {
+      const pill = document.createElement("span");
+      pill.className = "release-pill";
+      pill.textContent = `v${release.version}`;
+      pill.title = release.title;
+      pill.addEventListener("click", () => {
+        releaseMoreBtn.click();
+        // 滚动到对应版本
+        setTimeout(() => {
+          const card = releaseFull.querySelector(`[data-release-version="${release.version}"]`);
+          card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        }, 100);
+      });
+      return pill;
     })
   );
-}
 
-function renderReadonlySettings() {
-  renderReadonlyList(cloudpivotReadonlyList, CLOUDPIVOT_READONLY_SETTINGS);
-  renderReadonlyList(h3yunReadonlyList, H3YUN_READONLY_SETTINGS);
-}
+  // 最近 3 条紧凑展示
+  const recentNotes = RELEASE_NOTES.slice(0, RECENT_RELEASE_COUNT);
+  releaseCompact.replaceChildren(
+    ...recentNotes.map((release) => {
+      const div = document.createElement("div");
+      div.className = "release-compact-item";
+      div.innerHTML = `<strong>v${release.version}</strong> ${release.items.slice(0, 2).join(" | ")}`;
+      return div;
+    })
+  );
 
-function renderReleaseNotes() {
-  // 版本更新记录前置展示，用户无需翻提交历史就能判断当前版本是否包含目标修复。
-  releaseNotesList.replaceChildren(
+  // 完整列表
+  releaseFull.replaceChildren(
     ...RELEASE_NOTES.map((release) => {
       const article = document.createElement("article");
       article.className = "release-card";
+      article.dataset.releaseVersion = release.version;
       article.innerHTML = `
         <div class="release-card-head">
           <span class="release-version">v${release.version}</span>
@@ -414,868 +819,106 @@ function renderReleaseNotes() {
       return article;
     })
   );
+
+  releaseMoreBtn.hidden = RELEASE_NOTES.length <= RECENT_RELEASE_COUNT;
 }
 
-function renderCloudpivotControlTypeReference() {
-  // 云枢字段控件说明来自在线开发 HTML 标签映射，服务云枢 FromCode.md 的字段控件核对。
-  cloudpivotControlTypeReferenceBody.replaceChildren(
-    ...CONTROL_TYPE_REFERENCE.map((controlType) => {
-      const row = document.createElement("tr");
-      row.innerHTML = `
-        <td><code>${controlType.tagName}</code></td>
-        <td>${controlType.typeName}</td>
-        <td>${controlType.exampleName || "-"}</td>
-        <td>${controlType.notes || "-"}</td>
-      `;
-      return row;
-    })
-  );
-}
-
-function renderH3yunControlTypeReference() {
-  // 氚云控件参考来自 FromCode.md 的控件类型字段，用于核对抓取后的控件编码和类型是否一致。
-  h3yunControlTypeReferenceBody.replaceChildren(
-    ...H3YUN_CONTROL_TYPE_REFERENCE.map((controlType) => {
-      const row = document.createElement("tr");
-      row.innerHTML = `
-        <td><code>${controlType.typeCode}</code></td>
-        <td>${controlType.typeName}</td>
-        <td>${controlType.exampleName || "-"}</td>
-        <td>${controlType.notes || "-"}</td>
-      `;
-      return row;
-    })
-  );
-}
-
-function createTextInput({ label, value, placeholder, launcherId, fieldName, wide = false }) {
-  const wrapper = document.createElement("label");
-  wrapper.className = wide ? "field launcher-wide-field" : "field";
-  const labelEl = document.createElement("span");
-  labelEl.className = "field-label";
-  labelEl.textContent = label;
-  const input = document.createElement("input");
-  input.type = "text";
-  input.value = value || "";
-  input.placeholder = placeholder || "";
-  input.dataset.launcherId = launcherId;
-  input.dataset.launcherField = fieldName;
-  wrapper.append(labelEl, input);
-  return wrapper;
-}
-
-function createLauncherButton(label, launcherId, action, options = {}) {
-  const button = document.createElement("button");
-  button.className = "ghost-btn";
-  button.type = "button";
-  button.textContent = label;
-  button.dataset.launcherId = launcherId;
-  button.dataset.launcherAction = action;
-  if (options.disabled) {
-    button.disabled = true;
-  }
-  return button;
-}
-
-function createLauncherIconUpload(launcher) {
-  const label = document.createElement("label");
-  label.className = "launcher-icon-upload";
-  label.textContent = "上传图标";
-  const input = document.createElement("input");
-  input.type = "file";
-  input.accept = "image/png,image/webp";
-  input.dataset.launcherId = launcher.launcherId;
-  input.dataset.launcherAction = "upload-icon";
-  label.append(input);
-  return label;
-}
-
-function createLauncherIcon(launcher, size = 48) {
-  const icon = document.createElement("img");
-  icon.className = "launcher-settings-icon";
-  icon.src = getLauncherIconPath(launcher, size);
-  icon.alt = "";
-  return icon;
-}
-
-function renderLauncherNavButton(launcher) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = "launcher-nav-button";
-  button.dataset.launcherId = launcher.launcherId;
-  button.dataset.launcherAction = "select";
-  button.setAttribute("aria-pressed", launcher.launcherId === selectedLauncherId ? "true" : "false");
-  if (launcher.pinned === true) {
-    button.classList.add("is-pinned");
-  }
-  if (launcher.enabled !== true) {
-    button.classList.add("is-disabled");
-  }
-
-  const icon = createLauncherIcon(launcher, 48);
-  const copy = document.createElement("span");
-  copy.className = "launcher-nav-copy";
-  const name = document.createElement("strong");
-  name.textContent = launcher.name;
-  const meta = document.createElement("small");
-  meta.textContent = launcher.pinned === true
-    ? "置顶"
-    : launcher.enabled === true
-      ? "已启用"
-      : "未启用";
-  copy.append(name, meta);
-  button.append(icon, copy);
-  return button;
-}
-
-function renderLauncherDetail(launcher) {
-  const item = document.createElement("article");
-  item.className = "launcher-settings-item";
-  item.dataset.launcherId = launcher.launcherId;
-
-  const head = document.createElement("div");
-  head.className = "launcher-settings-head";
-
-  const icon = createLauncherIcon(launcher, 48);
-
-  const title = document.createElement("div");
-  title.className = "launcher-settings-title";
-  const nameEl = document.createElement("strong");
-  nameEl.textContent = launcher.name;
-  const hintEl = document.createElement("small");
-  hintEl.textContent = launcher.pinned === true
-    ? "当前置顶，弹窗主按钮默认打开"
-    : launcher.builtin
-      ? "内置启动器，可禁用"
-      : "自定义启动器，可删除";
-  title.append(nameEl, hintEl);
-
-  const actions = document.createElement("div");
-  actions.className = "launcher-actions";
-  const enabledLabel = document.createElement("label");
-  enabledLabel.className = "toggle-field";
-  const enabledInput = document.createElement("input");
-  enabledInput.type = "checkbox";
-  enabledInput.checked = launcher.enabled === true;
-  enabledInput.dataset.launcherId = launcher.launcherId;
-  enabledInput.dataset.launcherField = "enabled";
-  const enabledTrack = document.createElement("span");
-  enabledTrack.className = "toggle-track";
-  enabledTrack.setAttribute("aria-hidden", "true");
-  const enabledCopy = document.createElement("span");
-  enabledCopy.className = "toggle-copy";
-  const enabledStrong = document.createElement("strong");
-  enabledStrong.textContent = "启用";
-  enabledCopy.append(enabledStrong);
-  enabledLabel.append(enabledInput, enabledTrack, enabledCopy);
-
-  actions.append(
-    enabledLabel,
-    createLauncherButton(launcher.pinned === true ? "已置顶" : "设为置顶", launcher.launcherId, "pin", { disabled: launcher.pinned === true }),
-    createLauncherButton("选择应用", launcher.launcherId, "pick-exe"),
-    createLauncherButton("恢复默认参数", launcher.launcherId, "restore-args"),
-    createLauncherIconUpload(launcher)
-  );
-  if (!launcher.builtin) {
-    actions.append(createLauncherButton("删除", launcher.launcherId, "delete"));
-  }
-
-  head.append(icon, title, actions);
-
-  const meta = document.createElement("div");
-  meta.className = "launcher-meta-row";
-  const launcherIdMeta = document.createElement("span");
-  launcherIdMeta.textContent = "launcherId=";
-  const launcherIdCode = document.createElement("code");
-  launcherIdCode.textContent = launcher.launcherId;
-  launcherIdMeta.append(launcherIdCode);
-  const iconKeyMeta = document.createElement("span");
-  iconKeyMeta.textContent = "iconKey=";
-  const iconKeyCode = document.createElement("code");
-  iconKeyCode.textContent = launcher.iconKey;
-  iconKeyMeta.append(iconKeyCode);
-  meta.append(launcherIdMeta, iconKeyMeta);
-
-  const fields = document.createElement("div");
-  fields.className = "launcher-form-grid";
-  fields.append(
-    createTextInput({
-      label: "显示名称",
-      value: launcher.name,
-      placeholder: "例如：Cursor",
-      launcherId: launcher.launcherId,
-      fieldName: "name"
-    }),
-    createTextInput({
-      label: "应用路径",
-      value: launcher.executablePath,
-      placeholder: "例如：C:\\Tools\\App\\app.exe",
-      launcherId: launcher.launcherId,
-      fieldName: "executablePath"
-    }),
-    createTextInput({
-      label: "参数模板",
-      value: launcher.argumentsTemplate,
-      placeholder: '"{rawPath}"',
-      launcherId: launcher.launcherId,
-      fieldName: "argumentsTemplate",
-      wide: true
-    })
-  );
-
-  item.append(head, meta, fields);
-  return item;
-}
-
-function renderLauncherList() {
-  currentLaunchers = normalizeCustomLaunchers(currentLaunchers);
-  const firstLauncher = currentLaunchers[0] || null;
-  const hasSelectedLauncher = currentLaunchers.some((launcher) => launcher.launcherId === selectedLauncherId);
-  selectedLauncherId = hasSelectedLauncher ? selectedLauncherId : firstLauncher?.launcherId || "";
-
-  const nav = document.createElement("div");
-  nav.className = "launcher-nav";
-  nav.setAttribute("role", "tablist");
-  nav.setAttribute("aria-label", "打开方式导航");
-  nav.append(...currentLaunchers.map(renderLauncherNavButton));
-
-  const selectedLauncher = findCurrentLauncher(selectedLauncherId) || firstLauncher;
-  const detail = document.createElement("div");
-  detail.className = "launcher-detail-panel";
-  if (selectedLauncher) {
-    detail.append(renderLauncherDetail(selectedLauncher));
-  }
-
-  launcherListEl.replaceChildren(nav, detail);
-}
-
-function updateLauncher(launcherId, patch) {
-  currentLaunchers = normalizeCustomLaunchers(currentLaunchers.map((launcher) => (
-    launcher.launcherId === launcherId
-      ? { ...launcher, ...patch }
-      : launcher
-  )));
-  renderLauncherList();
-  renderPathSummary({ customLaunchers: currentLaunchers });
-}
-
-/**
- * 切换生成文件配置的平台标签（云枢/氚云）。
- */
-function setActiveGenfilesTab(platformKey) {
-  activeGenfilesTabKey = platformKey === "h3yun" ? "h3yun" : "cloudpivot";
-  for (const button of genfilesPlatformTabButtons) {
-    const isActive = button.dataset.platformTab === activeGenfilesTabKey;
-    button.classList.toggle("is-active", isActive);
-    button.setAttribute("aria-selected", isActive ? "true" : "false");
-  }
-  for (const panel of genfilesPlatformPanels) {
-    const isActive = panel.dataset.platformPanel === activeGenfilesTabKey;
-    panel.classList.toggle("is-active", isActive);
-    panel.hidden = !isActive;
-  }
-}
-
-/**
- * 渲染单个平台的生成文件开关列表。
- * @param {HTMLElement} gridEl - 容器元素
- * @param {object} platformGenFiles - 平台开关对象
- * @param {string} platformKey - "cloudpivot" | "h3yun"
- */
-function renderGenfilesGrid(gridEl, platformGenFiles, platformKey) {
-  gridEl.replaceChildren();
-  const labels = {
-    fromCode: "FromCode.md — 编码上下文（始终生成）",
-    css: "CSS 样式文件",
-    js: "JS 脚本文件",
-    html: "HTML 模板文件",
-    cs: "C# 后端代码文件",
-    readme: "README.md — 用户需求文档",
-    agents: "AGENTS.md — AI 协作规则",
-    design: "DESIGN.md — 技术实现设计"
-  };
-  const fromCodeKeys = platformKey === "h3yun"
-    ? ["fromCode", "js", "cs", "readme", "agents", "design"]
-    : ["fromCode", "css", "js", "html", "readme", "agents", "design"];
-
-  for (const key of fromCodeKeys) {
-    const isFromCode = key === "fromCode";
-    const checked = platformGenFiles[key] === true;
-    const label = labels[key] || key;
-
-    const toggleLabel = document.createElement("label");
-    toggleLabel.className = "toggle-field";
-
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.checked = checked;
-    input.disabled = isFromCode;
-    input.dataset.genfilesPlatform = platformKey;
-    input.dataset.genfilesKey = key;
-
-    const track = document.createElement("span");
-    track.className = "toggle-track";
-    track.setAttribute("aria-hidden", "true");
-
-    const copy = document.createElement("span");
-    copy.className = "toggle-copy";
-    const strong = document.createElement("strong");
-    strong.textContent = label;
-    const small = document.createElement("small");
-    small.textContent = isFromCode ? "必需文件，不可关闭" : (checked ? "当前开启" : "当前关闭");
-
-    copy.append(strong, small);
-    toggleLabel.append(input, track, copy);
-    gridEl.appendChild(toggleLabel);
-  }
-}
-
-/**
- * 根据当前 currentGeneratedFiles 渲染两个平台的生成文件开关。
- */
-function renderAllGenfilesGrids() {
-  renderGenfilesGrid(genfilesCloudpivotGrid, currentGeneratedFiles.cloudpivot || DEFAULT_GENERATED_FILES.cloudpivot, "cloudpivot");
-  renderGenfilesGrid(genfilesH3yunGrid, currentGeneratedFiles.h3yun || DEFAULT_GENERATED_FILES.h3yun, "h3yun");
-}
-
-/**
- * 从 DOM 同步生成文件开关到 currentGeneratedFiles。
- */
-function syncGenfilesFromDom() {
-  const inputs = document.querySelectorAll("[data-genfiles-platform][data-genfiles-key]");
-  for (const input of inputs) {
-    const platformKey = input.dataset.genfilesPlatform;
-    const key = input.dataset.genfilesKey;
-    if (!currentGeneratedFiles[platformKey]) {
-      currentGeneratedFiles[platformKey] = {};
-    }
-    currentGeneratedFiles[platformKey][key] = input.checked === true;
-  }
-}
-
-// 帮助抽屉开关
-function setHelpOpen(isOpen) {
-  helpOverlay.hidden = !isOpen;
-  document.body.classList.toggle("help-open", isOpen);
-}
-
-function renderConfig(config) {
-  currentLaunchers = normalizeCustomLaunchers(config.customLaunchers);
-  currentGeneratedFiles = config.generatedFiles || DEFAULT_GENERATED_FILES;
-  renderLauncherList();
-  autoCheckUpdatesField.checked = config.autoCheckUpdates === true;
-  h3yunOneClickWritebackField.checked = config.h3yunOneClickWriteback !== false;
-  renderPathSummary(config);
-  renderFallbackDirectoryPaths(config.fallbackDirectoryPaths);
-  renderUpdateResult(config.lastUpdateCheckResult);
-  renderAllGenfilesGrids();
-  setStatus(
-    [
-      "配置已加载",
-      `打开方式可用数量: ${getAvailableLaunchers(currentLaunchers).length}`,
-      `自动检查更新: ${config.autoCheckUpdates ? "开启" : "关闭"}`
-    ].join("\n")
-  );
-}
-
-async function pickLauncherExecutablePath(launcher) {
-  // “选择应用”依赖原生助手；未安装时保留手动粘贴路径，避免用户被单个按钮卡住。
-  const hostStatus = await probeNativeHost();
-  if (!hostStatus.available) {
-    setStatus("当前未安装原生助手，请先双击 scripts\\install-native-host.cmd；也可以临时手动粘贴应用路径后保存。");
-    return;
-  }
-
-  const response = await pickNativeEditor(launcher.executablePath || launcher.name);
-  if (!response?.ok) {
-    if (response?.cancelled) {
-      setStatus("已取消选择应用。");
-      return;
-    }
-    throw new Error(response?.error || "选择应用失败");
-  }
-  const executablePath = response.executablePath || "";
-  const displayName = response.displayName || launcher.name;
-  let iconMessage = "已选择应用；请确认图标。";
-
-  const iconResponse = await extractExecutableIcon({
-    executablePath,
-    iconKey: launcher.iconKey
-  });
-  if (iconResponse?.ok) {
-    iconMessage = "已选择应用，并已从 exe 提取图标。";
-  } else if (!launcher.builtin) {
-    iconMessage = "已选择应用；未能从 exe 提取图标，请上传 png/webp 图标后保存。";
-  }
-
-  updateLauncher(launcher.launcherId, {
-    executablePath,
-    name: launcher.builtin ? launcher.name : displayName,
-    enabled: true
-  });
-  setStatus(iconMessage);
-}
-
-// 保存设置：从各面板控件收集值，同步写入 chrome.storage.local
-async function handleSubmit() {
-  saveButton.disabled = true;
-
-  try {
-    syncLaunchersFromForm();
-    syncGenfilesFromDom();
-    const nextConfig = await saveConfig({
-      customLaunchers: currentLaunchers,
-      fallbackDirectoryPaths: {
-        cloudpivot: String(fallbackPathCloudpivotInput.value || "").trim(),
-        h3yun: String(fallbackPathH3yunInput.value || "").trim()
-      },
-      autoCheckUpdates: autoCheckUpdatesField.checked,
-      generatedFiles: currentGeneratedFiles,
-      h3yunOneClickWriteback: h3yunOneClickWritebackField.checked
-    });
-    renderConfig(nextConfig);
-    setStatus("保存成功。");
-
-    // 保存成功动画：按钮短暂变绿并显示勾号
-    saveButton.classList.add("is-saved");
-    setTimeout(() => saveButton.classList.remove("is-saved"), 1200);
-  } catch (error) {
-    setStatus(`保存失败。\n${error?.message || String(error)}`);
-  } finally {
-    saveButton.disabled = false;
-  }
-}
-
-// 恢复默认配置：所有设置回到出厂值
-async function handleReset() {
-  resetButton.disabled = true;
-  try {
-    const nextConfig = await saveConfig({
-      customLaunchers: DEFAULT_CONFIG.customLaunchers,
-      fallbackDirectoryPaths: DEFAULT_CONFIG.fallbackDirectoryPaths,
-      autoCheckUpdates: DEFAULT_CONFIG.autoCheckUpdates,
-      lastUpdateCheckResult: DEFAULT_CONFIG.lastUpdateCheckResult,
-      generatedFiles: DEFAULT_GENERATED_FILES,
-      h3yunOneClickWriteback: true
-    });
-    renderConfig(nextConfig);
-    setStatus("已恢复默认配置。");
-
-    // 恢复成功动画
-    resetButton.classList.add("is-reset");
-    setTimeout(() => resetButton.classList.remove("is-reset"), 1200);
-  } catch (error) {
-    setStatus(`恢复默认失败。\n${error?.message || String(error)}`);
-  } finally {
-    resetButton.disabled = false;
-  }
-}
-
-async function handleDiscoverLaunchers() {
-  discoverLaunchersButton.disabled = true;
-  try {
-    const hostStatus = await probeNativeHost();
-    if (!hostStatus.available) {
-      setStatus("当前未安装原生助手，无法自动检测内置软件；可手动填写应用路径。");
-      return;
-    }
-
-    const response = await discoverNativeLaunchers();
-    if (!response?.ok) {
-      throw new Error(response?.error || "检测内置软件失败");
-    }
-
-    currentLaunchers = applyDiscoveredLaunchers(currentLaunchers, response.launchers || []);
-    renderLauncherList();
-    renderPathSummary({ customLaunchers: currentLaunchers });
-    const found = (response.launchers || []).filter((launcher) => launcher.executablePath).map((launcher) => launcher.name);
-    setStatus([
-      "内置软件检测完成。",
-      `找到：${found.length ? found.join("、") : "无"}`,
-      "点击保存设置后生效。"
-    ].join("\n"));
-  } catch (error) {
-    setStatus(`检测内置软件失败。\n${error?.message || String(error)}`);
-  } finally {
-    discoverLaunchersButton.disabled = false;
-  }
-}
-
-async function fileToDataUrl(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(reader.error || new Error("读取图标文件失败"));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function handleLauncherIconUpload(launcher, file) {
-  if (!file) {
-    return;
-  }
-  if (!["image/png", "image/webp"].includes(file.type)) {
-    setStatus("图标格式仅支持 png/webp。");
-    return;
-  }
-  if (file.size > 512 * 1024) {
-    setStatus("图标文件不能超过 512KB。");
-    return;
-  }
-
-  const hostStatus = await probeNativeHost();
-  if (!hostStatus.available) {
-    setStatus("上传图标需要原生助手生成 16/48/128 PNG，请先安装原生助手。");
-    return;
-  }
-
-  const response = await saveLauncherIcon({
-    iconKey: launcher.iconKey,
-    fileName: file.name,
-    content: await fileToDataUrl(file)
-  });
-  if (!response?.ok) {
-    throw new Error(response?.error || "保存图标失败");
-  }
-
-  renderLauncherList();
-  setStatus(`图标已保存：${launcher.name}\n已生成 16/48/128 PNG。`);
-}
-
-// 删除自定义启动器，同时清理对应的图标文件；图标清理失败不阻断删除流程。
-async function handleDeleteLauncher(launcher) {
-  if (launcher.builtin) {
-    setStatus("内置启动器不可删除，只能禁用。");
-    return;
-  }
-
-  // 尝试清理图标文件；新创建的或从未上传图标的启动器可能没有图标，忽略失败继续删除
-  const hostStatus = await probeNativeHost();
-  if (hostStatus.available) {
-    try {
-      const response = await deleteLauncherIcon({ iconKey: launcher.iconKey });
-      if (!response?.ok) {
-        // 图标删除失败不阻断启动器删除
-      }
-    } catch (_error) {
-      // 忽略图标删除失败
-    }
-  }
-
-  currentLaunchers = normalizeCustomLaunchers(currentLaunchers.filter((item) => item.launcherId !== launcher.launcherId));
-  selectedLauncherId = currentLaunchers[0]?.launcherId || "";
-  renderLauncherList();
-  renderPathSummary({ customLaunchers: currentLaunchers });
-  setStatus("自定义打开方式已删除；点击保存设置后生效。");
-}
-
-function findCurrentLauncher(launcherId) {
-  return currentLaunchers.find((launcher) => launcher.launcherId === launcherId) || null;
-}
-
-async function handleLauncherListClick(event) {
-  const actionButton = event.target.closest("[data-launcher-action]");
-  if (!actionButton || actionButton.tagName === "INPUT") {
-    return;
-  }
-
-  const launcher = findCurrentLauncher(actionButton.dataset.launcherId);
-  if (!launcher) {
-    return;
-  }
-
-  const action = actionButton.dataset.launcherAction;
-  try {
-    if (action === "select") {
-      syncLaunchersFromForm();
-      selectedLauncherId = launcher.launcherId;
-      renderLauncherList();
-      return;
-    }
-    if (action === "pin") {
-      currentLaunchers = pinLauncher(currentLaunchers, launcher.launcherId);
-      selectedLauncherId = launcher.launcherId;
-      renderLauncherList();
-      renderPathSummary({ customLaunchers: currentLaunchers });
-      setStatus("已设为置顶打开方式；点击保存设置后生效。");
-      return;
-    }
-    if (action === "pick-exe") {
-      await pickLauncherExecutablePath(launcher);
-      return;
-    }
-    if (action === "restore-args") {
-      updateLauncher(launcher.launcherId, {
-        argumentsTemplate: getDefaultArgumentsTemplate(launcher)
-      });
-      setStatus("参数模板已恢复默认；点击保存设置后生效。");
-      return;
-    }
-    if (action === "delete") {
-      await handleDeleteLauncher(launcher);
-    }
-  } catch (error) {
-    setStatus(`打开方式操作失败。\n${error?.message || String(error)}`);
-  }
-}
-
-async function handleLauncherListChange(event) {
-  const target = event.target;
-  if (target?.dataset?.launcherAction === "upload-icon") {
-    return;
-  }
-  const launcherId = target?.dataset?.launcherId || "";
-  const fieldName = target?.dataset?.launcherField || "";
-  const launcher = findCurrentLauncher(launcherId);
-  if (!launcher || !fieldName) {
-    return;
-  }
-
-  if (fieldName !== "enabled") {
-    return;
-  }
-
-  if (target.checked === true && !launcher.executablePath) {
-    updateLauncher(launcherId, { enabled: false });
-    setStatus("启用前需要先配置应用路径，或点击“检测内置软件”。");
-    return;
-  }
-
-  updateLauncher(launcherId, { enabled: target.checked === true });
-  setStatus("启用状态已更新；点击保存设置后生效。");
-}
-
-function handleLauncherListFocusOut(event) {
-  const target = event.target;
-  const launcherId = target?.dataset?.launcherId || "";
-  const fieldName = target?.dataset?.launcherField || "";
-  if (!launcherId || !fieldName || target.type === "checkbox") {
-    return;
-  }
-
-  currentLaunchers = normalizeCustomLaunchers(currentLaunchers.map((launcher) => (
-    launcher.launcherId === launcherId
-      ? { ...launcher, [fieldName]: target.value }
-      : launcher
-  )));
-  renderPathSummary({ customLaunchers: currentLaunchers });
-  setStatus("打开方式已更新；点击保存设置后生效。");
-}
-
-async function handleLauncherListFileChange(event) {
-  const target = event.target;
-  if (target?.dataset?.launcherAction !== "upload-icon") {
-    return;
-  }
-  const launcher = findCurrentLauncher(target.dataset.launcherId);
-  if (!launcher) {
-    return;
-  }
-
-  try {
-    await handleLauncherIconUpload(launcher, target.files?.[0] || null);
-  } catch (error) {
-    setStatus(`上传图标失败。\n${error?.message || String(error)}`);
-  } finally {
-    target.value = "";
-  }
-}
-
-async function handleAddLauncher() {
-  const draft = createCustomLauncherDraft({ seed: Date.now().toString(36) }, currentLaunchers);
-  currentLaunchers = normalizeCustomLaunchers([...currentLaunchers, draft]);
-  selectedLauncherId = draft.launcherId;
-  renderLauncherList();
-  renderPathSummary({ customLaunchers: currentLaunchers });
-  setStatus("已新增自定义打开方式；请选择应用并上传 png/webp 图标后保存。");
-}
-
-function syncLaunchersFromForm() {
-  const patchesById = new Map();
-  for (const element of launcherListEl.querySelectorAll("[data-launcher-field]")) {
-    const launcherId = element.dataset.launcherId;
-    const fieldName = element.dataset.launcherField;
-    const patch = patchesById.get(launcherId) || {};
-    patch[fieldName] = element.type === "checkbox" ? element.checked === true : element.value;
-    patchesById.set(launcherId, patch);
-  }
-
-  currentLaunchers = normalizeCustomLaunchers(currentLaunchers.map((launcher) => ({
-    ...launcher,
-    ...(patchesById.get(launcher.launcherId) || {})
-  })));
-}
-
-async function handleCheckUpdate() {
-  checkUpdateButton.disabled = true;
-  setUpdateStatus("正在检查 Git 远程更新...");
-
-  try {
-    const result = await checkForUpdate();
-    renderUpdateResult(result);
-  } catch (error) {
-    setUpdateStatus(`检查更新失败。\n${error?.message || String(error)}`);
-  } finally {
-    checkUpdateButton.disabled = false;
-  }
-}
-
-async function handleSyncUpdate() {
-  syncUpdateButton.disabled = true;
-  setUpdateStatus("正在从 Git 远程同步更新...");
-
-  try {
-    const hostStatus = await probeNativeHost();
-    const preflightResults = [
-      createNativeHostPreflightResult(hostStatus),
-      createUpdateOverwriteRiskResult()
-    ];
-    setUpdateStatus([
-      "自动预检完成。",
-      `operationId=${PREFLIGHT_OPERATION_IDS.updateSync}`,
-      ...formatPreflightStatusLines(preflightResults)
-    ].join("\n"));
-    if (hasBlockingPreflightResult(preflightResults)) {
-      await saveLastDiagnosticPackage(buildDiagnosticPackage({
-        ...buildExtensionDiagnosticContext(),
-        operationId: PREFLIGHT_OPERATION_IDS.updateSync,
-        logs: [],
-        pageProbe: {},
-        directorySnapshot: {},
-        preflightResults,
-        nativeHost: hostStatus
-      }));
-      await renderLastDiagnosticSummary();
-      return;
-    }
-
-    const result = await syncFromGit();
-    await saveLastDiagnosticPackage(buildDiagnosticPackage({
-      ...buildExtensionDiagnosticContext(),
-      operationId: PREFLIGHT_OPERATION_IDS.updateSync,
-      logs: [],
-      pageProbe: {},
-      directorySnapshot: {},
-      preflightResults,
-      nativeHost: hostStatus,
-      updateSync: result
-    }));
-    await renderLastDiagnosticSummary();
-    renderUpdateResult(result);
-  } catch (error) {
-    setUpdateStatus(`同步更新失败。\n${error?.message || String(error)}`);
-  } finally {
-    syncUpdateButton.disabled = false;
-  }
-}
-
-async function handleExportLastDiagnostic() {
-  exportLastDiagnosticButton.disabled = true;
-  try {
-    const packageData = await loadLastDiagnosticPackage();
-    if (!packageData) {
-      setStatus("暂无最近诊断 JSON；请先在弹窗或设置页执行一次失败操作。");
-      return;
-    }
-
-    downloadJsonFile(
-      `cloudpiovt-plugin-last-diagnostic-${buildDownloadTimestamp()}.json`,
-      packageData
-    );
-    await renderLastDiagnosticSummary();
-    setStatus(`最近诊断 JSON 已导出。\ncreatedAt=${packageData.createdAt || ""}`);
-  } catch (error) {
-    setStatus(`导出最近诊断失败。\n${error?.message || String(error)}`);
-  } finally {
-    exportLastDiagnosticButton.disabled = false;
-  }
-}
-
-async function handleCopyDiagnosticSummary() {
-  copyDiagnosticSummaryButton.disabled = true;
-  try {
-    const packageData = await renderLastDiagnosticSummary();
-    if (!packageData) {
-      setStatus("暂无最近诊断摘要；请先执行一次带预检的操作。");
-      return;
-    }
-
-    await navigator.clipboard.writeText(summarizeDiagnosticPackage(packageData));
-    setStatus("最近诊断摘要已复制。");
-  } catch (error) {
-    setStatus(`复制诊断摘要失败。\n${error?.message || String(error)}`);
-  } finally {
-    copyDiagnosticSummaryButton.disabled = false;
-  }
-}
-
-async function init() {
-  renderReadonlySettings();
-  renderReleaseNotes();
-  renderCloudpivotControlTypeReference();
-  renderH3yunControlTypeReference();
-  setActiveDocsTab("reference");
-  setActivePlatform("reference", "cloudpivot");
-  setActivePlatform("flow", "cloudpivot");
-  setActiveDefaultDirTab("cloudpivot");
-  setActiveGenfilesTab("cloudpivot");
-  setActiveMainTab("launchers");
-  renderConfig(await loadConfig());
-  await renderLastDiagnosticSummary();
-  const hostStatus = await probeNativeHost();
-  setStatus(
-    hostStatus.available
-      ? `配置已加载。\n原生助手已连接：${hostStatus.hostName} ${hostStatus.version}`
-      : "配置已加载。\n原生助手未安装；绝对路径历史、选择应用和一键打开编辑器需要先双击 scripts\\install-native-host.cmd。"
-  );
-}
-
-for (const button of mainTabButtons) {
-  button.addEventListener("click", () => setActiveMainTab(button.dataset.mainTab));
-}
-
-for (const button of docsTabButtons) {
-  button.addEventListener("click", () => setActiveDocsTab(button.dataset.docsTab));
-}
-
-for (const button of platformTabButtons) {
-  button.addEventListener("click", () => setActivePlatform(button.dataset.platformGroup, button.dataset.platformTab));
-}
-
-saveButton.addEventListener("click", () => runWithButtonBusy(saveButton, handleSubmit));
-resetButton.addEventListener("click", () => runWithButtonBusy(resetButton, handleReset));
-checkUpdateButton.addEventListener("click", () => runWithButtonBusy(checkUpdateButton, handleCheckUpdate));
-syncUpdateButton.addEventListener("click", () => runWithButtonBusy(syncUpdateButton, handleSyncUpdate));
-discoverLaunchersButton.addEventListener("click", () => runWithButtonBusy(discoverLaunchersButton, handleDiscoverLaunchers));
-addLauncherButton.addEventListener("click", () => runWithButtonBusy(addLauncherButton, handleAddLauncher));
-launcherListEl.addEventListener("click", handleLauncherListClick);
-launcherListEl.addEventListener("change", handleLauncherListChange);
-launcherListEl.addEventListener("change", handleLauncherListFileChange);
-launcherListEl.addEventListener("focusout", handleLauncherListFocusOut);
-copyDiagnosticSummaryButton.addEventListener("click", () => runWithButtonBusy(copyDiagnosticSummaryButton, handleCopyDiagnosticSummary));
-exportLastDiagnosticButton.addEventListener("click", () => runWithButtonBusy(exportLastDiagnosticButton, handleExportLastDiagnostic));
-
-for (const button of defaultDirPlatformTabButtons) {
-  button.addEventListener("click", () => setActiveDefaultDirTab(button.dataset.platformTab));
-}
-
-pickFallbackDirCloudpivotButton.addEventListener("click", () => runWithButtonBusy(pickFallbackDirCloudpivotButton, () => handlePickFallbackDirectory("cloudpivot")));
-pickFallbackDirH3yunButton.addEventListener("click", () => runWithButtonBusy(pickFallbackDirH3yunButton, () => handlePickFallbackDirectory("h3yun")));
-
-// 帮助抽屉
-helpButton.addEventListener("click", () => setHelpOpen(true));
-helpCloseButton.addEventListener("click", () => setHelpOpen(false));
-helpOverlay.addEventListener("click", (event) => {
-  if (event.target === helpOverlay) {
-    setHelpOpen(false);
-  }
+releaseMoreBtn.addEventListener("click", () => {
+  releaseExpanded = !releaseExpanded;
+  releaseFull.hidden = !releaseExpanded;
+  releaseMoreBtn.textContent = releaseExpanded ? "收起" : "查看全部";
+  // 展开时隐藏紧凑视图
+  releaseCompact.style.display = releaseExpanded ? "none" : "";
 });
 
-// 生成文件平台标签
-for (const button of genfilesPlatformTabButtons) {
-  button.addEventListener("click", () => setActiveGenfilesTab(button.dataset.platformTab));
+// ========== 保存与恢复 ==========
+async function handleSubmit() {
+  // 同步默认目录
+  syncFallbackPaths();
+
+  const nextConfig = await saveConfig({
+    customLaunchers: currentLaunchers,
+    fallbackDirectoryPaths: { ...fallbackPaths },
+    autoCheckUpdates: autoCheckUpdatesField.checked,
+    generatedFiles: currentGeneratedFiles,
+    h3yunOneClickWriteback: h3yunOneClickWritebackField.checked
+  });
+
+  currentConfig = nextConfig;
+  updateTopBarStatus(nextConfig);
+  showToast("已保存");
+
+  saveBtn.classList.add("is-saved");
+  setTimeout(() => saveBtn.classList.remove("is-saved"), 1200);
+}
+
+async function handleReset() {
+  const nextConfig = await saveConfig({
+    customLaunchers: DEFAULT_CONFIG.customLaunchers,
+    fallbackDirectoryPaths: DEFAULT_CONFIG.fallbackDirectoryPaths,
+    autoCheckUpdates: DEFAULT_CONFIG.autoCheckUpdates,
+    lastUpdateCheckResult: DEFAULT_CONFIG.lastUpdateCheckResult,
+    generatedFiles: DEFAULT_GENERATED_FILES,
+    h3yunOneClickWriteback: true
+  });
+
+  currentConfig = nextConfig;
+  currentLaunchers = normalizeCustomLaunchers(nextConfig.customLaunchers);
+  currentGeneratedFiles = nextConfig.generatedFiles || DEFAULT_GENERATED_FILES;
+  renderAllConfigUI(nextConfig);
+  showToast("已恢复默认");
+
+  resetBtn.classList.add("is-reset");
+  setTimeout(() => resetBtn.classList.remove("is-reset"), 1200);
+}
+
+saveBtn.addEventListener("click", () => runWithButtonBusy(saveBtn, handleSubmit));
+resetBtn.addEventListener("click", () => runWithButtonBusy(resetBtn, handleReset));
+
+// ========== 配置渲染 ==========
+function renderAllConfigUI(config) {
+  currentConfig = config;
+  currentLaunchers = normalizeCustomLaunchers(config.customLaunchers);
+  currentGeneratedFiles = config.generatedFiles || DEFAULT_GENERATED_FILES;
+
+  fallbackPaths = {
+    cloudpivot: config.fallbackDirectoryPaths?.cloudpivot || "",
+    h3yun: config.fallbackDirectoryPaths?.h3yun || ""
+  };
+  setDefaultDirPlatform(activeDefaultDirPlatform);
+
+  autoCheckUpdatesField.checked = config.autoCheckUpdates === true;
+  h3yunOneClickWritebackField.checked = config.h3yunOneClickWriteback !== false;
+
+  renderLauncherTable();
+  renderGenfilesToggles(genfilesPlatform.value);
+  renderUpdateResult(config.lastUpdateCheckResult);
+  updateTopBarStatus(config);
+  setStatusOutput("配置已加载。");
+}
+
+// ========== 初始化 ==========
+async function init() {
+  const collapseState = loadCollapseState();
+  applyCollapseState(collapseState);
+
+  renderReleaseNotes();
+  setDefaultDirPlatform("cloudpivot");
+
+  const config = await loadConfig();
+  hostStatus = await probeNativeHost();
+  hostAvailable = hostStatus.available;
+
+  renderAllConfigUI(config);
+  await renderLastDiagnosticSummary();
+
+  setStatusOutput(
+    hostAvailable
+      ? `配置已加载。\n原生助手已连接：${hostStatus.hostName} ${hostStatus.version}`
+      : "配置已加载。\n原生助手未安装。"
+  );
 }
 
 init().catch((error) => {
-  setStatus(`配置加载失败。\n${error?.message || String(error)}`);
+  setStatusOutput(`配置加载失败。\n${error?.message || String(error)}`);
 });
