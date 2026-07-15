@@ -58,14 +58,11 @@ const launcherListEl = document.querySelector("#launcher-list");
 const copyDiagnosticSummaryButton = document.querySelector("#copy-diagnostic-summary-btn");
 const exportLastDiagnosticButton = document.querySelector("#export-last-diagnostic-btn");
 const lastDiagnosticSummaryEl = document.querySelector("#last-diagnostic-summary");
-const currentVersionEl = document.querySelector("#current-version");
-const pathSummaryEl = document.querySelector("#path-summary");
 const releaseNotesList = document.querySelector("#release-notes-list");
 const cloudpivotReadonlyList = document.querySelector("#cloudpivot-readonly-settings-list");
 const h3yunReadonlyList = document.querySelector("#h3yun-readonly-settings-list");
 const cloudpivotControlTypeReferenceBody = document.querySelector("#cloudpivot-control-type-reference-body");
 const h3yunControlTypeReferenceBody = document.querySelector("#h3yun-control-type-reference-body");
-const nativeHostStatus = document.querySelector("#native-host-status");
 const statusOutput = document.querySelector("#settings-status");
 const docsTabButtons = Array.from(document.querySelectorAll("[data-docs-tab]"));
 const docsPanels = Array.from(document.querySelectorAll("[data-docs-panel]"));
@@ -102,10 +99,6 @@ function setStatus(message) {
 
 function setUpdateStatus(message) {
   updateStatusOutput.textContent = message;
-}
-
-function setNativeHostStatus(message) {
-  nativeHostStatus.textContent = message;
 }
 
 function buildDownloadTimestamp() {
@@ -189,14 +182,10 @@ async function renderLastDiagnosticSummary() {
   return packageData;
 }
 
-// 版本号显示在顶部标题栏右侧指标中
-function setVersionLabels() {
-  currentVersionEl.textContent = CURRENT_EXTENSION_VERSION;
-}
-
 function renderPathSummary(config) {
+  // 注意：path-summary 元素已从页面移除，以下逻辑保留供其他内部调用兼容
   const availableCount = getAvailableLaunchers(config.customLaunchers).length;
-  pathSummaryEl.textContent = availableCount ? `可用 ${availableCount} 个` : "未配置";
+  // 不再更新 DOM 元素
 }
 
 function formatUpdateCheckTime(value) {
@@ -1221,7 +1210,6 @@ async function handleCopyDiagnosticSummary() {
 }
 
 async function init() {
-  setVersionLabels();
   renderReadonlySettings();
   renderReleaseNotes();
   renderCloudpivotControlTypeReference();
@@ -1235,11 +1223,6 @@ async function init() {
   renderConfig(await loadConfig());
   await renderLastDiagnosticSummary();
   const hostStatus = await probeNativeHost();
-  setNativeHostStatus(
-    hostStatus.available
-      ? "已连接"
-      : "未安装"
-  );
   setStatus(
     hostStatus.available
       ? `配置已加载。\n原生助手已连接：${hostStatus.hostName} ${hostStatus.version}`
