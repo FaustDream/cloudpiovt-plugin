@@ -101,13 +101,20 @@ const h3yunOneClickWritebackButton = document.querySelector("#h3yun-oneclick-wri
 const h3yunFrontendWritebackButton = document.querySelector("#h3yun-frontend-writeback-btn");
 const h3yunBackendWritebackButton = document.querySelector("#h3yun-backend-writeback-btn");
 const h3yunSeparateWritebackRow = document.querySelector("#h3yun-separate-writeback-row");
+// 抓取按钮旁的齿轮配置按钮
+const cloudpivotFrontendGearButton = document.querySelector("#cloudpivot-frontend-gear-btn");
+const cloudpivotBizruleGearButton = document.querySelector("#cloudpivot-bizrule-gear-btn");
+const h3yunCaptureGearButton = document.querySelector("#h3yun-capture-gear-btn");
 // 文件选择器弹层元素
 const filePickerOverlay = document.querySelector("#file-picker-overlay");
+const filePickerTitleEl = document.querySelector(".file-picker-title");
+const filePickerHintEl = document.querySelector(".file-picker-hint");
 const extraReadmeCheck = document.querySelector("#extra-readme-check");
 const extraAgentsCheck = document.querySelector("#extra-agents-check");
 const extraDesignCheck = document.querySelector("#extra-design-check");
 const filePickerConfirmButton = document.querySelector("#file-picker-confirm-btn");
 const filePickerSkipButton = document.querySelector("#file-picker-skip-btn");
+const filePickerActionsRow = document.querySelector(".file-picker-actions");
 
 let currentPageContext = null;
 // 当前弹窗会话的配置快照，每次 init 刷新。
@@ -189,6 +196,10 @@ function setBusy(isBusy) {
   for (const button of platformTabButtons) {
     button.disabled = isBusy;
   }
+  // 齿轮配置按钮也跟随忙态
+  if (cloudpivotFrontendGearButton) cloudpivotFrontendGearButton.disabled = isBusy;
+  if (cloudpivotBizruleGearButton) cloudpivotBizruleGearButton.disabled = isBusy;
+  if (h3yunCaptureGearButton) h3yunCaptureGearButton.disabled = isBusy;
   syncRecentPathInteractionState();
 }
 
@@ -4674,16 +4685,34 @@ function resetFilePickerChecks() {
 }
 
 /**
- * 显示文件选择器弹层，返回 Promise 在用户确认/跳过时 resolve。
+ * 显示文件选择器弹层，返回 Promise 在用户确认时 resolve。
+ * @param {string} platformKey - 平台 key，用于读取对应持久开关默认值
+ * @param {object} [options] - 可选配置
+ * @param {boolean} [options.gearMode] - 齿轮模式：仅显示确认按钮，不显示跳过按钮
  * @returns {Promise<{extraDocs: object, confirmed: boolean}>}
  */
-function showFilePicker(platformKey) {
+function showFilePicker(platformKey, options = {}) {
+  const gearMode = options.gearMode === true;
   return new Promise((resolve) => {
     // 重置复选框到持久开关默认值
     const generatedFiles = (currentConfig?.generatedFiles || {})[platformKey] || {};
     extraReadmeCheck.checked = generatedFiles.readme === true;
     extraAgentsCheck.checked = generatedFiles.agents === true;
     extraDesignCheck.checked = generatedFiles.design === true;
+
+    // 齿轮模式：修改弹层标题和提示，隐藏跳过按钮
+    if (gearMode && filePickerTitleEl) {
+      filePickerTitleEl.textContent = "配置额外生成的协作文件";
+    }
+    if (gearMode && filePickerHintEl) {
+      filePickerHintEl.textContent = "勾选后点击确认，下次抓取将生成这些文件";
+    }
+    filePickerSkipButton.hidden = gearMode;
+    // 齿轮模式下确认按钮独占一行，不需要两列网格
+    if (filePickerActionsRow) {
+      filePickerActionsRow.style.gridTemplateColumns = gearMode ? "1fr" : "";
+    }
+
     filePickerOverlay.hidden = false;
 
     // 确认按钮：以勾选值作为 extraDocs
@@ -4692,49 +4721,87 @@ function showFilePicker(platformKey) {
       resolve({ extraDocs: collectExtraDocs(), confirmed: true });
     };
 
-    // 跳过按钮：直接写入，不带额外文件
-    const onSkip = () => {
-      cleanup();
-      resolve({ extraDocs: {}, confirmed: false });
-    };
-
     const cleanup = () => {
       filePickerOverlay.hidden = true;
       filePickerConfirmButton.removeEventListener("click", onConfirm);
-      filePickerSkipButton.removeEventListener("click", onSkip);
+      filePickerSkipButton.removeEventListener("click", onConfirm); // 齿轮模式可能复用
+      // 恢复跳过按钮和网格布局的默认状态
+      filePickerSkipButton.hidden = false;
+      if (filePickerTitleEl) filePickerTitleEl.textContent = "选择本次额外生成的协作文件";
+      if (filePickerHintEl) filePickerHintEl.textContent = "仅本次写入生效，不改持久开关";
+      if (filePickerActionsRow) filePickerActionsRow.style.gridTemplateColumns = "";
     };
 
     filePickerConfirmButton.addEventListener("click", onConfirm);
-    filePickerSkipButton.addEventListener("click", onSkip);
+    // 齿轮模式下跳过按钮隐藏，不需要绑定；非齿轮模式也保留确认按钮的功能（用户可能直接点确认）
+    if (!gearMode) {
+      const onSkip = () => {
+        cleanup();
+        resolve({ extraDocs: {}, confirmed: false });
+      };
+      filePickerSkipButton.addEventListener("click", onSkip);
+    }
   });
 }
 
 /**
- * 有文件选择器的云枢抓取写入入口。
- * 先弹出文件选择器，用户确认后再执行抓取。
+ * 通过齿轮按钮配置的额外协作文件，在下一次抓取时使用。
+ * 为 null 表示使用设置中的默认值（空对象即不生成额外文件）。
  */
-async function handleCloudpivotCaptureWithFilePicker() {
-  const platformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
-  const { extraDocs } = await showFilePicker(platformKey);
+let pendingExtraDocs = null;
+
+/**
+ * 云枢前端抓取：直接写入，不弹窗。使用齿轮配置或默认空配置。
+ */
+async function handleCloudpivotCapture() {
+  const extraDocs = pendingExtraDocs ? consumePendingExtraDocs() : {};
   await runWithButtonBusy(frontendCaptureWriteButton, () => handleCaptureAndWrite(extraDocs));
 }
 
 /**
- * 有文件选择器的云枢业务规则抓取写入入口。
+ * 云枢业务规则抓取：直接写入，不弹窗。
  */
-async function handleCloudpivotBizRuleCaptureWithFilePicker() {
-  const platformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
-  const { extraDocs } = await showFilePicker(platformKey);
+async function handleCloudpivotBizRuleCapture() {
+  const extraDocs = pendingExtraDocs ? consumePendingExtraDocs() : {};
   await runWithButtonBusy(bizruleCaptureWriteButton, () => handleBizruleCaptureAndWrite(extraDocs));
 }
 
 /**
- * 有文件选择器的氚云抓取写入入口。
+ * 氚云一键抓取写入：直接写入，不弹窗。
  */
-async function handleH3yunCaptureWithFilePicker() {
-  const platformKey = PLATFORM_CONFIG.h3yun.platformKey;
-  const { extraDocs } = await showFilePicker(platformKey);
+async function handleH3yunCapture() {
+  const extraDocs = pendingExtraDocs ? consumePendingExtraDocs() : {};
   await runWithButtonBusy(h3yunCaptureAllButton, () => handleH3yunCaptureAllAndWrite(extraDocs));
+}
+
+/**
+ * 消费暂存的额外文档配置，消费后清空（一次性生效）。
+ * @returns {object} extraDocs 配置
+ */
+function consumePendingExtraDocs() {
+  const docs = pendingExtraDocs || {};
+  pendingExtraDocs = null;
+  return docs;
+}
+
+/**
+ * 齿轮按钮：打开文件选择器（仅确认），配置额外生成的协作文件。
+ * 配置在下一次抓取时一次性生效。
+ */
+async function handleOpenFilePickerGear(platformKey) {
+  if (isPopupBusy) return;
+  const { extraDocs } = await showFilePicker(platformKey, { gearMode: true });
+  pendingExtraDocs = extraDocs;
+  // 提示用户配置已保存
+  const checkedNames = [];
+  if (extraDocs.readme) checkedNames.push("README.md");
+  if (extraDocs.agents) checkedNames.push("AGENTS.md");
+  if (extraDocs.design) checkedNames.push("DESIGN.md");
+  if (checkedNames.length > 0) {
+    setStatus(`已配置额外生成文件：${checkedNames.join("、")}。下次抓取生效。`, { level: "success" });
+  } else {
+    setStatus("已取消额外生成文件，下次抓取仅使用默认文件。", { level: "success" });
+  }
 }
 
 // ========== 氚云一键回写 ==========
@@ -4873,11 +4940,14 @@ window.addEventListener("unload", teardownCrossPageSync);
 refreshHandleButton.addEventListener("click", () => runWithButtonBusy(refreshHandleButton, handleRefreshDirectoryHandle));
 copyPathButton.addEventListener("click", () => runWithButtonBusy(copyPathButton, handleCopyTargetPath));
 
-// 云枢抓取/回写：先弹出文件选择器
-frontendCaptureWriteButton.addEventListener("click", handleCloudpivotCaptureWithFilePicker);
+// 云枢抓取/回写：直接抓取不弹窗，齿轮按钮配置额外文件
+frontendCaptureWriteButton.addEventListener("click", handleCloudpivotCapture);
 frontendWritebackButton.addEventListener("click", () => runWithButtonBusy(frontendWritebackButton, handleImportAndWriteBack));
-bizruleCaptureWriteButton.addEventListener("click", handleCloudpivotBizRuleCaptureWithFilePicker);
+bizruleCaptureWriteButton.addEventListener("click", handleCloudpivotBizRuleCapture);
 bizruleWritebackButton.addEventListener("click", () => runWithButtonBusy(bizruleWritebackButton, handleBizruleWriteback));
+// 齿轮按钮
+cloudpivotFrontendGearButton.addEventListener("click", () => handleOpenFilePickerGear(PLATFORM_CONFIG.cloudpivot.platformKey));
+cloudpivotBizruleGearButton.addEventListener("click", () => handleOpenFilePickerGear(PLATFORM_CONFIG.cloudpivot.platformKey));
 
 document.addEventListener("click", (event) => {
   // 点击导出下拉外部关闭
@@ -4897,7 +4967,9 @@ exportLogButton.addEventListener("click", handleExportRuntimeLog);
 exportDiagnosticButton.addEventListener("click", handleExportDiagnosticPackage);
 
 // 氚云操作
-h3yunCaptureAllButton.addEventListener("click", handleH3yunCaptureWithFilePicker);
+// 氚云抓取：直接抓取不弹窗，齿轮按钮配置额外文件
+h3yunCaptureAllButton.addEventListener("click", handleH3yunCapture);
+h3yunCaptureGearButton.addEventListener("click", () => handleOpenFilePickerGear(PLATFORM_CONFIG.h3yun.platformKey));
 h3yunOneClickWritebackButton.addEventListener("click", () => runWithButtonBusy(h3yunOneClickWritebackButton, handleH3yunOneClickWriteback));
 h3yunFrontendWritebackButton.addEventListener("click", () => runWithButtonBusy(h3yunFrontendWritebackButton, () => handleH3yunCodeWriteback("frontend")));
 h3yunBackendWritebackButton.addEventListener("click", () => runWithButtonBusy(h3yunBackendWritebackButton, () => handleH3yunCodeWriteback("backend")));

@@ -44,11 +44,17 @@
       <section id="cloudpivot-panel" class="platform-panel platform-panel-active" role="tabpanel" aria-labelledby="cloudpivot-tab" data-platform-panel="cloudpivot">
         <section class="actions">
           <div class="action-row">
-            <button id="frontend-capture-write-btn" class="accent-btn" type="button">⬇ 抓取</button>
+            <div class="capture-btn-group">
+              <button id="frontend-capture-write-btn" class="accent-btn capture-btn-main" type="button">⬇ 抓取</button>
+              <button id="cloudpivot-frontend-gear-btn" class="capture-gear-btn" type="button" title="配置额外生成的协作文件" aria-label="配置额外生成的协作文件">⚙</button>
+            </div>
             <button id="frontend-writeback-btn" class="secondary-btn" type="button">⬆ 回写</button>
           </div>
           <div class="action-row">
-            <button id="bizrule-capture-write-btn" class="accent-btn" type="button">⬇ 业务规则抓取</button>
+            <div class="capture-btn-group">
+              <button id="bizrule-capture-write-btn" class="accent-btn capture-btn-main" type="button">⬇ 业务规则抓取</button>
+              <button id="cloudpivot-bizrule-gear-btn" class="capture-gear-btn" type="button" title="配置额外生成的协作文件" aria-label="配置额外生成的协作文件">⚙</button>
+            </div>
             <button id="bizrule-writeback-btn" class="secondary-btn" type="button">⬆ 业务规则回写</button>
           </div>
         </section>
@@ -59,7 +65,10 @@
         <section class="actions">
           <!-- 抓取 + 一键回写并排 -->
           <div class="action-row">
-            <button id="h3yun-capture-all-btn" class="accent-btn" type="button">⬇ 一键抓取写入</button>
+            <div class="capture-btn-group">
+              <button id="h3yun-capture-all-btn" class="accent-btn capture-btn-main" type="button">⬇ 一键抓取写入</button>
+              <button id="h3yun-capture-gear-btn" class="capture-gear-btn" type="button" title="配置额外生成的协作文件" aria-label="配置额外生成的协作文件">⚙</button>
+            </div>
             <button id="h3yun-oneclick-writeback-btn" class="secondary-btn" type="button">⬆ 一键回写</button>
           </div>
           <!-- 独立前后端回写并排 -->
