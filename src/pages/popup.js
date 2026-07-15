@@ -169,8 +169,9 @@ const COMMON_DIAGNOSTIC_FILE_NAMES = [
 ];
 
 function syncRecentPathInteractionState() {
-  for (const element of recentPathsListEl.querySelectorAll("button")) {
-    element.disabled = isPopupBusy;
+  // 搜索输入框在下拉展开时禁用输入，避免忙态时误操作
+  if (searchPathInput) {
+    searchPathInput.disabled = isPopupBusy;
   }
 }
 
