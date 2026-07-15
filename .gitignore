@@ -22,6 +22,9 @@ npm-debug.log*
 tests/
 coverage/
 
+# Native Host 编译产物（exe 由 Rust 源码构建，发行脚本安装时生成）
+.native-host/
+
 # IDE
 .vscode/
 .codebuddy/
