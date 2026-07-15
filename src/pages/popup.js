@@ -4717,12 +4717,15 @@ function showFilePicker(platformKey, options = {}) {
     extraAgentsCheck.checked = generatedFiles.agents === true;
     extraDesignCheck.checked = generatedFiles.design === true;
 
-    // 齿轮模式：修改弹层标题和提示，隐藏跳过按钮
+    // 齿轮模式：修改标题、隐藏提示、按钮改为"确认"
     if (gearMode && filePickerTitleEl) {
       filePickerTitleEl.textContent = "配置额外生成的协作文件";
     }
     if (gearMode && filePickerHintEl) {
-      filePickerHintEl.textContent = "勾选后点击确认，下次抓取将生成这些文件";
+      filePickerHintEl.hidden = true;
+    }
+    if (gearMode && filePickerConfirmButton) {
+      filePickerConfirmButton.textContent = "确认";
     }
     filePickerSkipButton.hidden = gearMode;
     // 齿轮模式下确认按钮独占一行，不需要两列网格
@@ -4742,10 +4745,11 @@ function showFilePicker(platformKey, options = {}) {
       filePickerOverlay.hidden = true;
       filePickerConfirmButton.removeEventListener("click", onConfirm);
       filePickerSkipButton.removeEventListener("click", onConfirm); // 齿轮模式可能复用
-      // 恢复跳过按钮和网格布局的默认状态
+      // 恢复跳过按钮、提示文字、确认按钮文案和网格布局的默认状态
       filePickerSkipButton.hidden = false;
       if (filePickerTitleEl) filePickerTitleEl.textContent = "选择本次额外生成的协作文件";
-      if (filePickerHintEl) filePickerHintEl.textContent = "仅本次写入生效，不改持久开关";
+      if (filePickerHintEl) filePickerHintEl.hidden = false;
+      if (filePickerConfirmButton) filePickerConfirmButton.textContent = "确认并写入";
       if (filePickerActionsRow) filePickerActionsRow.style.gridTemplateColumns = "";
     };
 
