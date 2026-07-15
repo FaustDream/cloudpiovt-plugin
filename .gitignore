@@ -6,13 +6,8 @@ packages/
 # Build artifacts
 native-host-rust/target/
 
-# OS
-.DS_Store
-Thumbs.db
-
 # Logs
 *.log
-npm-debug.log*
 
 # Environment
 .env
@@ -28,3 +23,5 @@ coverage/
 # IDE
 .vscode/
 .codebuddy/
+
+心流鼠标完整设计规范_v2.2.md

@@ -8,16 +8,16 @@
   </head>
   <body>
     <main class="popup-shell">
-      <section class="hero">
+      <header class="hero">
         <div class="hero-header">
           <h1>开发助手</h1>
         </div>
         <!-- 平台标签：自动识别后隐藏，unknown/default 时显示 -->
-        <div class="platform-tabs" id="platform-tabs" role="tablist" aria-label="开发平台">
+        <nav class="platform-tabs" id="platform-tabs" role="tablist" aria-label="开发平台">
           <button id="cloudpivot-tab" class="platform-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="cloudpivot-panel" data-platform-tab="cloudpivot">云枢</button>
           <button id="h3yun-tab" class="platform-tab" type="button" role="tab" aria-selected="false" aria-controls="h3yun-panel" data-platform-tab="h3yun">氚云</button>
-        </div>
-      </section>
+        </nav>
+      </header>
 
       <!-- 当前目录卡片 -->
       <section class="card">
