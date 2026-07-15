@@ -294,11 +294,16 @@ body {
 }
 
 /* ========== 搜索输入框 & 下拉列表 ========== */
-/* 搜索输入框容器：替代原 path-tag 位置，flex: 1 撑满剩余空间 */
+/* 搜索行：独立一行，与当前目录行垂直分离 */
+.search-row {
+  width: 100%;
+  margin-top: var(--spacing-sm);
+}
+
+/* 搜索输入框容器：全宽 */
 .search-input-wrap {
   position: relative;
-  flex: 1;
-  min-width: 0;
+  width: 100%;
 }
 
 .search-path-input {
@@ -308,9 +313,9 @@ body {
   border: 1px solid var(--color-border-input);
   border-radius: var(--radius-md);
   background: var(--bg-input);
-  color: var(--color-primary);
+  color: var(--color-text-primary);
   font-size: 13px;
-  font-weight: var(--font-weight-semibold);
+  font-weight: var(--font-weight-regular);
   font-family: var(--font-family);
   outline: none;
   transition: all var(--transition-fast);

@@ -21,13 +21,17 @@
 
       <!-- 当前目录卡片 -->
       <section class="card">
-        <div class="meta-row meta-row-inline" id="path-search-row">
+        <!-- 第一行：页面来源 + 当前目录 + 操作按钮 -->
+        <div class="meta-row meta-row-inline">
           <button id="page-origin" class="copy-chip copy-chip-prominent" type="button" disabled>检测中...</button>
           <span class="meta-sep" aria-hidden="true">|</span>
           <!-- 当前目录名称：纯展示 -->
           <span id="current-path-tag" class="current-path-tag">未选择目录</span>
-          <span class="meta-sep" aria-hidden="true">|</span>
-          <!-- 搜索输入框：搜索历史目录并切换 -->
+          <button id="refresh-handle-btn" class="icon-btn icon-btn-prominent" type="button" title="更新当前路径" aria-label="更新当前路径">↻</button>
+          <button id="copy-path-btn" class="icon-btn icon-btn-prominent" type="button" title="复制真实路径" aria-label="复制路径">📋</button>
+        </div>
+        <!-- 第二行：搜索历史目录（独立整行） -->
+        <div class="search-row" id="search-row">
           <div class="search-input-wrap" id="search-input-wrap">
             <input id="search-path-input" class="search-path-input" type="text"
               placeholder="搜索历史目录..." autocomplete="off" spellcheck="false">
@@ -38,8 +42,6 @@
               </div>
             </div>
           </div>
-          <button id="refresh-handle-btn" class="icon-btn icon-btn-prominent" type="button" title="更新当前路径" aria-label="更新当前路径">↻</button>
-          <button id="copy-path-btn" class="icon-btn icon-btn-prominent" type="button" title="复制真实路径" aria-label="复制路径">📋</button>
         </div>
       </section>
 
