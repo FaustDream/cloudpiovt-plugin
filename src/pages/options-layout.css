@@ -1,25 +1,9 @@
 /* 滚动行为与布局偏移保护 */
-html {
-  scroll-behavior: smooth;
-}
+html { scroll-behavior: smooth; }
 
-/* 帮助抽屉打开时锁定 body 滚动 */
-body.help-open {
-  overflow: hidden;
-}
+/* 弹窗编辑打开时锁定 body 滚动 */
+body.edit-open { overflow: hidden; }
 
-/* 因标签面板切换的滚动定位偏移补偿 */
-.config-section,
-.status-output {
-  scroll-margin-top: 20px;
-}
-
-.settings-column .config-section {
-  scroll-margin-top: 16px;
-}
-
-@media (max-width: 720px) {
-  .settings-column {
-    border-radius: 16px;
-  }
+@media (max-width: 640px) {
+  .section { border-radius: 12px; }
 }
