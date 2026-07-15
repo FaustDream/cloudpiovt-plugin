@@ -57,12 +57,6 @@ body {
   line-height: 1.1;
 }
 
-.hero-launchers {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
 .subtitle {
   margin: 8px 0 0;
   font-size: 13px;
@@ -143,31 +137,33 @@ body {
   align-items: flex-start;
 }
 
-/* 单行紧凑布局：页面标签 + origin + 分隔符 + 路径文件夹名 + 操作按钮 */
+/* 单行紧凑布局：origin + 分隔符 + 路径文件夹名 + 操作按钮 */
 .meta-row-inline {
   justify-content: flex-start;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  padding: 4px 0;
 }
 
 /* 页面与路径之间的分隔符 */
 .meta-sep {
   color: var(--border);
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: 300;
   user-select: none;
   flex-shrink: 0;
 }
 
-/* 路径文件夹名称：紧凑标签样式 */
+/* 路径文件夹名称：加粗醒目标签 */
 .path-tag {
-  max-width: 100px;
+  max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 800;
-  color: var(--primary);
+  color: var(--accent);
   flex-shrink: 0;
 }
 
@@ -232,6 +228,15 @@ body {
   line-height: 1.5;
   text-align: center;
   white-space: nowrap;
+}
+
+/* 强化版 origin chip：更大更醒目 */
+.copy-chip-prominent {
+  min-width: 0;
+  padding: 5px 14px;
+  border-style: solid;
+  font-size: 13px;
+  font-weight: 800;
 }
 
 .copy-chip:hover:not(:disabled) {
@@ -380,28 +385,9 @@ button:disabled {
 .primary-btn,
 .accent-btn,
 .secondary-btn,
-.launch-btn,
-.ghost-launch-btn,
-.launcher-main-btn,
-.launcher-menu-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 12px 14px;
-  font-size: 14px;
-  font-weight: 700;
-}
-
 .primary-btn.is-running::before,
 .accent-btn.is-running::before,
 .secondary-btn.is-running::before,
-.launch-btn.is-running::before,
-.ghost-launch-btn.is-running::before,
-.launcher-main-btn.is-running::before,
-.launcher-menu-btn.is-running::before,
-.icon-btn.is-running::before,
 .recent-path-btn.is-running::before,
 .recent-path-remove.is-running::before {
   content: "";
@@ -446,116 +432,6 @@ button:disabled {
   background: var(--secondary-hover);
 }
 
-.launch-btn {
-  background: var(--launch);
-  color: #fff;
-}
-
-.launch-btn:hover:not(:disabled) {
-  background: var(--launch-hover);
-}
-
-.ghost-launch-btn {
-  background: rgba(255, 253, 248, 0.92);
-  border: 1px solid var(--border);
-  color: var(--text);
-}
-
-.ghost-launch-btn:hover:not(:disabled) {
-  background: #fff;
-}
-
-/* ========== 启动器 ========== */
-.launcher-control {
-  position: relative;
-  display: inline-grid;
-  grid-template-columns: 38px 24px;
-  align-items: stretch;
-  border: 1px solid rgba(35, 32, 27, 0.16);
-  border-radius: 12px;
-  background: #25272c;
-  box-shadow: 0 10px 20px rgba(35, 32, 27, 0.16);
-}
-
-.launcher-main-btn,
-.launcher-menu-btn {
-  min-width: 0;
-  min-height: 34px;
-  padding: 0;
-  border-radius: 0;
-  background: transparent;
-  color: #fff;
-}
-
-.launcher-main-btn {
-  border-radius: 11px 0 0 11px;
-}
-
-.launcher-menu-btn {
-  border-left: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 0 11px 11px 0;
-  font-size: 12px;
-}
-
-.launcher-main-btn:hover:not(:disabled),
-.launcher-menu-btn:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.launcher-main-icon,
-.launcher-menu-icon {
-  display: block;
-  width: 18px;
-  height: 18px;
-  object-fit: contain;
-}
-
-.launcher-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 20;
-  display: grid;
-  min-width: 190px;
-  max-width: 260px;
-  padding: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 12px;
-  background: #202226;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.24);
-}
-
-.launcher-menu[hidden] {
-  display: none;
-}
-
-.launcher-menu-item {
-  display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
-  gap: 10px;
-  align-items: center;
-  width: 100%;
-  min-height: 38px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: transparent;
-  color: #f5f7fa;
-  font-size: 13px;
-  font-weight: 700;
-  text-align: left;
-}
-
-.launcher-menu-item:hover:not(:disabled) {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.launcher-menu-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ========== 状态区 ========== */
 .status-card {
   margin-bottom: 0;
@@ -598,6 +474,13 @@ button:disabled {
   font-size: 12px;
   font-weight: 700;
   line-height: 1;
+}
+
+/* 强化版图标按钮：稍大更易点击 */
+.icon-btn-prominent {
+  width: 28px;
+  height: 28px;
+  font-size: 14px;
 }
 
 .icon-btn:hover:not(:disabled) {
