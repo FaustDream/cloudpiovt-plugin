@@ -24,7 +24,10 @@
         <div class="meta-row meta-row-inline" id="path-search-row">
           <button id="page-origin" class="copy-chip copy-chip-prominent" type="button" disabled>检测中...</button>
           <span class="meta-sep" aria-hidden="true">|</span>
-          <!-- 搜索输入框：替换原来的 path-tag，值始终显示当前末级文件夹名 -->
+          <!-- 当前目录名称：纯展示 -->
+          <span id="current-path-tag" class="current-path-tag">未选择目录</span>
+          <span class="meta-sep" aria-hidden="true">|</span>
+          <!-- 搜索输入框：搜索历史目录并切换 -->
           <div class="search-input-wrap" id="search-input-wrap">
             <input id="search-path-input" class="search-path-input" type="text"
               placeholder="搜索历史目录..." autocomplete="off" spellcheck="false">

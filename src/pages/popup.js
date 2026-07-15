@@ -82,6 +82,8 @@ const searchDropdownList = document.querySelector("#search-dropdown-list");
 const searchDropdownClear = document.querySelector("#search-dropdown-clear");
 const clearHistoryButton = document.querySelector("#clear-history-btn");
 const refreshHandleButton = document.querySelector("#refresh-handle-btn");
+// 当前目录展示标签：纯展示，不可编辑
+const currentPathTagEl = document.querySelector("#current-path-tag");
 const statusOutput = document.querySelector("#status-output");
 const copyLogButton = document.querySelector("#copy-log-btn");
 const exportLogButton = document.querySelector("#export-log-btn");
@@ -734,14 +736,14 @@ async function renderSearchDropdown(query = "") {
 }
 
 /**
- * 关闭下拉列表并恢复输入框状态。
+ * 关闭下拉列表。
+ * 不再更改输入框的值，输入框恢复为空以展示 placeholder。
  */
 function closeSearchDropdown() {
   if (!searchDropdown || !searchPathInput) return;
   searchDropdown.hidden = true;
   highlightedIndex = -1;
-  // 恢复输入框显示当前路径末级文件夹名
-  searchPathInput.value = extractLastFolderName(currentTargetPath);
+  searchPathInput.value = "";
 }
 
 /**
@@ -756,18 +758,22 @@ async function openSearchDropdown() {
 }
 
 /**
- * 当前路径变更时同步更新输入框的显示值和完整路径 tooltip。
- * 不会触发下拉列表。
+ * 当前路径变更时同步更新目录名称标签和输入框 tooltip。
+ * 不修改搜索输入框的值，保持搜索与当前路径的视觉分离。
  */
 function syncSearchInputDisplay(directoryPath) {
-  if (!searchPathInput) return;
+  if (!currentPathTagEl) return;
   const trimmed = String(directoryPath || "").trim();
   currentTargetPath = trimmed;
   const displayName = trimmed ? extractLastFolderName(trimmed) : "";
-  searchPathInput.value = displayName;
-  searchPathInput.title = trimmed;
-  if (!displayName) {
-    searchPathInput.placeholder = "搜索历史目录...";
+  // 更新当前目录标签：纯展示
+  currentPathTagEl.textContent = displayName || "未选择目录";
+  currentPathTagEl.title = trimmed;
+  // 切换空/非空样式
+  if (displayName) {
+    currentPathTagEl.classList.remove("is-empty");
+  } else {
+    currentPathTagEl.classList.add("is-empty");
   }
 }
 
