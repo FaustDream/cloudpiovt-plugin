@@ -365,31 +365,142 @@ body {
 
 .genfile-tag input { display: none; }
 
-/* ========== 帮助 / 版本记录 ========== */
-.release-pills {
-  display: flex;
-  flex-wrap: wrap;
+/* ========== 使用说明 / 帮助 ========== */
+.platform-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 6px;
+  margin-bottom: 14px;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel-soft);
+}
+
+.platform-switch-tab {
+  min-height: 36px;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+  border: 0;
+}
+
+.platform-switch-tab.is-active {
+  background: var(--primary);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(40, 88, 77, 0.12);
+}
+
+.help-platform-panel[hidden] { display: none; }
+
+.help-sub-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
   margin-bottom: 10px;
 }
 
-.release-pill {
-  padding: 4px 10px;
+.help-sub-card {
+  padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 10px;
   background: #fff;
-  color: var(--ink);
-  font-size: 12px;
+  min-width: 0;
+}
+
+.help-sub-card h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.help-table-wrap {
+  overflow-x: auto;
+  border: 1px solid rgba(207, 219, 213, 0.6);
+  border-radius: 8px;
+}
+
+.help-ref-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  min-width: 280px;
+}
+
+.help-ref-table th,
+.help-ref-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid rgba(207, 219, 213, 0.4);
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.4;
+}
+
+.help-ref-table thead th {
+  background: var(--panel-soft);
+  color: var(--muted);
   font-weight: 800;
-  cursor: pointer;
-  transition: all 120ms ease;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
-.release-pill:hover {
-  border-color: var(--primary);
+.help-ref-table tbody tr:last-child td { border-bottom: 0; }
+
+.help-ref-table code {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 999px;
   background: rgba(40, 88, 77, 0.05);
+  font-size: 10px;
 }
 
+.help-flow-list {
+  display: grid;
+  gap: 6px;
+}
+
+.help-flow-item {
+  margin: 0;
+  padding: 6px 8px;
+  border: 1px solid rgba(207, 219, 213, 0.5);
+  border-radius: 6px;
+  background: var(--panel-soft);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+.help-rules {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.help-rules h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+}
+
+.help-rules-list {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.help-rules-list li {
+  padding: 4px 8px;
+  border-radius: 5px;
+  background: var(--panel-soft);
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+}
+
+/* ========== 版本记录 ========== */
 .release-compact {
   display: grid;
   gap: 6px;

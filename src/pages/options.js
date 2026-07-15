@@ -1,6 +1,8 @@
 import {
+  CLOUDPIVOT_READONLY_SETTINGS,
   DEFAULT_CONFIG,
   DEFAULT_GENERATED_FILES,
+  H3YUN_READONLY_SETTINGS,
   loadConfig,
   saveConfig
 } from "../../lib/config.js";
@@ -10,6 +12,10 @@ import {
 } from "../../lib/services/native-host.js";
 import { CURRENT_EXTENSION_VERSION, RELEASE_NOTES } from "../../lib/release-notes.js";
 import { checkForUpdate, syncFromGit } from "../../lib/services/update-check.js";
+import {
+  CONTROL_TYPE_REFERENCE,
+  H3YUN_CONTROL_TYPE_REFERENCE
+} from "../../lib/platform/control-metadata.js";
 import {
   PREFLIGHT_OPERATION_IDS,
   PREFLIGHT_SEVERITY,
@@ -55,8 +61,16 @@ const copyDiagnosticSummaryBtn = document.querySelector("#copy-diagnostic-summar
 const exportLastDiagnosticBtn = document.querySelector("#export-last-diagnostic-btn");
 const lastDiagnosticSummaryEl = document.querySelector("#last-diagnostic-summary");
 
-// 帮助
-const releasePills = document.querySelector("#release-pills");
+// 使用说明
+const helpPlatformTabs = Array.from(document.querySelectorAll("[data-help-platform]"));
+const helpPlatformPanels = Array.from(document.querySelectorAll("[data-help-panel]"));
+const cloudpivotControlRefBody = document.querySelector("#cloudpivot-control-ref-body");
+const h3yunControlRefBody = document.querySelector("#h3yun-control-ref-body");
+const cloudpivotRulesList = document.querySelector("#cloudpivot-rules-list");
+const h3yunRulesList = document.querySelector("#h3yun-rules-list");
+let activeHelpPlatform = "cloudpivot";
+
+// 版本记录
 const releaseCompact = document.querySelector("#release-compact");
 const releaseMoreBtn = document.querySelector("#release-more-btn");
 const releaseFull = document.querySelector("#release-full");
@@ -438,25 +452,65 @@ async function handleCopyDiagnosticSummary() {
 copyDiagnosticSummaryBtn.addEventListener("click", () => runWithButtonBusy(copyDiagnosticSummaryBtn, handleCopyDiagnosticSummary));
 exportLastDiagnosticBtn.addEventListener("click", () => runWithButtonBusy(exportLastDiagnosticBtn, handleExportLastDiagnostic));
 
-// ========== 帮助 / 版本记录 ==========
-function renderReleaseNotes() {
-  releasePills.replaceChildren(
-    ...RELEASE_NOTES.map((release) => {
-      const pill = document.createElement("span");
-      pill.className = "release-pill";
-      pill.textContent = `v${release.version}`;
-      pill.title = release.title;
-      pill.addEventListener("click", () => {
-        releaseMoreBtn.click();
-        setTimeout(() => {
-          const card = releaseFull.querySelector(`[data-release-version="${release.version}"]`);
-          card?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        }, 100);
-      });
-      return pill;
+// ========== 使用说明渲染 ==========
+function setActiveHelpPlatform(platformKey) {
+  activeHelpPlatform = platformKey === "h3yun" ? "h3yun" : "cloudpivot";
+  for (const button of helpPlatformTabs) {
+    const isActive = button.dataset.helpPlatform === activeHelpPlatform;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-selected", isActive ? "true" : "false");
+  }
+  for (const panel of helpPlatformPanels) {
+    const isActive = panel.dataset.helpPanel === activeHelpPlatform;
+    panel.classList.toggle("is-active", isActive);
+    panel.hidden = !isActive;
+  }
+}
+
+for (const button of helpPlatformTabs) {
+  button.addEventListener("click", () => setActiveHelpPlatform(button.dataset.helpPlatform));
+}
+
+function renderCloudpivotControlRef() {
+  cloudpivotControlRefBody.replaceChildren(
+    ...CONTROL_TYPE_REFERENCE.map((item) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><code>${item.tagName}</code></td><td>${item.typeName}</td><td>${item.notes || "-"}</td>`;
+      return tr;
     })
   );
+}
 
+function renderH3yunControlRef() {
+  h3yunControlRefBody.replaceChildren(
+    ...H3YUN_CONTROL_TYPE_REFERENCE.map((item) => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `<td><code>${item.typeCode}</code></td><td>${item.typeName}</td><td>${item.notes || "-"}</td>`;
+      return tr;
+    })
+  );
+}
+
+function renderRulesList(listElement, settings) {
+  listElement.replaceChildren(
+    ...settings.map((text) => {
+      const li = document.createElement("li");
+      li.textContent = text;
+      return li;
+    })
+  );
+}
+
+function renderHelpSection() {
+  renderCloudpivotControlRef();
+  renderH3yunControlRef();
+  renderRulesList(cloudpivotRulesList, CLOUDPIVOT_READONLY_SETTINGS);
+  renderRulesList(h3yunRulesList, H3YUN_READONLY_SETTINGS);
+  setActiveHelpPlatform("cloudpivot");
+}
+
+// ========== 版本记录 ==========
+function renderReleaseNotes() {
   const recentNotes = RELEASE_NOTES.slice(0, RECENT_RELEASE_COUNT);
   releaseCompact.replaceChildren(
     ...recentNotes.map((release) => {
@@ -558,6 +612,7 @@ async function init() {
   const collapseState = loadCollapseState();
   applyCollapseState(collapseState);
 
+  renderHelpSection();
   renderReleaseNotes();
   setDefaultDirPlatform("cloudpivot");
 
