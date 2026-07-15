@@ -29,6 +29,7 @@ import {
 import { buildReadmeWriteFiles, extractReadmeMetadataFromHtml } from "../../lib/platform/readme-parser.js";
 import {
   addRecentTargetDirectory,
+  clearAllRecentTargetDirectories,
   getRecentTargetDirectories,
   removeRecentTargetDirectory
 } from "../../lib/directory/recent-target-directories.js";
@@ -59,7 +60,6 @@ import {
 } from "../../lib/services/preflight-diagnostics.js";
 
 const pageOriginEl = document.querySelector("#page-origin");
-const targetHandleEl = document.querySelector("#target-handle");
 const copyPathButton = document.querySelector("#copy-path-btn");
 /**
  * 从完整路径中提取最后一层文件夹名称作为路径标识。
@@ -69,16 +69,18 @@ const copyPathButton = document.querySelector("#copy-path-btn");
  */
 function extractLastFolderName(fullPath) {
   const trimmed = String(fullPath || "").trim();
-  if (!trimmed) return "未选择目录";
+  if (!trimmed) return "";
   // 去除末尾路径分隔符（如 D:\foo\bar\）
   const cleaned = trimmed.replace(/[\\/]$/, "");
   const parts = cleaned.split(/[\\/]/);
   return parts[parts.length - 1] || trimmed;
 }
-const targetPathSectionEl = document.querySelector("#target-path-section");
-const historyFlatItems = document.querySelector("#history-flat-items");
-const historyEmptyEl = document.querySelector("#history-empty");
-const historyMoreButton = document.querySelector("#history-more-btn");
+// 搜索输入框及下拉组件 DOM 引用
+const searchPathInput = document.querySelector("#search-path-input");
+const searchDropdown = document.querySelector("#search-dropdown");
+const searchDropdownList = document.querySelector("#search-dropdown-list");
+const searchDropdownClear = document.querySelector("#search-dropdown-clear");
+const clearHistoryButton = document.querySelector("#clear-history-btn");
 const refreshHandleButton = document.querySelector("#refresh-handle-btn");
 const statusOutput = document.querySelector("#status-output");
 const copyLogButton = document.querySelector("#copy-log-btn");
@@ -112,12 +114,12 @@ let currentPageContext = null;
 let currentConfig = null;
 let currentTargetPath = "";
 let isPopupBusy = false;
-// 历史目录展开状态：默认展示前 3 条，对超出的条目折叠为"更多 (N个)"按钮。
-let isHistoryExpanded = false;
 // 运行日志只保存在当前弹窗会话中，便于用户复制/导出给作者排查，不持久化业务数据。
 const runtimeLogs = [];
-// 历史目录平铺展示上限，超出折叠。
-const HISTORY_VISIBLE_LIMIT = 3;
+// 空输入时下拉展示的历史条数
+const HISTORY_PREVIEW_COUNT = 3;
+// 下拉列表键盘导航：当前高亮项的索引（-1 表示无高亮）
+let highlightedIndex = -1;
 // 文件选择器回调：挂起的写入操作，用户确认后继续执行。
 let pendingFilePickerCallback = null;
 // 弹窗生命周期很短，限制最近 80 条可以保留完整排查上下文，同时避免日志撑爆弹窗内存。
@@ -639,85 +641,124 @@ function cleanInlineText(value) {
     .trim();
 }
 
-function getDirectoryName(directoryPath) {
-  const normalizedPath = String(directoryPath || "").trim();
-  if (!normalizedPath) {
-    return "";
-  }
+// ========== 搜索输入框 & 下拉列表组件 ==========
 
-  return normalizedPath.split(/[\\/]/).filter(Boolean).pop() || normalizedPath;
+/**
+ * 根据输入关键字匹配历史目录记录。
+ * 匹配规则：用户输入的关键字与末级目录名做模糊匹配（忽略大小写）。
+ * @param {string} query - 用户输入的关键字
+ * @param {Array} records - 完整历史记录数组
+ * @returns {Array} 匹配到的记录数组（时间降序）
+ */
+function filterHistoryRecords(query, records) {
+  const trimmed = normalizeContentString(query);
+  if (!trimmed) return [];
+  const lowerQuery = trimmed.toLowerCase();
+  return records.filter((item) => {
+    const folderName = extractLastFolderName(item.path).toLowerCase();
+    return folderName.includes(lowerQuery);
+  });
 }
 
 /**
- * 历史目录平铺展示：前 3 条直接展示，超出部分折叠为"更多 (N个)"按钮。
- * 每条左侧圆点（当前选中高亮）+ 路径 + ✕ 移除，点击路径一键切换。
+ * 渲染搜索结果下拉列表。
+ * 输入为空时展示最近 HISTORY_PREVIEW_COUNT 条；有输入时展示模糊匹配结果。
+ * 当前路径条目标记 is-current 样式。
  */
-async function renderHistoryFlatList(activePath = "") {
-  const recentTargetDirectories = await getRecentTargetDirectories();
-  historyFlatItems.replaceChildren();
-  historyMoreButton.hidden = true;
+async function renderSearchDropdown(query = "") {
+  const records = await getRecentTargetDirectories();
+  const trimmedQuery = normalizeContentString(query);
+  const isSearching = trimmedQuery.length > 0;
 
-  const hasHistory = recentTargetDirectories.length > 0;
-  targetPathSectionEl.hidden = !hasHistory;
-  historyEmptyEl.hidden = hasHistory;
-  historyFlatItems.hidden = !hasHistory;
+  // 确定要展示的记录：搜索模式用匹配结果，空输入展示最近几条
+  const displayRecords = isSearching
+    ? filterHistoryRecords(trimmedQuery, records)
+    : records.slice(0, HISTORY_PREVIEW_COUNT);
 
-  if (!hasHistory) {
-    return;
-  }
-
-  const visibleItems = isHistoryExpanded
-    ? recentTargetDirectories
-    : recentTargetDirectories.slice(0, HISTORY_VISIBLE_LIMIT);
+  // 渲染列表项
+  searchDropdownList.replaceChildren();
+  highlightedIndex = -1;
 
   const fragment = document.createDocumentFragment();
-  for (const entry of visibleItems) {
-    const isCurrentPath = entry.path === activePath;
-    const listItem = document.createElement("li");
-    listItem.className = isCurrentPath ? "history-item is-current" : "history-item";
-    listItem.title = entry.path;
-    listItem.dataset.historyPath = entry.path;
+  for (const entry of displayRecords) {
+    const isCurrent = entry.path === currentTargetPath;
+    const item = document.createElement("li");
+    item.className = isCurrent ? "search-dropdown-item is-current" : "search-dropdown-item";
+    item.dataset.historyPath = entry.path;
 
-    const dot = document.createElement("span");
-    dot.className = "history-dot";
-    dot.setAttribute("aria-hidden", "true");
+    const mainDiv = document.createElement("div");
+    mainDiv.className = "search-dropdown-item-main";
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "search-dropdown-item-name";
+    nameSpan.textContent = extractLastFolderName(entry.path) || entry.path;
 
     const pathSpan = document.createElement("span");
-    pathSpan.className = "history-path";
-    pathSpan.textContent = getDirectoryName(entry.path) || entry.path;
+    pathSpan.className = "search-dropdown-item-path";
+    pathSpan.textContent = entry.path;
 
-    const removeButton = document.createElement("button");
-    removeButton.className = "history-remove";
-    removeButton.type = "button";
-    removeButton.textContent = "✕";
-    removeButton.title = "移除此目录";
-    removeButton.setAttribute("aria-label", `移除 ${getDirectoryName(entry.path) || entry.path}`);
-    removeButton.dataset.removeHistoryPath = entry.path;
+    mainDiv.append(nameSpan, pathSpan);
 
-    listItem.append(dot, pathSpan, removeButton);
-    fragment.appendChild(listItem);
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "search-dropdown-remove";
+    removeBtn.type = "button";
+    removeBtn.textContent = "✕";
+    removeBtn.title = "移除此目录";
+    removeBtn.setAttribute("aria-label", `移除 ${extractLastFolderName(entry.path) || entry.path}`);
+    removeBtn.dataset.removeHistoryPath = entry.path;
+
+    item.append(mainDiv, removeBtn);
+    fragment.appendChild(item);
   }
+  searchDropdownList.appendChild(fragment);
 
-  historyFlatItems.appendChild(fragment);
+  // 控制清空按钮显示：有历史记录时显示
+  const hasRecords = records.length > 0;
+  searchDropdownClear.hidden = !(hasRecords && (isSearching || displayRecords.length > 0));
 
-  // 超出展示上限时显示"更多"按钮
-  if (!isHistoryExpanded && recentTargetDirectories.length > HISTORY_VISIBLE_LIMIT) {
-    historyMoreButton.hidden = false;
-    historyMoreButton.textContent = `更多 (${recentTargetDirectories.length - HISTORY_VISIBLE_LIMIT} 个)`;
-    historyMoreButton.dataset.action = "expand";
-  } else if (isHistoryExpanded && recentTargetDirectories.length > HISTORY_VISIBLE_LIMIT) {
-    historyMoreButton.hidden = false;
-    historyMoreButton.textContent = "收起";
-    historyMoreButton.dataset.action = "collapse";
+  // 是否有可展示的内容决定下拉是否可见
+  const shouldShow = displayRecords.length > 0 || hasRecords;
+  searchDropdown.hidden = !shouldShow;
+}
+
+/**
+ * 关闭下拉列表并恢复输入框状态。
+ */
+function closeSearchDropdown() {
+  searchDropdown.hidden = true;
+  highlightedIndex = -1;
+  // 恢复输入框显示当前路径末级文件夹名
+  searchPathInput.value = extractLastFolderName(currentTargetPath);
+}
+
+/**
+ * 打开下拉列表（输入框聚焦时触发）。
+ * 显示最近条目供快捷选择。
+ */
+async function openSearchDropdown() {
+  // 聚焦时先清空输入内容，展示最近条目
+  searchPathInput.value = "";
+  searchPathInput.focus();
+  await renderSearchDropdown("");
+}
+
+/**
+ * 当前路径变更时同步更新输入框的显示值和完整路径 tooltip。
+ * 不会触发下拉列表。
+ */
+function syncSearchInputDisplay(directoryPath) {
+  const trimmed = String(directoryPath || "").trim();
+  currentTargetPath = trimmed;
+  const displayName = trimmed ? extractLastFolderName(trimmed) : "";
+  searchPathInput.value = displayName;
+  searchPathInput.title = trimmed;
+  if (!displayName) {
+    searchPathInput.placeholder = "搜索历史目录...";
   }
 }
 
 async function renderTargetPathSection(directoryPath) {
-  currentTargetPath = String(directoryPath || "").trim();
-  // 仅展示最后一层文件夹名称作为路径标识，完整路径保留在 title 中
-  targetHandleEl.textContent = extractLastFolderName(currentTargetPath);
-  targetHandleEl.title = currentTargetPath || "";
-  await renderHistoryFlatList(currentTargetPath);
+  syncSearchInputDisplay(directoryPath);
 }
 
 async function getActiveTab() {
@@ -778,24 +819,15 @@ async function updateDirectoryInfo(pageType, targetScope = "") {
   try {
     const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
     const targetPath = selection.kind === "native-path" ? selection.directoryPath : "";
-    // 仅展示最后一层文件夹名称，完整路径保留在 title 中作为 tooltip
-    targetHandleEl.textContent = extractLastFolderName(targetPath);
-    targetHandleEl.title = targetPath || "";
     // 每次选择/更新目录即时落库到历史
     if (targetPath) {
       await addRecentTargetDirectory(targetPath, pageType);
     }
-    await renderTargetPathSection(targetPath);
+    syncSearchInputDisplay(targetPath);
     return true;
   } catch (error) {
     currentTargetPath = "";
-    targetHandleEl.textContent = "读取失败";
-    targetHandleEl.title = "读取失败";
-    targetPathSectionEl.hidden = true;
-    historyEmptyEl.hidden = false;
-    historyFlatItems.hidden = true;
-    historyFlatItems.replaceChildren();
-    historyMoreButton.hidden = true;
+    syncSearchInputDisplay("");
     setStatus(`读取目标目录失败。
 ${error?.message || String(error)}`);
     return false;
@@ -815,7 +847,7 @@ async function refreshDirectoryHandle(pageType, targetScope) {
     handleLabel:
       selection.kind === "handle"
         ? (selection.label || "未选择目录")
-        : getDirectoryName(selection.directoryPath),
+        : extractLastFolderName(selection.directoryPath),
     directoryPath: selection.kind === "native-path" ? selection.directoryPath : ""
   };
 }
@@ -887,17 +919,12 @@ async function handleCopyTargetPath() {
   }
 }
 
-// 历史目录展开/收起
-function handleHistoryMoreClick() {
-  isHistoryExpanded = !isHistoryExpanded;
-  renderHistoryFlatList(currentTargetPath);
-}
+// ========== 搜索下拉列表交互 ==========
 
 /**
- * 点击历史目录时直接复用 Native 路径保存流程，避免分叉出另一套目录状态更新逻辑。
- * 每次选择/更新目录即时落库到 addRecentTargetDirectory。
+ * 点击下拉列表项：将选中的路径切换为当前目录。
  */
-async function handleUseHistoryPath(directoryPath) {
+async function handleSelectHistoryPath(directoryPath) {
   const normalizedPath = String(directoryPath || "").trim();
   if (!normalizedPath || isPopupBusy) {
     return;
@@ -912,6 +939,7 @@ async function handleUseHistoryPath(directoryPath) {
     const activePath = selection.kind === "native-path" ? selection.directoryPath : "";
 
     if (activePath === normalizedPath) {
+      closeSearchDropdown();
       setStatus([
         "当前路径已在使用。",
         `当前路径：${normalizedPath}`
@@ -921,6 +949,7 @@ async function handleUseHistoryPath(directoryPath) {
 
     await saveNativeTargetDirectorySelection(pageType, normalizedPath, targetScope);
     await updateDirectoryInfo(pageType, targetScope);
+    closeSearchDropdown();
     setStatus([
       "已切换到历史目录。",
       `当前路径：${normalizedPath}`
@@ -932,6 +961,9 @@ async function handleUseHistoryPath(directoryPath) {
   }
 }
 
+/**
+ * 从历史记录中删除单条目录，不影响当前路径绑定。
+ */
 async function handleRemoveHistoryPath(directoryPath) {
   const normalizedPath = String(directoryPath || "").trim();
   if (!normalizedPath || isPopupBusy) {
@@ -942,10 +974,11 @@ async function handleRemoveHistoryPath(directoryPath) {
   setStatus("正在移除历史目录...");
 
   try {
-    // 删除历史记录只影响快捷入口，不能反向清空当前页面已经绑定的目录状态。
     await removeRecentTargetDirectory(normalizedPath);
     const pageContext = currentPageContext || await updatePageInfo();
     await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);
+    // 删除后刷新下拉列表
+    await renderSearchDropdown(searchPathInput.value);
     setStatus([
       "已移除历史目录。",
       "当前路径绑定保持不变。",
@@ -958,8 +991,30 @@ async function handleRemoveHistoryPath(directoryPath) {
   }
 }
 
-// 历史目录平铺列表点击处理：切换路径 / 移除路径
-async function handleHistoryFlatListClick(event) {
+/**
+ * 一键清空所有历史目录记录。
+ */
+async function handleClearHistory() {
+  if (isPopupBusy) return;
+
+  setBusy(true);
+  setStatus("正在清空历史目录...");
+
+  try {
+    await clearAllRecentTargetDirectories();
+    closeSearchDropdown();
+    setStatus("已清空所有历史目录记录。", { level: "success" });
+  } catch (error) {
+    setStatus(`清空历史目录失败。\n${error?.message || String(error)}`);
+  } finally {
+    setBusy(false);
+  }
+}
+
+/**
+ * 下拉列表点击事件代理：切换路径 / 删除单条。
+ */
+async function handleSearchDropdownClick(event) {
   const removeButton = event.target.closest("[data-remove-history-path]");
   if (removeButton) {
     event.preventDefault();
@@ -971,7 +1026,89 @@ async function handleHistoryFlatListClick(event) {
   const historyItem = event.target.closest("[data-history-path]");
   if (historyItem) {
     event.preventDefault();
-    await runWithButtonBusy(historyItem, () => handleUseHistoryPath(historyItem.dataset.historyPath));
+    await runWithButtonBusy(historyItem, () => handleSelectHistoryPath(historyItem.dataset.historyPath));
+  }
+}
+
+/**
+ * 搜索输入框键盘导航，支持 ↑↓/Enter/Esc。
+ */
+async function handleSearchInputKeydown(event) {
+  const items = Array.from(searchDropdownList.querySelectorAll("[data-history-path]"));
+
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closeSearchDropdown();
+    return;
+  }
+
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (items.length === 0) return;
+    // 下拉未打开或关闭时，先打开
+    if (searchDropdown.hidden) {
+      await renderSearchDropdown(searchPathInput.value);
+    }
+    highlightedIndex = Math.min(highlightedIndex + 1, items.length - 1);
+    updateDropdownHighlight(items);
+    return;
+  }
+
+  if (event.key === "ArrowUp") {
+    event.preventDefault();
+    if (items.length === 0) return;
+    highlightedIndex = Math.max(highlightedIndex - 1, 0);
+    updateDropdownHighlight(items);
+    return;
+  }
+
+  if (event.key === "Enter") {
+    event.preventDefault();
+    if (highlightedIndex >= 0 && items[highlightedIndex]) {
+      const path = items[highlightedIndex].dataset.historyPath;
+      await handleSelectHistoryPath(path);
+    }
+    return;
+  }
+}
+
+/**
+ * 更新下拉列表高亮状态。
+ */
+function updateDropdownHighlight(items) {
+  for (let i = 0; i < items.length; i++) {
+    if (i === highlightedIndex) {
+      items[i].classList.add("is-highlighted");
+    } else {
+      items[i].classList.remove("is-highlighted");
+    }
+  }
+}
+
+/**
+ * 搜索输入框 input 事件：关键字变化时实时筛选。
+ */
+async function handleSearchInput(event) {
+  const query = event.target?.value || "";
+  await renderSearchDropdown(query);
+}
+
+/**
+ * 搜索输入框点击/聚焦：打开下拉展示最近条目或匹配结果。
+ */
+async function handleSearchInputFocus() {
+  if (isPopupBusy) return;
+  // 聚焦时保持当前输入内容并刷新下拉
+  await renderSearchDropdown(searchPathInput.value);
+}
+
+/**
+ * 点击下拉外部区域关闭下拉。
+ */
+function handleDocumentClickForDropdown(event) {
+  const searchWrap = document.querySelector("#search-input-wrap");
+  if (searchWrap && !searchWrap.contains(event.target)) {
+    closeSearchDropdown();
   }
 }
 
@@ -4630,32 +4767,99 @@ async function handleH3yunOneClickWriteback() {
 
 // ========== 导出下拉 & 跨页监听 ==========
 
-// tabs.onActivated 监听器引用，用于弹窗关闭时移除避免泄漏
+// 跨页面同步监听器引用，弹窗关闭时移除避免泄漏
 let tabsActivatedListener = null;
+let tabsUpdatedListener = null;
+let tabsRemovedListener = null;
+let storageChangedListener = null;
 
 /**
- * 活动标签切换时重新拉取 recentTargetDirectories 并渲染，实现跨网页历史目录同步。
+ * 在活动标签切换或标签加载完成时，尝试重新获取标签页信息并更新目录状态。
+ * 只在当前页面上下文有效且 tabId 匹配时才执行更新，防止拿到错误标签页。
  */
-function setupCrossPageSync() {
-  if (tabsActivatedListener) return;
-  tabsActivatedListener = async () => {
-    // 弹窗关闭时不再做任何操作
+function syncTabContext(activeTabId) {
+  return async () => {
     if (!currentPageContext) return;
-    const pageContext = await updatePageInfo({ syncPlatform: true });
-    currentPageContext = pageContext;
-    renderCurrentPageUrl(pageContext.tab);
-    await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);
+    try {
+      const tab = await chrome.tabs.get(activeTabId);
+      // 排除空白页、chrome:// 内部页面等无效 URL
+      if (!tab?.url || tab.url.startsWith("chrome://") || tab.url.startsWith("chrome-extension://")) {
+        return;
+      }
+      const pageContext = await updatePageInfo({ syncPlatform: true });
+      currentPageContext = pageContext;
+      renderCurrentPageUrl(pageContext.tab);
+      await updateDirectoryInfo(pageContext.pageType, pageContext.targetScope);
+    } catch (_error) {
+      // tab 可能已被关闭或在获取期间状态变更，静默忽略
+    }
   };
-  chrome.tabs.onActivated.addListener(tabsActivatedListener);
 }
 
 /**
- * 弹窗关闭时移除监听器避免泄漏。
+ * 活动标签切换时重新拉取 recentTargetDirectories 并渲染，实现跨网页历史目录同步。
+ * 三重监听：onActivated（切换标签） + onUpdated（标签加载完成，补时序缺口） + onRemoved（标签关闭）。
+ */
+function setupCrossPageSync() {
+  if (tabsActivatedListener) return;
+
+  // 标签切换时，用 activeInfo.tabId 精确获取新标签
+  tabsActivatedListener = (activeInfo) => {
+    syncTabContext(activeInfo.tabId)();
+  };
+  chrome.tabs.onActivated.addListener(tabsActivatedListener);
+
+  // 标签加载完成时，检查是否是当前活动标签
+  tabsUpdatedListener = async (tabId, changeInfo) => {
+    if (changeInfo.url || changeInfo.status === "complete") {
+      const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      if (activeTab?.id === tabId) {
+        await syncTabContext(tabId)();
+      }
+    }
+  };
+  chrome.tabs.onUpdated.addListener(tabsUpdatedListener);
+
+  // 标签关闭时：如果当前 tab 被关，不做操作（弹窗通常跟随关闭）
+  tabsRemovedListener = () => {
+    // 仅保留监听器引用，实际处理由 updatePageInfo 的 try/catch 兜底
+  };
+  chrome.tabs.onRemoved.addListener(tabsRemovedListener);
+
+  // storage.onChanged：其他弹窗写入历史记录时自动刷新下拉列表
+  storageChangedListener = (changes, areaName) => {
+    if (areaName !== "local") return;
+    if (!changes.recentTargetDirectories) return;
+    // 更新输入框显示并与当前路径对齐
+    if (!searchDropdown?.hidden) {
+      renderSearchDropdown(searchPathInput?.value || "");
+    }
+    if (currentTargetPath) {
+      syncSearchInputDisplay(currentTargetPath);
+    }
+  };
+  chrome.storage.onChanged.addListener(storageChangedListener);
+}
+
+/**
+ * 弹窗关闭时移除所有监听器避免泄漏。
  */
 function teardownCrossPageSync() {
   if (tabsActivatedListener) {
     chrome.tabs.onActivated.removeListener(tabsActivatedListener);
     tabsActivatedListener = null;
+  }
+  if (tabsUpdatedListener) {
+    chrome.tabs.onUpdated.removeListener(tabsUpdatedListener);
+    tabsUpdatedListener = null;
+  }
+  if (tabsRemovedListener) {
+    chrome.tabs.onRemoved.removeListener(tabsRemovedListener);
+    tabsRemovedListener = null;
+  }
+  if (storageChangedListener) {
+    chrome.storage.onChanged.removeListener(storageChangedListener);
+    storageChangedListener = null;
   }
 }
 window.addEventListener("pagehide", teardownCrossPageSync);
@@ -4704,9 +4908,13 @@ for (const button of platformTabButtons) {
 }
 pageOriginEl.addEventListener("click", handleCopyValue);
 
-// 历史目录平铺列表
-historyFlatItems.addEventListener("click", handleHistoryFlatListClick);
-historyMoreButton.addEventListener("click", handleHistoryMoreClick);
+// 搜索输入框 & 下拉列表
+searchPathInput.addEventListener("input", handleSearchInput);
+searchPathInput.addEventListener("focus", handleSearchInputFocus);
+searchPathInput.addEventListener("keydown", handleSearchInputKeydown);
+searchDropdownList.addEventListener("click", handleSearchDropdownClick);
+clearHistoryButton.addEventListener("click", handleClearHistory);
+document.addEventListener("click", handleDocumentClickForDropdown);
 
 copyLogButton.addEventListener("click", handleCopyRuntimeLog);
 
