@@ -19,8 +19,7 @@ body.help-open {
 }
 
 @media (max-width: 720px) {
-  .settings-column,
-  .right-column {
+  .settings-column {
     border-radius: 16px;
   }
 }

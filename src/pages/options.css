@@ -107,14 +107,7 @@ body {
   font-size: 24px;
 }
 
-/* ========== 双栏布局 ========== */
-.two-column-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 360px;
-  gap: 18px;
-  align-items: start;
-}
-
+/* ========== 设置栏 ========== */
 .settings-column {
   min-width: 0;
   background: rgba(251, 253, 251, 0.98);
@@ -122,68 +115,6 @@ body {
   border-radius: 18px;
   box-shadow: 0 8px 36px var(--shadow);
   overflow: hidden;
-}
-
-.right-column {
-  display: grid;
-  gap: 14px;
-}
-
-.right-card {
-  padding: 16px;
-  background: rgba(251, 253, 251, 0.98);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  box-shadow: 0 4px 16px rgba(28, 43, 37, 0.04);
-}
-
-.right-card h3 {
-  margin: 0 0 12px;
-  font-size: 16px;
-}
-
-/* ========== 快捷入口 ========== */
-.quick-actions {
-  display: grid;
-  gap: 8px;
-}
-
-.quick-action-btn {
-  width: 100%;
-  text-align: center;
-}
-
-.quick-hint {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.5;
-}
-
-/* ========== 帮助摘要 ========== */
-.help-summary {
-  display: grid;
-  gap: 8px;
-}
-
-.help-summary-item {
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--panel-soft);
-}
-
-.help-summary-item strong {
-  display: block;
-  margin-bottom: 4px;
-  font-size: 13px;
-}
-
-.help-summary-item p {
-  margin: 0;
-  color: var(--muted);
-  font-size: 12px;
-  line-height: 1.4;
 }
 
 /* ========== 工具栏 ========== */
@@ -1081,15 +1012,7 @@ button:disabled {
 }
 
 /* ========== 响应式 ========== */
-@media (max-width: 800px) {
-  .two-column-layout {
-    grid-template-columns: 1fr;
-  }
 
-  .right-column {
-    order: -1;
-  }
-}
 
 @media (max-width: 720px) {
   .page-shell {
