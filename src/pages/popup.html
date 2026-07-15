@@ -21,20 +21,22 @@
 
       <!-- 当前目录卡片 -->
       <section class="card">
-        <div class="meta-row meta-row-inline">
+        <div class="meta-row meta-row-inline" id="path-search-row">
           <button id="page-origin" class="copy-chip copy-chip-prominent" type="button" disabled>检测中...</button>
           <span class="meta-sep" aria-hidden="true">|</span>
-          <span id="target-handle" class="path-tag">未选择目录</span>
+          <!-- 搜索输入框：替换原来的 path-tag，值始终显示当前末级文件夹名 -->
+          <div class="search-input-wrap" id="search-input-wrap">
+            <input id="search-path-input" class="search-path-input" type="text"
+              placeholder="搜索历史目录..." autocomplete="off" spellcheck="false">
+            <div id="search-dropdown" class="search-dropdown" hidden>
+              <ul id="search-dropdown-list" class="search-dropdown-list"></ul>
+              <div id="search-dropdown-clear" class="search-dropdown-clear" hidden>
+                <button id="clear-history-btn" class="clear-history-btn" type="button">清空历史记录</button>
+              </div>
+            </div>
+          </div>
           <button id="copy-path-btn" class="icon-btn icon-btn-prominent" type="button" title="复制真实路径" aria-label="复制路径">📋</button>
           <button id="refresh-handle-btn" class="icon-btn icon-btn-prominent" type="button" title="更新当前路径" aria-label="更新当前路径">↻</button>
-        </div>
-        <!-- 历史目录平铺列表 -->
-        <div id="target-path-section" class="meta-row-stack path-section" hidden>
-          <div id="history-flat-list" class="history-flat-list">
-            <p id="history-empty" class="recent-paths-empty">暂无历史目录</p>
-            <ul id="history-flat-items" class="history-flat-items" hidden></ul>
-            <button id="history-more-btn" class="history-more-btn" type="button" hidden>更多</button>
-          </div>
         </div>
       </section>
 
