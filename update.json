@@ -1,12 +1,13 @@
 {
-  "version": "1.11.0",
-  "title": "开发助手 1.11.0",
+  "version": "1.11.1",
+  "title": "开发助手 1.11.1",
   "releaseDate": "2026-07-15",
   "author": "凌致",
   "projectUrl": "https://github.com/FaustDream/chrome-plugin",
   "downloadUrl": "https://github.com/FaustDream/chrome-plugin/archive/refs/heads/master.zip",
   "sha256": "",
   "notes": [
+    "1.11.1 修复更新路径卡死、搜索报错、氚云列表文件名重复后缀、回写文件名不匹配等问题；搜索与当前目录视觉分离；设置页字号上调。",
     "1.11.0 历史目录全面重构：搜索输入框+关键词匹配+下拉列表替代平铺列表；跨标签页 storage.onChanged 实时同步；三重 tab 监听修复上下文错乱。",
     "1.10.0 设计系统升级：基于心流鼠标 FlowMouse 设计规范 v2.2，全面重构 popup 和 options 页视觉与交互。",
     "1.9.1 修复云枢面板平台按键无法读取浏览器选择目录的问题。",
