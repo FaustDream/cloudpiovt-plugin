@@ -251,7 +251,6 @@ function setBusy(isBusy) {
   bizruleWritebackButton.disabled = isBusy;
   refreshHandleButton.disabled = isBusy;
   syncLauncherInteractionState();
-  targetPathToggleButton.disabled = isBusy;
   h3yunCaptureAllButton.disabled = isBusy;
   h3yunFrontendWritebackButton.disabled = isBusy;
   h3yunBackendWritebackButton.disabled = isBusy;
