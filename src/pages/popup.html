@@ -33,17 +33,13 @@
 
       <!-- 当前目录卡片 -->
       <section class="card">
-        <div class="meta-row">
+        <div class="meta-row meta-row-inline">
           <span class="meta-label">当前页面</span>
           <button id="page-origin" class="copy-chip" type="button" disabled>检测中...</button>
-        </div>
-        <div class="meta-row">
-          <span class="meta-label">当前路径</span>
-          <div class="meta-value meta-value-inline">
-            <span id="target-handle">未选择目录</span>
-            <button id="copy-path-btn" class="icon-btn" type="button" title="复制真实路径" aria-label="复制路径">📋</button>
-            <button id="refresh-handle-btn" class="icon-btn" type="button" title="更新当前路径" aria-label="更新当前路径">↻</button>
-          </div>
+          <span class="meta-sep" aria-hidden="true">|</span>
+          <span id="target-handle" class="path-tag">未选择目录</span>
+          <button id="copy-path-btn" class="icon-btn" type="button" title="复制真实路径" aria-label="复制路径">📋</button>
+          <button id="refresh-handle-btn" class="icon-btn" type="button" title="更新当前路径" aria-label="更新当前路径">↻</button>
         </div>
         <!-- 历史目录平铺列表 -->
         <div id="target-path-section" class="meta-row-stack path-section" hidden>

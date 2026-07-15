@@ -67,6 +67,20 @@ import {
 const pageOriginEl = document.querySelector("#page-origin");
 const targetHandleEl = document.querySelector("#target-handle");
 const copyPathButton = document.querySelector("#copy-path-btn");
+/**
+ * 从完整路径中提取最后一层文件夹名称作为路径标识。
+ * 兼容 Windows（反斜杠）和 Unix（正斜杠）路径分隔符。
+ * @param {string} fullPath - 完整绝对路径
+ * @returns {string} 最后一层文件夹名称
+ */
+function extractLastFolderName(fullPath) {
+  const trimmed = String(fullPath || "").trim();
+  if (!trimmed) return "未选择目录";
+  // 去除末尾路径分隔符（如 D:\foo\bar\）
+  const cleaned = trimmed.replace(/[\\/]$/, "");
+  const parts = cleaned.split(/[\\/]/);
+  return parts[parts.length - 1] || trimmed;
+}
 const targetPathSectionEl = document.querySelector("#target-path-section");
 const historyFlatItems = document.querySelector("#history-flat-items");
 const historyEmptyEl = document.querySelector("#history-empty");
@@ -772,8 +786,8 @@ async function renderHistoryFlatList(activePath = "") {
 
 async function renderTargetPathSection(directoryPath) {
   currentTargetPath = String(directoryPath || "").trim();
-  // 当前路径展示真实值（非句柄名）
-  targetHandleEl.textContent = currentTargetPath || "未选择目录";
+  // 仅展示最后一层文件夹名称作为路径标识，完整路径保留在 title 中
+  targetHandleEl.textContent = extractLastFolderName(currentTargetPath);
   targetHandleEl.title = currentTargetPath || "";
   await renderHistoryFlatList(currentTargetPath);
 }
@@ -836,8 +850,8 @@ async function updateDirectoryInfo(pageType, targetScope = "") {
   try {
     const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
     const targetPath = selection.kind === "native-path" ? selection.directoryPath : "";
-    // 当前路径展示真实值（非句柄名）
-    targetHandleEl.textContent = targetPath || "未选择目录";
+    // 仅展示最后一层文件夹名称，完整路径保留在 title 中作为 tooltip
+    targetHandleEl.textContent = extractLastFolderName(targetPath);
     targetHandleEl.title = targetPath || "";
     // 每次选择/更新目录即时落库到历史
     if (targetPath) {
