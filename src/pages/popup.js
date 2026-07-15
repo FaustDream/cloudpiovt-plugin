@@ -725,6 +725,7 @@ async function renderSearchDropdown(query = "") {
  * 关闭下拉列表并恢复输入框状态。
  */
 function closeSearchDropdown() {
+  if (!searchDropdown || !searchPathInput) return;
   searchDropdown.hidden = true;
   highlightedIndex = -1;
   // 恢复输入框显示当前路径末级文件夹名
@@ -747,6 +748,7 @@ async function openSearchDropdown() {
  * 不会触发下拉列表。
  */
 function syncSearchInputDisplay(directoryPath) {
+  if (!searchPathInput) return;
   const trimmed = String(directoryPath || "").trim();
   currentTargetPath = trimmed;
   const displayName = trimmed ? extractLastFolderName(trimmed) : "";
@@ -1107,9 +1109,9 @@ async function handleSearchInputFocus() {
  */
 function handleDocumentClickForDropdown(event) {
   const searchWrap = document.querySelector("#search-input-wrap");
-  if (searchWrap && !searchWrap.contains(event.target)) {
-    closeSearchDropdown();
-  }
+  if (!searchWrap) return;
+  if (searchWrap.contains(event.target)) return;
+  closeSearchDropdown();
 }
 
 async function writeTextToFile(handle, payload) {
