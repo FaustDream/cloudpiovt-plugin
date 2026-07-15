@@ -119,14 +119,84 @@
         </div>
       </section>
 
-      <!-- 分区四：帮助 -->
+      <!-- 分区四：使用说明 -->
       <section class="section" data-section="help">
+        <div class="section-head" role="button" tabindex="0" aria-expanded="true">
+          <span class="section-arrow">▲</span>
+          <h2 class="section-title">使用说明</h2>
+          <p class="section-desc">各平台控件参考、推荐流程与内置规则。</p>
+        </div>
+        <div class="section-body">
+          <div class="platform-switch" role="tablist" aria-label="使用说明平台">
+            <button id="help-cloudpivot-tab" class="platform-switch-tab is-active" type="button" role="tab" aria-selected="true" data-help-platform="cloudpivot">云枢</button>
+            <button id="help-h3yun-tab" class="platform-switch-tab" type="button" role="tab" aria-selected="false" data-help-platform="h3yun">氚云</button>
+          </div>
+
+          <!-- 云枢面板 -->
+          <div id="help-cloudpivot-panel" class="help-platform-panel is-active" data-help-panel="cloudpivot">
+            <div class="help-sub-row">
+              <div class="help-sub-card">
+                <h4>控件参考</h4>
+                <div class="help-table-wrap">
+                  <table class="help-ref-table">
+                    <thead><tr><th>HTML 标签</th><th>控件类型</th><th>说明</th></tr></thead>
+                    <tbody id="cloudpivot-control-ref-body"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="help-sub-card">
+                <h4>推荐流程</h4>
+                <div class="help-flow-list" id="cloudpivot-flow-list">
+                  <p class="help-flow-item">1. 在云枢表单/列表页打开弹窗，点击"更新目标目录"建立页面目录绑定。</p>
+                  <p class="help-flow-item">2. 前端抓取写入：表单页 → form-* 文件；列表页 → list-* 文件。本地修改后用"前端回写"同步。</p>
+                  <p class="help-flow-item">3. 业务规则：进入后先抓取 .java，改完再回写；同一页面不要同时打开多个业务规则。</p>
+                  <p class="help-flow-item">4. 协作文件：抓取按需补 README/AGENTS/DESIGN/FromCode；云枢 JS 通过业务规则传参协作。</p>
+                </div>
+              </div>
+            </div>
+            <div class="help-rules">
+              <h4>内置规则</h4>
+              <ul id="cloudpivot-rules-list" class="help-rules-list"></ul>
+            </div>
+          </div>
+
+          <!-- 氚云面板 -->
+          <div id="help-h3yun-panel" class="help-platform-panel" data-help-panel="h3yun" hidden>
+            <div class="help-sub-row">
+              <div class="help-sub-card">
+                <h4>控件参考</h4>
+                <div class="help-table-wrap">
+                  <table class="help-ref-table">
+                    <thead><tr><th>控件类型</th><th>中文名称</th><th>说明</th></tr></thead>
+                    <tbody id="h3yun-control-ref-body"></tbody>
+                  </table>
+                </div>
+              </div>
+              <div class="help-sub-card">
+                <h4>推荐流程</h4>
+                <div class="help-flow-list" id="h3yun-flow-list">
+                  <p class="help-flow-item">1. 打开氚云表单设计器页面，确认前端 JS 或后端 C# 区域已加载。</p>
+                  <p class="help-flow-item">2. 一键抓取写入：读取控件信息、前端 JS、后端 C#，并补齐协作文件；未挂载区域自动跳过。</p>
+                  <p class="help-flow-item">3. 本地维护：README 写需求，DESIGN 整理实现逻辑，FromCode.md 核对字段编码；JS/C# 通过 Ajax 互通。</p>
+                  <p class="help-flow-item">4. 分别回写：前端 .js 通过 Monaco model API 写回 #jsText；后端 .cs 写回 #csText。</p>
+                </div>
+              </div>
+            </div>
+            <div class="help-rules">
+              <h4>内置规则</h4>
+              <ul id="h3yun-rules-list" class="help-rules-list"></ul>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 分区五：版本更新记录 -->
+      <section class="section" data-section="release">
         <div class="section-head" role="button" tabindex="0" aria-expanded="true">
           <span class="section-arrow">▲</span>
           <h2 class="section-title">版本更新记录</h2>
         </div>
         <div class="section-body">
-          <div class="release-pills" id="release-pills"></div>
           <div class="release-compact" id="release-compact"></div>
           <button id="release-more-btn" class="ghost-btn-sm" type="button" hidden>查看全部</button>
           <div class="release-full" id="release-full" hidden></div>
