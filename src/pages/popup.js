@@ -57,11 +57,6 @@ import {
   hasBlockingPreflightResult,
   saveLastDiagnosticPackage
 } from "../../lib/services/preflight-diagnostics.js";
-import {
-  getAvailableLaunchers,
-  getLauncherIconPath,
-  selectDefaultLauncher
-} from "../../lib/services/custom-launchers.js";
 
 const pageOriginEl = document.querySelector("#page-origin");
 const targetHandleEl = document.querySelector("#target-handle");
