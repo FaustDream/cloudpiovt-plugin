@@ -565,6 +565,8 @@ function setStatus(message, options = {}) {
     statusOutput.classList.add("is-idle");
     statusOutput.textContent = "等待操作。";
   } else {
+    // 中间状态（info/log/warn）：紧凑显示，不展开占用空间；用户可通过导出日志查看完整内容
+    statusOutput.classList.add("is-idle");
     statusOutput.textContent = formatLogEntry(entry);
   }
 }
