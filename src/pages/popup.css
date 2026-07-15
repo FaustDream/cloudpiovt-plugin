@@ -239,8 +239,8 @@ body {
   color: var(--color-text-tertiary);
 }
 
-/* 路径文件夹名称标签 */
-.path-tag {
+/* 当前目录名称标签：纯展示，不可编辑 */
+.current-path-tag {
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -248,7 +248,15 @@ body {
   font-size: 13px;
   font-weight: var(--font-weight-semibold);
   color: var(--color-primary);
+  cursor: default;
+  user-select: all;
   flex-shrink: 0;
+}
+
+/* 当前路径为空时的灰色占位样式 */
+.current-path-tag.is-empty {
+  color: var(--color-text-placeholder);
+  font-weight: var(--font-weight-regular);
 }
 
 /* 图标按钮 */
