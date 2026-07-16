@@ -29,6 +29,7 @@ import {
 } from "../../lib/services/preflight-diagnostics.js";
 
 // ========== DOM 引用 ==========
+const topBarVersion = document.querySelector("#top-bar-version");
 const topBarStatus = document.querySelector("#top-bar-status");
 const testNativeHostBtn = document.querySelector("#test-native-host-btn");
 const installNativeHostBtn = document.querySelector("#install-native-host-btn");
@@ -860,6 +861,11 @@ function renderAllConfigUI(config) {
 
 // ========== 初始化 ==========
 async function init() {
+  // 顶栏显示版本号
+  if (topBarVersion) {
+    topBarVersion.textContent = `v${CURRENT_EXTENSION_VERSION}`;
+  }
+
   const collapseState = loadCollapseState();
   applyCollapseState(collapseState);
 

@@ -9,9 +9,13 @@
   </head>
   <body>
     <main class="page-shell">
-      <!-- 顶栏 sticky：仅保留操作按钮 -->
+      <!-- 顶栏 sticky：左侧应用名+版本，右侧操作按钮 -->
       <header class="top-bar">
         <div class="top-bar-row">
+          <div class="top-bar-brand">
+            <span class="top-bar-title">开发助手</span>
+            <span class="top-bar-version" id="top-bar-version">v1.12.1</span>
+          </div>
           <div class="top-bar-actions">
             <button id="expand-all-btn" class="ghost-btn-sm" type="button" title="全部展开/折叠">展开/折叠</button>
             <button id="save-btn" class="save-btn" type="button">保存</button>
@@ -195,11 +199,11 @@
         </div>
         <div class="section-body">
           <div class="action-row" style="margin-bottom: var(--spacing-md); flex-wrap: wrap;">
-            <button id="diag-health-check-btn" class="ghost-btn-sm" type="button">🩺 全面检查</button>
-            <button id="diag-copy-all-btn" class="ghost-btn-sm" type="button">📋 复制全部信息</button>
+            <button id="diag-health-check-btn" class="ghost-btn-sm" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> 全面检查</button>
+            <button id="diag-copy-all-btn" class="ghost-btn-sm" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制全部信息</button>
             <button id="copy-diagnostic-summary-btn" class="ghost-btn-sm" type="button">复制摘要</button>
             <button id="export-last-diagnostic-btn" class="ghost-btn-sm" type="button">导出诊断</button>
-            <button id="diag-export-btn" class="ghost-btn-sm" type="button">📦 导出 JSON</button>
+            <button id="diag-export-btn" class="ghost-btn-sm" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 导出 JSON</button>
           </div>
 
           <!-- 扩展信息概览 -->

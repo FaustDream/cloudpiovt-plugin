@@ -33,7 +33,7 @@
 
   --color-text-primary: #1D1D1F;
   --color-text-secondary: #4E4E50;
-  --color-text-tertiary: #86868B;
+  --color-text-tertiary: #6E6E73;
   --color-text-placeholder: #BFBFBF;
 
   /* 排版 */
@@ -52,7 +52,7 @@
   --spacing-sm: 8px;
   --spacing-md: 12px;
   --spacing-lg: 16px;
-  --spacing-xl: 20px;
+  --spacing-xl: 24px;
 
   /* 圆角 */
   --radius-sm: 4px;
@@ -286,6 +286,12 @@ body {
   border-color: var(--color-primary);
   color: var(--color-primary);
   background: var(--color-primary-bg);
+}
+
+.icon-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.15);
+  border-color: var(--color-primary);
 }
 
 .icon-btn:disabled {
@@ -559,9 +565,14 @@ button:disabled {
   border-radius: var(--radius-md);
   background: var(--color-primary);
   color: #fff;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: var(--font-weight-medium);
   box-shadow: 0 2px 4px rgba(22, 119, 255, 0.15);
+}
+
+.accent-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.15), 0 2px 4px rgba(22, 119, 255, 0.15);
 }
 
 .accent-btn:hover:not(:disabled) {
@@ -586,13 +597,19 @@ button:disabled {
   border-radius: var(--radius-md);
   background: var(--bg-card);
   color: var(--color-text-primary);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: var(--font-weight-medium);
 }
 
 .secondary-btn:hover:not(:disabled) {
   border-color: var(--color-primary);
   color: var(--color-primary);
+}
+
+.secondary-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.15);
+  border-color: var(--color-primary);
 }
 
 .secondary-btn:active:not(:disabled) {
@@ -716,12 +733,13 @@ button:disabled {
   margin: 0;
   min-height: 28px;
   max-height: 260px;
-  padding: 6px 10px;
-  background: #1d1f21;
-  color: #e8eaed;
+  padding: 8px 10px;
+  background: var(--bg-input);
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-input);
   border-radius: var(--radius-md);
   font-size: var(--font-size-caption);
-  line-height: 1.6;
+  line-height: 1.5;
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
@@ -870,5 +888,16 @@ button:disabled {
     width: auto;
     min-width: 360px;
     padding: var(--spacing-md);
+  }
+}
+
+/* ========== 减弱动效偏好 ========== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }
