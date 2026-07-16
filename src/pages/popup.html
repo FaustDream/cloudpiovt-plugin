@@ -27,8 +27,8 @@
           <span class="meta-sep" aria-hidden="true">|</span>
           <!-- 当前目录名称：纯展示 -->
           <span id="current-path-tag" class="current-path-tag">未选择目录</span>
-          <button id="refresh-handle-btn" class="icon-btn icon-btn-prominent" type="button" title="更新当前路径" aria-label="更新当前路径">↻</button>
-          <button id="copy-path-btn" class="icon-btn icon-btn-prominent" type="button" title="复制真实路径" aria-label="复制路径">📋</button>
+          <button id="refresh-handle-btn" class="icon-btn icon-btn-prominent" type="button" title="更新当前路径" aria-label="更新当前路径"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
+          <button id="copy-path-btn" class="icon-btn icon-btn-prominent" type="button" title="复制真实路径" aria-label="复制路径"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         </div>
         <!-- 第二行：搜索历史目录（独立整行） -->
         <div class="search-row" id="search-row">
@@ -50,17 +50,17 @@
         <section class="actions">
           <div class="action-row">
             <div class="capture-btn-group">
-              <button id="frontend-capture-write-btn" class="accent-btn capture-btn-main" type="button">⬇ 抓取</button>
-              <button id="cloudpivot-frontend-gear-btn" class="capture-gear-btn" type="button" title="配置额外生成的协作文件" aria-label="配置额外生成的协作文件">⚙</button>
+              <button id="frontend-capture-write-btn" class="accent-btn capture-btn-main" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 抓取</button>
+              <button id="cloudpivot-frontend-gear-btn" class="capture-gear-btn" type="button" title="配置额外生成的协作文件" aria-label="配置额外生成的协作文件"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
             </div>
-            <button id="frontend-writeback-btn" class="secondary-btn" type="button">⬆ 回写</button>
+            <button id="frontend-writeback-btn" class="secondary-btn" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3v4a2 2 0 0 1-2 2h-4"/><polyline points="17 9 21 5 17 1"/><path d="M21 5H10a7 7 0 0 0 0 14h5"/></svg> 回写</button>
           </div>
           <div class="action-row">
             <div class="capture-btn-group">
-              <button id="bizrule-capture-write-btn" class="accent-btn capture-btn-main" type="button">⬇ 业务规则抓取</button>
-              <button id="cloudpivot-bizrule-gear-btn" class="capture-gear-btn" type="button" title="配置额外生成的协作文件" aria-label="配置额外生成的协作文件">⚙</button>
+              <button id="bizrule-capture-write-btn" class="accent-btn capture-btn-main" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 业务规则抓取</button>
+              <button id="cloudpivot-bizrule-gear-btn" class="capture-gear-btn" type="button" title="配置额外生成的协作文件" aria-label="配置额外生成的协作文件"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
             </div>
-            <button id="bizrule-writeback-btn" class="secondary-btn" type="button">⬆ 业务规则回写</button>
+            <button id="bizrule-writeback-btn" class="secondary-btn" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3v4a2 2 0 0 1-2 2h-4"/><polyline points="17 9 21 5 17 1"/><path d="M21 5H10a7 7 0 0 0 0 14h5"/></svg> 业务规则回写</button>
           </div>
         </section>
       </section>
@@ -71,15 +71,15 @@
           <!-- 抓取 + 一键回写并排 -->
           <div class="action-row">
             <div class="capture-btn-group">
-              <button id="h3yun-capture-all-btn" class="accent-btn capture-btn-main" type="button">⬇ 一键抓取写入</button>
-              <button id="h3yun-capture-gear-btn" class="capture-gear-btn" type="button" title="配置额外生成的协作文件" aria-label="配置额外生成的协作文件">⚙</button>
+              <button id="h3yun-capture-all-btn" class="accent-btn capture-btn-main" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 一键抓取写入</button>
+              <button id="h3yun-capture-gear-btn" class="capture-gear-btn" type="button" title="配置额外生成的协作文件" aria-label="配置额外生成的协作文件"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
             </div>
-            <button id="h3yun-oneclick-writeback-btn" class="secondary-btn" type="button">⬆ 一键回写</button>
+            <button id="h3yun-oneclick-writeback-btn" class="secondary-btn" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3v4a2 2 0 0 1-2 2h-4"/><polyline points="17 9 21 5 17 1"/><path d="M21 5H10a7 7 0 0 0 0 14h5"/></svg> 一键回写</button>
           </div>
           <!-- 独立前后端回写并排 -->
           <div class="action-row" id="h3yun-separate-writeback-row" hidden>
-            <button id="h3yun-frontend-writeback-btn" class="secondary-btn" type="button">⬆ 前端回写</button>
-            <button id="h3yun-backend-writeback-btn" class="secondary-btn" type="button">⬆ 后端回写</button>
+            <button id="h3yun-frontend-writeback-btn" class="secondary-btn" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3v4a2 2 0 0 1-2 2h-4"/><polyline points="17 9 21 5 17 1"/><path d="M21 5H10a7 7 0 0 0 0 14h5"/></svg> 前端回写</button>
+            <button id="h3yun-backend-writeback-btn" class="secondary-btn" type="button"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3v4a2 2 0 0 1-2 2h-4"/><polyline points="17 9 21 5 17 1"/><path d="M21 5H10a7 7 0 0 0 0 14h5"/></svg> 后端回写</button>
           </div>
         </section>
       </section>

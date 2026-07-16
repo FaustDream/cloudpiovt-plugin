@@ -23,5 +23,5 @@ coverage/
 # IDE
 .vscode/
 .codebuddy/
-
+.workbuddy/
 通用UI设计规范_v1.0.md

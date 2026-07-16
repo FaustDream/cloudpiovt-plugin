@@ -35,28 +35,27 @@
 
   --color-text-primary: #1D1D1F;
   --color-text-secondary: #4E4E50;
-  --color-text-tertiary: #86868B;
-  --color-text-quaternary: #B0B0B5;
+  --color-text-tertiary: #6E6E73;
   --color-text-placeholder: #BFBFBF;
 
   /* 排版 */
   --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
     "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
-  --font-size-h1: 24px;
-  --font-size-h2: 19px;
-  --font-size-h3: 17px;
-  --font-size-body: 17px;
-  --font-size-caption: 14px;
-  --font-size-micro: 13px;
+  --font-size-h1: 20px;
+  --font-size-h2: 16px;
+  --font-size-h3: 14px;
+  --font-size-body: 14px;
+  --font-size-caption: 12px;
+  --font-size-micro: 11px;
   --font-weight-semibold: 600;
   --font-weight-medium: 500;
   --font-weight-regular: 400;
-  --line-height-h1: 28px;
-  --line-height-h2: 24px;
-  --line-height-h3: 22px;
-  --line-height-body: 22px;
-  --line-height-caption: 20px;
-  --line-height-micro: 18px;
+  --line-height-h1: 26px;
+  --line-height-h2: 22px;
+  --line-height-h3: 20px;
+  --line-height-body: 20px;
+  --line-height-caption: 18px;
+  --line-height-micro: 16px;
 
   /* 间距 */
   --spacing-xs: 4px;
@@ -135,7 +134,7 @@ body {
   padding: 0 var(--spacing-lg);
 }
 
-/* ========== 侧边栏导航：fixed 左侧浮层，全视口垂直居中 ========== */
+/* ========== 侧边栏导航：fixed 左侧浮层，hover 展开 ========== */
 .sidebar {
   position: fixed;
   left: var(--spacing-lg);
@@ -170,7 +169,7 @@ body {
   height: 40px;
   padding: 0;
   width: 40px;
-  font-size: 17px;
+  font-size: 14px;
   font-weight: var(--font-weight-regular);
   color: var(--color-text-tertiary);
   background: transparent;
@@ -247,7 +246,7 @@ body {
 }
 
 .diag-label {
-  font-size: 16px;
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-secondary);
   min-width: 64px;
@@ -255,7 +254,7 @@ body {
 }
 
 .diag-value {
-  font-size: 16px;
+  font-size: var(--font-size-body);
   color: var(--color-text-primary);
 }
 
@@ -271,7 +270,7 @@ body {
   padding: 8px 12px;
   border-radius: var(--radius-md);
   background: var(--bg-input);
-  font-size: 16px;
+  font-size: var(--font-size-body);
   color: var(--color-text-secondary);
 }
 
@@ -325,7 +324,37 @@ body {
 .top-bar-row {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--spacing-lg);
+  width: 100%;
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* 顶栏品牌：应用名 + 版本标签 */
+.top-bar-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex-shrink: 0;
+}
+
+.top-bar-title {
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+/* 版本号：灰色圆角标签 */
+.top-bar-version {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-micro);
+  font-weight: var(--font-weight-medium);
 }
 
 .top-bar-actions {
@@ -345,7 +374,7 @@ body {
   border-radius: var(--radius-lg);
   background: #1D1D1F;
   color: #fff;
-  font-size: 16px;
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-medium);
   box-shadow: var(--shadow-dropdown);
   animation: toast-in 200ms ease-out;
@@ -439,9 +468,11 @@ body {
   margin: 0;
   color: var(--color-text-tertiary);
   font-size: var(--font-size-caption);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .section-body {
@@ -473,7 +504,7 @@ body {
   border-radius: var(--radius-md);
   background: var(--bg-card);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--font-size-body);
   color: var(--color-text-primary);
   cursor: pointer;
   transition: border-color var(--transition-fast);
@@ -502,7 +533,7 @@ body {
   border-radius: var(--radius-md);
   background: var(--bg-card);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--font-size-body);
   color: var(--color-text-primary);
   transition: border-color var(--transition-fast);
 }
@@ -545,7 +576,7 @@ body {
 .update-banner-text {
   flex: 1;
   min-width: 0;
-  font-size: 16px;
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
   color: var(--color-success);
 }
@@ -642,7 +673,7 @@ body {
   align-items: center;
   gap: var(--spacing-sm);
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--font-size-body);
   color: var(--color-text-secondary);
   user-select: none;
 }
@@ -712,7 +743,7 @@ body {
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-tertiary);
-  font-size: 16px;
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -744,7 +775,7 @@ body {
 
 .help-sub-card h4 {
   margin: 0 0 var(--spacing-sm);
-  font-size: 16px;
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
 }
@@ -758,7 +789,7 @@ body {
 .help-ref-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 13px;
+  font-size: var(--font-size-caption);
   min-width: 280px;
 }
 
@@ -801,7 +832,7 @@ body {
 
 .help-rules h4 {
   margin: 0 0 var(--spacing-sm);
-  font-size: 16px;
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
 }
@@ -908,7 +939,7 @@ button {
   justify-content: center;
   gap: 6px;
   transition: all var(--transition-fast);
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
 }
 
@@ -1028,7 +1059,7 @@ button:disabled {
   border-radius: var(--radius-md);
   background: var(--bg-card);
   font: inherit;
-  font-size: 16px;
+  font-size: var(--font-size-body);
   color: var(--color-text-primary);
   transition: border-color var(--transition-fast);
 }
@@ -1091,7 +1122,7 @@ button:disabled {
 .log-fold-summary {
   padding: 10px 14px;
   cursor: pointer;
-  font-size: 16px;
+  font-size: var(--font-size-body);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-tertiary);
   list-style: none;
@@ -1219,5 +1250,16 @@ button:disabled {
 
   .section {
     border-radius: var(--radius-lg);
+  }
+}
+
+/* ========== 减弱动效偏好 ========== */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
   }
 }
