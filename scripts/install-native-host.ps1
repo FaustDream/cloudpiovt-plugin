@@ -107,7 +107,7 @@ if (-not (Test-Path $hostExePath)) {
 
 $hostManifest = [ordered]@{
   allowed_origins = @($allowedOrigins)
-  path = $hostExePath
+  path = "publish\\cloudpiovt_native_host.exe"
   name = $hostName
   type = "stdio"
   description = "CloudPiOvt native editor bridge (Rust)"
