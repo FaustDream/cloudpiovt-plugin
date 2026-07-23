@@ -2543,44 +2543,23 @@ function h3yunCodeEditorWritebackMain(input = {}) {
       return { ok: false, errorCode: "H3YUN_CODE_EDITOR_NOT_FOUND", details: state.error, debugLog: log.join("\n") };
     }
 
-    const csPattern = /using\s+System|namespace\s+\w+|public\s+class\s+\w+|H3\.SmartForm/;
-    const isFrontend = input.codeKind === "frontend";
-    log.push(`[writeback] 筛选可写 model: isFrontend=${isFrontend}`);
-    const writableModels = (state.models || []).filter((m, i) => {
-      if (typeof m?.setValue !== "function") { log.push(`[writeback]   model[${i}]: 跳过(无setValue)`); return false; }
-      const snippet = (m.getValue?.() || "").substring(0, 500);
-      if (isFrontend) {
-        if (csPattern.test(snippet)) { log.push(`[writeback]   model[${i}]: 跳过(C#特征)`); return false; }
-        const jsHit = /\/\*|\$\..*extend|function\s*\(/.test(snippet);
-        log.push(`[writeback]   model[${i}]: jsHit=${jsHit}`);
-        return jsHit;
-      }
-      const csHit = csPattern.test(snippet);
-      log.push(`[writeback]   model[${i}]: csHit=${csHit}`);
-      return csHit;
-    });
-    log.push(`[writeback] 匹配到 ${writableModels.length} 个可写 model`);
-
-    if (!writableModels.length) {
-      if (!state.model || typeof state.model.setValue !== "function") {
-        log.push("[writeback] ❌ 无可写 model");
-        return { ok: false, errorCode: "H3YUN_CODE_MODEL_NOT_WRITABLE", details: `${input.selector} 未找到可写 Monaco model`, debugLog: log.join("\n") };
-      }
-      log.push("[writeback] 回退到 findModel model");
-      writableModels.push(state.model);
+    // 回写目标 model：直接使用 findModel 精确定位的激活 model，不向全部 model 广播写入，
+    // 避免覆盖后台隐藏标签页的 model 导致平台状态冲突或编辑器变只读。
+    const targetModel = state.model;
+    if (!targetModel || typeof targetModel.setValue !== "function") {
+      log.push("[writeback] ❌ findModel 未返回可写 model");
+      return { ok: false, errorCode: "H3YUN_CODE_MODEL_NOT_WRITABLE", details: `${input.selector} 未找到可写 Monaco model`, debugLog: log.join("\n") };
     }
 
     const sourceContent = String(input.sourceContent ?? "");
-    for (const m of writableModels) {
-      m.setValue(sourceContent);
-    }
-    log.push(`[writeback] 成功, 写入 ${writableModels.length} 个 model`);
+    targetModel.setValue(sourceContent);
+    log.push(`[writeback] 成功, 写入 model`);
     return {
       ok: true, pageUrl: window.location.href, selector: input.selector,
-      language: writableModels[0]?.getLanguageId?.() || state.container?.getAttribute("data-mode-id") || "",
+      language: targetModel.getLanguageId?.() || state.container?.getAttribute("data-mode-id") || "",
       sourceLength: sourceContent.length,
       editorCount: state.editors.length, modelCount: state.models.length,
-      writableCount: writableModels.length, debugLog: log.join("\n")
+      writableCount: 1, debugLog: log.join("\n")
     };
   } catch (error) {
     return { ok: false, errorCode: "H3YUN_CODE_WRITEBACK_FAILED", details: error?.message || String(error) };
