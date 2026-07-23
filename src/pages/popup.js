@@ -771,15 +771,20 @@ async function openSearchDropdown() {
 /**
  * 当前路径变更时同步更新目录名称标签和输入框 tooltip。
  * 不修改搜索输入框的值，保持搜索与当前路径的视觉分离。
+ * @param {string} directoryPath - 绝对路径（handle 模式为空，因为 File System Access 句柄无法提供路径）
+ * @param {string} displayLabel - 优先展示的目录名；handle 模式用句柄名称，native-path 模式省略则由路径推导
  */
-function syncSearchInputDisplay(directoryPath) {
+function syncSearchInputDisplay(directoryPath, displayLabel = "") {
   if (!currentPathTagEl) return;
   const trimmed = String(directoryPath || "").trim();
+  // currentTargetPath 仅记录可复制的绝对路径；handle 模式没有绝对路径，保持空。
   currentTargetPath = trimmed;
-  const displayName = trimmed ? extractLastFolderName(trimmed) : "";
+  const label = String(displayLabel || "").trim();
+  // 优先用显式目录名（句柄名），否则从绝对路径推导末级文件夹名。
+  const displayName = label || (trimmed ? extractLastFolderName(trimmed) : "");
   // 更新当前目录标签：纯展示
   currentPathTagEl.textContent = displayName || "未选择目录";
-  currentPathTagEl.title = trimmed;
+  currentPathTagEl.title = label || trimmed;
   // 切换空/非空样式
   if (displayName) {
     currentPathTagEl.classList.remove("is-empty");
@@ -849,12 +854,14 @@ function getCurrentPageContext() {
 async function updateDirectoryInfo(pageType, targetScope = "") {
   try {
     const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
+    // native-path 才有可复制的绝对路径；handle 模式用句柄名称作为展示，避免标签显示为空“未选择目录”。
     const targetPath = selection.kind === "native-path" ? selection.directoryPath : "";
+    const displayLabel = selection.kind === "handle" ? (selection.label || "") : "";
     // 每次选择/更新目录即时落库到历史
     if (targetPath) {
       await addRecentTargetDirectory(targetPath, pageType);
     }
-    syncSearchInputDisplay(targetPath);
+    syncSearchInputDisplay(targetPath, displayLabel);
     return true;
   } catch (error) {
     currentTargetPath = "";
@@ -1379,17 +1386,6 @@ async function writeMissingWorkspaceDocumentFiles(directorySelection, documentIn
   return filesToWrite;
 }
 
-function buildCloudpivotBizRuleWorkspaceDocumentInput(pageTypeConfig, pageUrl, fileName = "") {
-  // 云枢业务规则目录需要写明 JS 只能通过业务规则传参协作，避免后续 AI 误生成 Ajax 方案。
-  return {
-    platformKey: PLATFORM_CONFIG.cloudpivot.platformKey,
-    platformLabel: PLATFORM_CONFIG.cloudpivot.platformLabel,
-    pageLabel: pageTypeConfig?.pageLabel || "业务规则开发",
-    pageUrl,
-    codeFiles: [fileName || "业务规则 .java 文件"]
-  };
-}
-
 function describeDirectoryAccessMode(directorySelection) {
   return directorySelection.kind === "native-path"
     ? "Native Host"
@@ -1890,9 +1886,6 @@ async function handleBizruleCaptureAndWrite(extraDocs = {}) {
       throw new Error(originError);
     }
 
-    const platformKey = PLATFORM_CONFIG.cloudpivot.platformKey;
-    const generatedFiles = (currentConfig?.generatedFiles || {})[platformKey] || {};
-
     const [{ result }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       world: "MAIN",
@@ -1919,20 +1912,15 @@ async function handleBizruleCaptureAndWrite(extraDocs = {}) {
       return;
     }
 
+    // 业务规则抓取只输出业务规则文件本身，不生成 README/AGENTS/DESIGN 等协作文件，
+    // 也不受“设置抓取时生成文件”的齿轮配置影响，避免污染业务规则目录。
     const hadTargetFile = await fileExists(directorySelection, result.fileName);
-    const workspaceDocumentState = await getWorkspaceDocumentState(directorySelection);
     await writeFilesToSelection(directorySelection, [
       {
         fileName: result.fileName,
         content: result.sourceContent
       }
     ]);
-    const workspaceFiles = await writeMissingWorkspaceDocumentFiles(
-      directorySelection,
-      buildCloudpivotBizRuleWorkspaceDocumentInput(pageContext.pageTypeConfig, tab.url, result.fileName),
-      workspaceDocumentState,
-      { generatedFiles, extraDocs }
-    );
     await updateDirectoryInfo(pageType, targetScope);
 
     setStatus([
@@ -1944,7 +1932,6 @@ async function handleBizruleCaptureAndWrite(extraDocs = {}) {
       `URI：${result.uri || "空"}`,
       `源代码长度：${result.sourceLength}`,
       hadTargetFile ? "目标文件已更新。" : "目标文件已新建。",
-      workspaceFiles.length ? `协作文件已补齐：${workspaceFiles.map((item) => item.fileName).join("、")}` : "协作文件已保留现有内容。",
       `诊断：${(result.details || []).join(" | ") || "无"}`
     ]);
       },
