@@ -105,7 +105,6 @@ const h3yunBackendWritebackButton = document.querySelector("#h3yun-backend-write
 const h3yunSeparateWritebackRow = document.querySelector("#h3yun-separate-writeback-row");
 // 抓取按钮旁的齿轮配置按钮
 const cloudpivotFrontendGearButton = document.querySelector("#cloudpivot-frontend-gear-btn");
-const cloudpivotBizruleGearButton = document.querySelector("#cloudpivot-bizrule-gear-btn");
 const h3yunCaptureGearButton = document.querySelector("#h3yun-capture-gear-btn");
 // 文件选择器弹层元素
 const filePickerOverlay = document.querySelector("#file-picker-overlay");
@@ -200,7 +199,6 @@ function setBusy(isBusy) {
   }
   // 齿轮配置按钮也跟随忙态
   if (cloudpivotFrontendGearButton) cloudpivotFrontendGearButton.disabled = isBusy;
-  if (cloudpivotBizruleGearButton) cloudpivotBizruleGearButton.disabled = isBusy;
   if (h3yunCaptureGearButton) h3yunCaptureGearButton.disabled = isBusy;
   syncRecentPathInteractionState();
 }
@@ -4961,7 +4959,6 @@ bizruleCaptureWriteButton.addEventListener("click", handleCloudpivotBizRuleCaptu
 bizruleWritebackButton.addEventListener("click", () => runWithButtonBusy(bizruleWritebackButton, handleBizruleWriteback));
 // 齿轮按钮
 cloudpivotFrontendGearButton.addEventListener("click", () => handleOpenFilePickerGear(PLATFORM_CONFIG.cloudpivot.platformKey));
-cloudpivotBizruleGearButton.addEventListener("click", () => handleOpenFilePickerGear(PLATFORM_CONFIG.cloudpivot.platformKey));
 
 document.addEventListener("click", (event) => {
   // 点击导出下拉外部关闭
