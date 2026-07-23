@@ -849,9 +849,10 @@ function getCurrentPageContext() {
   };
 }
 
-async function updateDirectoryInfo(pageType, targetScope = "") {
+async function updateDirectoryInfo(pageType, targetScope = "", overrideSelection = null) {
   try {
-    const selection = await getStoredTargetDirectorySelection(pageType, targetScope);
+    // 优先使用刚选择/刷新得到的结果，避免依赖一次可能受时序影响的存储回读，保证首次选择即时回显。
+    const selection = overrideSelection || await getStoredTargetDirectorySelection(pageType, targetScope);
     // native-path 才有可复制的绝对路径；handle 模式用句柄名称作为展示，避免标签显示为空“未选择目录”。
     const targetPath = selection.kind === "native-path" ? selection.directoryPath : "";
     const displayLabel = selection.kind === "handle" ? (selection.label || "") : "";
@@ -878,7 +879,7 @@ async function ensureDirectoryAccessForOperation(pageType, mode, targetScope) {
 async function refreshDirectoryHandle(pageType, targetScope) {
   // 刷新按钮应优先从弹窗正在展示的当前路径打开系统目录选择框，避免用户被带到未知默认目录。
   const selection = await refreshTargetDirectorySelection(pageType, targetScope, currentTargetPath);
-  await updateDirectoryInfo(pageType, targetScope);
+  await updateDirectoryInfo(pageType, targetScope, selection);
   return {
     handleLabel:
       selection.kind === "handle"
