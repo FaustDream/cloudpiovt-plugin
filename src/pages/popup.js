@@ -3,6 +3,7 @@
   DEFAULT_SELECTION_STRATEGY,
   PLATFORM_CONFIG,
   isOriginAllowed,
+  isRecognizedPlatformUrl,
   loadConfig,
   resolvePageTypeConfig,
   resolveH3yunDesignMode
@@ -593,12 +594,14 @@ function setActivePlatform(platformKey, options = {}) {
 
 // 弹窗初始化或页面刷新后，用实际页面平台回填默认标签，减少用户误点错误平台入口。
 // 平台已明确识别时隐藏标签行释放一行高度；unknown/default 时显示让用户手动选择。
-function syncActivePlatformFromPage(pageTypeConfig) {
+function syncActivePlatformFromPage(pageTypeConfig, pageUrl = "") {
   setActivePlatform(pageTypeConfig?.platformKey, { silent: true });
 
-  // 明确识别到具体平台（非 unknown/default）时隐藏标签行
   const pageType = pageTypeConfig?.pageType;
-  const isKnownPlatform = pageType && pageType !== "default" && pageType !== "h3yun-default";
+  // 按域名明确识别到平台（含首页/门户，不限于具体设计页）时隐藏标签行；
+  // 域名无法识别的 unknown 页面才保留标签，让用户手动选择平台。
+  const isKnownPlatform = isRecognizedPlatformUrl(pageUrl)
+    || (pageType && pageType !== "default" && pageType !== "h3yun-default");
   if (isKnownPlatform) {
     platformTabsEl.classList.add("is-hidden");
   } else {
@@ -835,7 +838,7 @@ async function updatePageInfo(options = {}) {
     targetScope
   };
   if (options.syncPlatform !== false) {
-    syncActivePlatformFromPage(pageTypeConfig);
+    syncActivePlatformFromPage(pageTypeConfig, tab?.url || "");
   }
   return currentPageContext;
 }
