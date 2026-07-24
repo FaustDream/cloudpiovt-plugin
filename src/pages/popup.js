@@ -238,8 +238,10 @@ function inferStatusLevel(lines) {
     .replace(/未挂载：无/g, "")
     .replace(/缺失：无/g, "");
   if (/失败|错误|未找到|拒绝|异常|读取失败|写入失败|回写失败|failed|error|exception|denied/i.test(text)) return "error";
-  if (/取消|跳过|缺失|未挂载|未选择|无法/.test(text)) return "warn";
+  // success 必须在 warn 之前：debugLog 中可能含"跳过"等字样（如 model 筛选日志），
+  // 但主体消息是"回写成功"时应显示为成功而非警告。
   if (/成功|完成|已写入|已复制|已打开|已更新/.test(text)) return "success";
+  if (/取消|跳过|缺失|未挂载|未选择|无法/.test(text)) return "warn";
   return "info";
 }
 
@@ -2511,8 +2513,48 @@ function h3yunCodeEditorProbeMain(input = {}) {
 }
 
 function h3yunCodeEditorWritebackMain(input = {}) {
-  // C#: using System / H3.SmartForm / public class
-  // JS: /* 控件接口说明 / $.extend($.JForm / OnLoad:function
+  const csPattern = /using\s+System|namespace\s+\w+|public\s+class\s+\w+|H3\.SmartForm/;
+  const jsPattern = /\/\*|\$\..*extend|function\s*\(|控件接口/;
+
+  function safeNumber(value, fallback = 0) {
+    const numberValue = Number(value);
+    return Number.isFinite(numberValue) ? numberValue : fallback;
+  }
+
+  // 候选评分：优先当前挂载、版本更新、创建更早的 model，避免在多 model 时误选模板。
+  function compareModelCandidates(left, right) {
+    const priorityKeys = ["isContainerModel", "isAttached", "versionId", "alternativeVersionId", "index", "length"];
+    for (const key of priorityKeys) {
+      const fallback = key === "index" ? -1 : 0;
+      const leftValue = safeNumber(left[key], fallback);
+      const rightValue = safeNumber(right[key], fallback);
+      if (leftValue !== rightValue) {
+        return leftValue - rightValue;
+      }
+    }
+    return 0;
+  }
+
+  // 基于内容特征和 Monaco 状态构建候选评分对象
+  function createModelCandidate(model, index, containerModel) {
+    const sourceContent = String(model?.getValue?.() || "");
+    const snippet = sourceContent.substring(0, 2000);
+    const csHit = csPattern.test(snippet);
+    const jsHit = !csHit && jsPattern.test(snippet);
+    return {
+      model,
+      index,
+      csHit,
+      jsHit,
+      length: sourceContent.length,
+      isContainerModel: model === containerModel ? 1 : 0,
+      isAttached: typeof model?.isAttachedToEditor === "function" && model.isAttachedToEditor() ? 1 : 0,
+      versionId: safeNumber(model?.getVersionId?.()),
+      alternativeVersionId: safeNumber(model?.getAlternativeVersionId?.())
+    };
+  }
+
+  // 查找 Monaco model：容器 editor 匹配 → 内容特征匹配 → 唯一 model 兜底。
   function findModel(log) {
     log.push(`[writeback] selector=${input.selector}, codeKind=${input.codeKind || "?"}`);
     const container = document.querySelector(input.selector);
@@ -2528,11 +2570,39 @@ function h3yunCodeEditorWritebackMain(input = {}) {
       const m = models[i];
       log.push(`[writeback]   model[${i}]: lang=${m?.getLanguageId?.() || "undefined"}, len=${m?.getValue?.()?.length || 0}`);
     }
-    let editor = editors.find((item) => container.contains(item?.getDomNode?.()));
-    let model = editor?.getModel?.();
-    log.push(editor ? "[writeback] 容器内找到 editor" : "[writeback] 容器内无 editor");
-    if (!model && models.length === 1) { model = models[0]; log.push("[writeback] 唯一 model 取用"); }
-    return { container, model, editors, models };
+    // 策略1：容器 DOM 内找 editor
+    const containerEditor = editors.find((item) => container.contains(item?.getDomNode?.()));
+    let model = containerEditor?.getModel?.();
+    log.push(containerEditor ? "[writeback] 策略1: 容器内找到 editor ✓" : "[writeback] 策略1: 容器内无 editor");
+    // 策略2：内容特征匹配；多个 model 同时命中时按挂载状态、版本号和创建顺序评分。
+    if (!model && models.length > 0) {
+      if (models.length === 1) {
+        model = models[0];
+        log.push("[writeback] 策略2: 唯一 model 直接取用 ✓");
+      } else {
+        const isFrontend = input.codeKind === "frontend";
+        log.push(`[writeback] 策略2: isFrontend=${isFrontend}, 内容正则匹配 + Monaco 状态评分中...`);
+        const matchedModels = models
+          .map((m, index) => createModelCandidate(m, index, model))
+          .filter((candidate) => {
+            if (isFrontend) {
+              if (candidate.csHit) { log.push(`[writeback]   model[${candidate.index}]: 跳过(C#), len=${candidate.length}`); return false; }
+              log.push(`[writeback]   model[${candidate.index}]: jsHit=${candidate.jsHit}, len=${candidate.length}, attached=${candidate.isAttached}, version=${candidate.versionId}, alt=${candidate.alternativeVersionId}`);
+              return candidate.jsHit;
+            }
+            log.push(`[writeback]   model[${candidate.index}]: csHit=${candidate.csHit}, len=${candidate.length}, attached=${candidate.isAttached}, version=${candidate.versionId}, alt=${candidate.alternativeVersionId}`);
+            return candidate.csHit;
+          });
+        log.push(`[writeback] 匹配到 ${matchedModels.length} 个 model`);
+        if (matchedModels.length > 0) {
+          const selected = matchedModels.reduce((best, current) => (compareModelCandidates(best, current) >= 0 ? best : current));
+          model = selected.model;
+          log.push(`[writeback] 策略2: 取评分最高 model[${selected.index}], len=${selected.length}, attached=${selected.isAttached}, version=${selected.versionId} ✓`);
+        }
+      }
+    }
+    log.push(`[writeback] 结果: ${model ? "找到 model ✓" : "未找到 ✗"}`);
+    return { container, editor: containerEditor, model, editors, models };
   }
 
   try {
