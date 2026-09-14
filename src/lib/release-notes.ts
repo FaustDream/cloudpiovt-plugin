@@ -1,12 +1,12 @@
 /**
  * 版本发布记录。
  *
- * 纯数据模块：导出当前扩展版本号（单源，供 popup / options 统一引用）与版本更新说明列表。
- * 发布新版本时：bump 版本号、在 RELEASE_NOTES 顶部追加说明、并同步 manifest.json / package.json。
+ * 纯数据模块：导出当前扩展版本号（取自 manifest.json，供 popup / options 统一引用）与版本更新说明列表。
+ * 发布新版本时：bump manifest.json / package.json 版本号、在 RELEASE_NOTES 顶部追加说明。
  */
 
-/** 当前扩展版本号（单源） */
-export const CURRENT_EXTENSION_VERSION = '2.0.5';
+/** 当前扩展版本号（以 manifest.json 为准，随包发布，避免手动同步漂移） */
+export const CURRENT_EXTENSION_VERSION: string = chrome.runtime.getManifest().version;
 
 /** 版本更新说明（新的在前） */
 export const RELEASE_NOTES: readonly string[] = [
