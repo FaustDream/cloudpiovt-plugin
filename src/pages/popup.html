@@ -79,25 +79,19 @@
         </section>
       </section>
 
-      <!-- 产物选择弹层（齿轮入口：选择本次生成的产物） -->
+      <!-- 产物选择弹层（齿轮入口：选择本次生成的可自定义产物） -->
       <div id="file-picker-overlay" class="file-picker-overlay" hidden>
         <div class="file-picker-card">
-          <p class="file-picker-title">本次生成的产物</p>
+          <p class="file-picker-title">本次生成的可自定义产物</p>
           <p class="file-picker-hint">仅本次写入生效，不修改持久开关</p>
           <div class="file-picker-body">
-            <div class="file-picker-group">
-              <p class="file-picker-group-title">抓取产物</p>
-              <div id="artifact-picker-capture" class="file-picker-group-list"></div>
-            </div>
-            <div class="file-picker-group">
-              <p class="file-picker-group-title">可自定义产物</p>
-              <div id="artifact-picker-template" class="file-picker-group-list"></div>
-            </div>
+            <div class="file-picker-list" id="artifact-picker-template"></div>
           </div>
           <label class="file-picker-check file-picker-remember">
             <input id="artifact-picker-remember" type="checkbox">
             <span>记住此选择（写回设置页）</span>
           </label>
+          <p class="file-picker-footnote">抓取产物（FromCode / HTML / CSS / JS / Java / C#）内容来自页面，请在设置页配置</p>
           <div class="file-picker-actions file-picker-actions-single">
             <button id="file-picker-confirm-btn" class="accent-btn" type="button">确认</button>
           </div>

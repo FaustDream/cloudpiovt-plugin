@@ -639,40 +639,39 @@ async function probeExistingArtifactPaths(artifacts: readonly ArtifactDefinition
   }
 }
 
-/** 渲染产物勾选列表（按「抓取产物 / 可自定义产物」两区分组，每行单行紧凑展示） */
+/**
+ * 渲染产物勾选列表。
+ *
+ * 只列「可自定义产物」——抓取产物的内容完全来自页面、路径与开关都固定，
+ * 在弹层里占位置没有意义（也省掉弹层高度），统一到设置页配置。
+ */
 function renderArtifactPicker(
   artifacts: readonly ArtifactDefinition[],
   existingPaths: ReadonlySet<string>,
 ): void {
-  const groups: ReadonlyArray<{ selector: string; kind: ArtifactDefinition['kind'] }> = [
-    { selector: '#artifact-picker-capture', kind: 'capture' },
-    { selector: '#artifact-picker-template', kind: 'template' },
-  ];
+  const container = $('#artifact-picker-template');
+  if (!container) return;
 
-  for (const group of groups) {
-    const container = $(group.selector);
-    if (!container) continue;
-    const items = artifacts.filter((artifact) => artifact.kind === group.kind);
-    if (items.length === 0) {
-      container.innerHTML = '<p class="file-picker-empty">该平台暂无产物</p>';
-      continue;
-    }
-    // 每行只放「勾选框 + 名称」：路径信息收进 title 提示，已存在状态用右侧小标签表示，
-    // 避免弹层在 420px 宽的 popup 里换行、把卡片撑到超出可视高度。
-    container.innerHTML = items.map((artifact) => {
-      const relativePath = normalizeArtifactPath(artifact.dirPath, artifact.fileName);
-      const exists = Boolean(relativePath) && existingPaths.has(relativePath.toLowerCase());
-      const tag = exists ? '<span class="file-picker-tag">已存在</span>' : '';
-      const hint = relativePath || '内容来自页面抓取';
-      return `
-        <label class="file-picker-check" title="${escapeHtml(hint)}">
-          <input type="checkbox" data-artifact-check="${escapeHtml(artifact.id)}" ${artifact.enabled ? 'checked' : ''}>
-          <span class="file-picker-check-name">${escapeHtml(artifact.label)}</span>
-          ${tag}
-        </label>
-      `;
-    }).join('');
+  const items = artifacts.filter((artifact) => artifact.kind === 'template');
+  if (items.length === 0) {
+    container.innerHTML = '<p class="file-picker-empty">暂无可自定义产物，可在设置页新建</p>';
+    return;
   }
+
+  // 每行只放「勾选框 + 名称」：路径信息收进 title 提示，已存在状态用右侧小标签表示，
+  // 避免弹层在 420px 宽的 popup 里换行、把卡片撑到超出可视高度。
+  container.innerHTML = items.map((artifact) => {
+    const relativePath = normalizeArtifactPath(artifact.dirPath, artifact.fileName);
+    const exists = Boolean(relativePath) && existingPaths.has(relativePath.toLowerCase());
+    const tag = exists ? '<span class="file-picker-tag">已存在</span>' : '';
+    return `
+      <label class="file-picker-check" title="${escapeHtml(relativePath || artifact.label)}">
+        <input type="checkbox" data-artifact-check="${escapeHtml(artifact.id)}" ${artifact.enabled ? 'checked' : ''}>
+        <span class="file-picker-check-name">${escapeHtml(artifact.label)}</span>
+        ${tag}
+      </label>
+    `;
+  }).join('');
 }
 
 /** 读取弹层里本次勾选的产物开关 */
