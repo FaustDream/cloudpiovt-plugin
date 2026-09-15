@@ -17,6 +17,7 @@ import {
   saveArtifactConfig,
 } from '../services/artifacts.js';
 import { PLATFORM_LABELS } from '../lib/constants.js';
+import { normalizeArtifactPath } from '../lib/utils.js';
 import { buildDiagnosticPackage, saveLastDiagnosticPackage, loadLastDiagnosticPackage } from '../services/preflight-diagnostics.js';
 import { fetchLatestRelease, isUpToDate, hasNewerVersion, type LatestReleaseInfo } from '../services/update-checker.js';
 import { CURRENT_EXTENSION_VERSION } from '../lib/release-notes.js';
@@ -25,7 +26,9 @@ import { saveDefaultDirectoryHandle, clearDefaultDirectoryHandle } from '../lib/
 // ── 工具 ──────────────────────────────────────────────
 
 function $(sel: string): HTMLElement | null { return document.querySelector(sel) as HTMLElement | null; }
-function $$(sel: string): NodeListOf<HTMLElement> { return document.querySelectorAll(sel) as NodeListOf<HTMLElement>; }
+function $$<T extends HTMLElement = HTMLElement>(sel: string): NodeListOf<T> {
+  return document.querySelectorAll(sel) as unknown as NodeListOf<T>;
+}
 function escapeHtml(s: string): string {
   const m: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
   return s.replace(/[&<>"']/g, (ch) => m[ch] || ch);
@@ -47,6 +50,8 @@ const COLLAPSE_STATE_KEY = 'optionsCollapseState';
 const state = {
   config: null as ExtensionConfig | null,
   artifacts: null as ArtifactConfig | null,
+  /** 当前展开编辑的产物（`平台:产物id`）；同时只允许展开一个，避免页面被撑得过长 */
+  expandedArtifactKey: null as string | null,
   activeHelpPlatform: 'cloudpivot' as 'cloudpivot' | 'h3yun',
   collapseStateCache: {} as Record<string, boolean>,
 };
@@ -85,6 +90,7 @@ function renderAllArtifactZones(): void {
       renderArtifactZone(platformKey, kind, artifacts.filter((artifact) => artifact.kind === kind));
     }
   }
+  applyArtifactEditorState();
 }
 
 function renderArtifactZone(
@@ -107,12 +113,24 @@ function renderCaptureArtifactRow(artifact: ArtifactDefinition, platformKey: Pla
     <label class="toggle-inline artifact-capture-row" data-artifact-id="${escapeHtml(artifact.id)}" data-artifact-platform="${escapeHtml(platformKey)}">
       <input type="checkbox" data-artifact-field="enabled" ${artifact.enabled ? 'checked' : ''}>
       <span class="toggle-track" aria-hidden="true"></span>
-      <span>${escapeHtml(artifact.label)}</span>
+      <span class="artifact-capture-label">${escapeHtml(artifact.label)}</span>
     </label>
   `;
 }
 
-/** 可自定义产物：名称 / 路径 / 文件名 / 开关 / 默认内容 五字段全可编辑 */
+/** 产物卡片在 DOM 中的唯一键（同一 id 在不同平台下会重复，必须带平台） */
+function artifactCardKey(card: HTMLElement): string {
+  const platformKey = card.dataset.artifactPlatform ?? '';
+  const artifactId = card.dataset.artifactId ?? '';
+  return platformKey && artifactId ? `${platformKey}:${artifactId}` : '';
+}
+
+/**
+ * 可自定义产物：摘要行 + 折叠编辑区。
+ *
+ * 折叠而非全展开，是为了让产物数量增长时页面长度保持稳定；编辑区里默认内容
+ * 文本框给足高度并可拖拽，避免写模板时反复滚动。
+ */
 function renderTemplateArtifactCard(artifact: ArtifactDefinition, platformKey: PlatformKey): string {
   const variables = ARTIFACT_TEMPLATE_VARIABLES.map((variable) =>
     `<button type="button" class="ghost-btn-sm artifact-var-btn" data-artifact-var="${escapeHtml(variable.token)}">${escapeHtml(variable.label)}</button>`,
@@ -120,39 +138,81 @@ function renderTemplateArtifactCard(artifact: ArtifactDefinition, platformKey: P
   const deleteBtn = artifact.builtin
     ? ''
     : '<button type="button" class="ghost-btn-sm artifact-delete-btn" data-artifact-delete="1">删除</button>';
+  const resolvedPath = normalizeArtifactPath(artifact.dirPath, artifact.fileName) || '（未设置路径）';
 
   return `
     <div class="artifact-card" data-artifact-id="${escapeHtml(artifact.id)}" data-artifact-platform="${escapeHtml(platformKey)}">
-      <div class="artifact-card-head">
-        <label class="toggle-inline">
+      <div class="artifact-summary">
+        <label class="toggle-inline" title="启用 / 关闭">
           <input type="checkbox" data-artifact-field="enabled" ${artifact.enabled ? 'checked' : ''}>
           <span class="toggle-track" aria-hidden="true"></span>
-          <span>启用</span>
         </label>
-        <input class="artifact-label-input" type="text" data-artifact-field="label" value="${escapeHtml(artifact.label)}" aria-label="产物名称" placeholder="产物名称">
+        <button type="button" class="artifact-summary-main" data-artifact-toggle-edit>
+          <span class="artifact-summary-name">${escapeHtml(artifact.label)}</span>
+          <span class="artifact-summary-path">${escapeHtml(resolvedPath)}</span>
+          <span class="artifact-summary-action">编辑</span>
+        </button>
         ${deleteBtn}
       </div>
-      <div class="artifact-field-row">
+      <div class="artifact-editor" hidden>
+        <div class="artifact-field-row">
+          <label class="artifact-field">
+            <span class="artifact-field-label">名称（仅设置页显示）</span>
+            <input type="text" data-artifact-field="label" value="${escapeHtml(artifact.label)}" placeholder="产物名称">
+          </label>
+          <label class="artifact-field">
+            <span class="artifact-field-label">路径（相对目标目录，留空为根目录）</span>
+            <input type="text" data-artifact-field="dirPath" value="${escapeHtml(artifact.dirPath)}" placeholder="design/">
+          </label>
+          <label class="artifact-field">
+            <span class="artifact-field-label">文件名（留空则只建文件夹）</span>
+            <input type="text" data-artifact-field="fileName" value="${escapeHtml(artifact.fileName)}" placeholder="design-js.md">
+          </label>
+        </div>
         <label class="artifact-field">
-          <span class="artifact-field-label">路径（相对目标目录，留空为根目录）</span>
-          <input type="text" data-artifact-field="dirPath" value="${escapeHtml(artifact.dirPath)}" placeholder="design/">
+          <span class="artifact-field-label">默认内容（支持 {{变量}}）</span>
+          <textarea class="artifact-content-input" rows="12" data-artifact-field="defaultContent">${escapeHtml(artifact.defaultContent)}</textarea>
         </label>
-        <label class="artifact-field">
-          <span class="artifact-field-label">文件名（留空则只建文件夹）</span>
-          <input type="text" data-artifact-field="fileName" value="${escapeHtml(artifact.fileName)}" placeholder="design-js.md">
-        </label>
+        <div class="artifact-variable-row">
+          <span class="artifact-field-label">插入变量</span>
+          ${variables}
+        </div>
+        <p class="artifact-note">已存在则跳过，不覆盖已有内容；变量只在首次生成时替换。</p>
       </div>
-      <label class="artifact-field">
-        <span class="artifact-field-label">默认内容（支持 {{变量}}）</span>
-        <textarea class="artifact-content-input" rows="5" data-artifact-field="defaultContent">${escapeHtml(artifact.defaultContent)}</textarea>
-      </label>
-      <div class="artifact-variable-row">
-        <span class="artifact-field-label">插入变量</span>
-        ${variables}
-      </div>
-      <p class="artifact-note">已存在则跳过，不覆盖已有内容；变量只在首次生成时替换。</p>
     </div>
   `;
+}
+
+/** 按 state.expandedArtifactKey 同步编辑区的展开状态（手风琴：同时只展开一个） */
+function applyArtifactEditorState(): void {
+  for (const card of $$<HTMLElement>('.artifact-card')) {
+    const editor = card.querySelector<HTMLElement>('.artifact-editor');
+    if (!editor) continue;
+    const open = artifactCardKey(card) === state.expandedArtifactKey;
+    editor.hidden = !open;
+    card.classList.toggle('is-expanded', open);
+    const action = card.querySelector<HTMLElement>('.artifact-summary-action');
+    if (action) action.textContent = open ? '收起' : '编辑';
+  }
+}
+
+/** 展开 / 收起某个产物的编辑区 */
+function toggleArtifactEditor(card: HTMLElement): void {
+  const key = artifactCardKey(card);
+  if (!key) return;
+  syncArtifactsFromDom();
+  state.expandedArtifactKey = state.expandedArtifactKey === key ? null : key;
+  applyArtifactEditorState();
+}
+
+/** 把编辑区里的名称 / 路径 / 文件名回显到摘要行 */
+function refreshArtifactSummary(card: HTMLElement): void {
+  const read = (field: string): string =>
+    card.querySelector<HTMLInputElement>(`[data-artifact-field="${field}"]`)?.value ?? '';
+  const nameEl = card.querySelector<HTMLElement>('.artifact-summary-name');
+  const pathEl = card.querySelector<HTMLElement>('.artifact-summary-path');
+  if (nameEl) nameEl.textContent = read('label').trim() || '（未命名）';
+  if (pathEl) pathEl.textContent = normalizeArtifactPath(read('dirPath'), read('fileName')) || '（未设置路径）';
 }
 
 /** 从 DOM 回读产物配置，保持 state.artifacts 与界面一致 */
@@ -193,11 +253,13 @@ function insertTemplateVariable(card: HTMLElement, token: string): void {
   syncArtifactsFromDom();
 }
 
-/** 新增一条自定义产物 */
+/** 新增一条自定义产物（新增后直接展开编辑区，省一次点击） */
 function handleAddArtifact(platformKey: PlatformKey): void {
   if (!state.artifacts) return;
   syncArtifactsFromDom();
-  state.artifacts[platformKey] = [...getPlatformArtifacts(state.artifacts, platformKey), createCustomArtifact()];
+  const artifact = createCustomArtifact();
+  state.artifacts[platformKey] = [...getPlatformArtifacts(state.artifacts, platformKey), artifact];
+  state.expandedArtifactKey = `${platformKey}:${artifact.id}`;
   renderAllArtifactZones();
   showToast(`已在「${PLATFORM_LABELS[platformKey]}」新增一条产物，保存后生效`, 'info');
 }
@@ -220,6 +282,7 @@ async function handleDeleteArtifact(card: HTMLElement): Promise<void> {
   syncArtifactsFromDom();
   state.artifacts[platformKey] = getPlatformArtifacts(state.artifacts, platformKey)
     .filter((item) => item.id !== artifactId);
+  if (state.expandedArtifactKey === `${platformKey}:${artifactId}`) state.expandedArtifactKey = null;
   renderAllArtifactZones();
   showToast('已删除，保存后生效', 'info');
 }
@@ -242,8 +305,12 @@ function bindArtifactEvents(): void {
   const root = $('[data-section="filehelper"]');
   if (!root) return;
 
-  root.addEventListener('input', () => syncArtifactsFromDom());
-  root.addEventListener('change', () => syncArtifactsFromDom());
+  const onEdit = (): void => {
+    syncArtifactsFromDom();
+    refreshAllArtifactSummaries();
+  };
+  root.addEventListener('input', onEdit);
+  root.addEventListener('change', onEdit);
 
   root.addEventListener('click', (event) => {
     const target = event.target as HTMLElement;
@@ -267,8 +334,20 @@ function bindArtifactEvents(): void {
     if (deleteBtn) {
       const card = deleteBtn.closest('.artifact-card') as HTMLElement | null;
       if (card) void handleDeleteArtifact(card);
+      return;
+    }
+
+    const toggleBtn = target.closest('[data-artifact-toggle-edit]') as HTMLElement | null;
+    if (toggleBtn) {
+      const card = toggleBtn.closest('.artifact-card') as HTMLElement | null;
+      if (card) toggleArtifactEditor(card);
     }
   });
+}
+
+/** 刷新全部产物卡片的摘要行（编辑区输入后保持摘要同步） */
+function refreshAllArtifactSummaries(): void {
+  for (const card of $$<HTMLElement>('.artifact-card')) refreshArtifactSummary(card);
 }
 
 // ── 1.5 氚云一键回写开关 ──────────────────────────────

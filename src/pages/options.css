@@ -713,35 +713,88 @@ body {
   gap: var(--spacing-sm);
 }
 
-/* 抓取产物：只有开关的一行 */
+/* 抓取产物：紧凑多列网格，避免逐个占一整行 */
+.artifact-capture-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--spacing-sm);
+}
+
 .artifact-capture-row {
-  padding: 8px 12px;
+  min-width: 0;
+  padding: 6px 10px;
   border: 1px solid var(--color-border-input);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--bg-card);
   font-size: var(--font-size-caption);
 }
 
-/* 可自定义产物卡片 */
+.artifact-capture-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* 可自定义产物：摘要行 + 折叠编辑区（同时只展开一个，页面长度保持稳定） */
 .artifact-card {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  padding: 12px;
   border: 1px solid var(--color-border-input);
   border-radius: var(--radius-lg);
   background: var(--bg-card);
+  overflow: hidden;
 }
 
-.artifact-card-head {
+.artifact-card.is-expanded {
+  border-color: var(--color-primary);
+}
+
+.artifact-summary {
   display: flex;
   align-items: center;
   gap: var(--spacing-sm);
+  padding: 8px 12px;
 }
 
-.artifact-label-input {
+.artifact-summary-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.artifact-summary-name {
+  flex-shrink: 0;
+  max-width: 45%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.artifact-summary-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-tertiary);
+}
+
+.artifact-summary-action {
+  flex-shrink: 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-primary);
 }
 
 .artifact-delete-btn {
@@ -749,9 +802,23 @@ body {
   color: var(--color-danger);
 }
 
+.artifact-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: 12px;
+  border-top: 1px solid var(--color-border-light);
+  background: var(--color-primary-subtle);
+}
+
+/* display:flex 会覆盖 hidden 属性的默认样式，必须显式声明 */
+.artifact-editor[hidden] {
+  display: none;
+}
+
 .artifact-field-row {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: var(--spacing-sm);
 }
 
@@ -767,11 +834,13 @@ body {
   color: var(--color-text-tertiary);
 }
 
+/* 默认内容：给足高度并可拖拽，写模板时不用反复滚动 */
 .artifact-content-input {
   width: 100%;
+  min-height: 220px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: var(--font-size-caption);
-  line-height: 1.5;
+  line-height: 1.6;
   resize: vertical;
 }
 
