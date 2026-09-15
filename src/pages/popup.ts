@@ -18,6 +18,7 @@ import type { PreflightResult } from '../services/preflight-diagnostics.js';
 import type { PageCaptureResult, PageWritebackResult, BizRuleProbeResult, BizRuleWritebackResult, H3yunCodeEditorProbeResult, H3yunCodeEditorWritebackResult, H3yunDesignerMetadataResult } from '../types/injection.js';
 
 import { logger } from '../lib/logger.js';
+import { DirectoryError, ERROR_CODE } from '../lib/errors.js';
 import { resolvePageTypeConfig, resolveH3yunDesignMode, loadConfig, isRecognizedPlatformUrl } from '../services/config.js';
 import { pageCaptureMain } from '../injection/cloudpivot-capture.js';
 import { pageWritebackMain } from '../injection/cloudpivot-writeback.js';
@@ -621,7 +622,24 @@ function reportArtifactWriteResult(
   return true;
 }
 
-/** 探测模板类产物在目标目录中的存在状态（未选目录 / 无权限时返回空集合） */
+/**
+ * 判断是否为「目录未选择 / 未授权」这类正常前置状态。
+ *
+ * 用户还没选目录是操作顺序问题，不是故障；后续真正写入时会给出明确指引，
+ * 这里不该按异常记录，否则每次抓取都会刷一条吓人的报错。
+ */
+function isDirectoryUnavailableError(error: unknown): boolean {
+  if (!(error instanceof DirectoryError)) return false;
+  return error.code === ERROR_CODE.DIRECTORY_NOT_SELECTED
+    || error.code === ERROR_CODE.DIRECTORY_PERMISSION_DENIED;
+}
+
+/**
+ * 探测模板类产物在目标目录中的存在状态。
+ *
+ * 未选择目录 / 未授权时只记录一条提示并返回空集合（按「全部待生成」处理），
+ * 由后续写入环节统一给出「请先选择目标目录」的指引。
+ */
 async function probeExistingArtifactPaths(artifacts: readonly ArtifactDefinition[]): Promise<ReadonlySet<string>> {
   const pageType = state.pageTypeConfig?.pageType || 'default';
   const probePaths = artifacts
@@ -634,7 +652,11 @@ async function probeExistingArtifactPaths(artifacts: readonly ArtifactDefinition
     const stat = await fileExistsInSelection(state.pageContext, pageType, probePaths);
     return toExistingPathSet(stat.files.filter((file) => file.exists).map((file) => file.fileName));
   } catch (error: unknown) {
-    logger.warn('Probe artifact existence failed', { error: String(error) });
+    if (isDirectoryUnavailableError(error)) {
+      logger.info('尚未选择目标目录，本次跳过产物存在性检查');
+    } else {
+      logger.warn('产物存在性检查失败，按「全部待生成」处理', { error: String(error) });
+    }
     return new Set<string>();
   }
 }
