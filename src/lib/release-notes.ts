@@ -10,6 +10,13 @@ export const CURRENT_EXTENSION_VERSION: string = chrome.runtime.getManifest().ve
 
 /** 版本更新说明（新的在前） */
 export const RELEASE_NOTES: readonly string[] = [
+  '2.1.0 产物配置系统：生成物从 8 个硬编码开关改为可编辑的产物清单。设置页分「抓取产物」（只有开关）与「可自定义产物」（可改名称/路径/文件名/开关/默认内容）两区，支持任意层级子目录与 {{变量}} 模板。',
+  '2.1.0 支持子目录写入：修复路径中的 / 被替换为 _ 导致 sql/x.sql 静默写成根目录 sql_x.sql 的问题；文件名留空即「只建文件夹」。',
+  '2.1.0 DESIGN.md 由 design/ 目录取代：根目录不再生成 DESIGN.md。云枢的 design/ 只建文件夹，氚云的 design/ 生成 design-js.md（前端）与 design-cs.md（后端），可分别开关。',
+  '2.1.0 新增 sql/ 目录（云枢）：用于存放业务集成相关 SQL，只创建文件夹，内容自行维护。',
+  '2.1.0 修复 FromCode.md 在 Markdown 预览中换行被折叠成一整段：改用代码块围栏包裹，云枢与氚云两处都改。',
+  '2.1.0 齿轮弹层与设置页项数对齐：弹层按平台渲染全部产物并显示「已存在，将跳过」；新增「记住此选择」，取消原先勾选即改写持久配置的隐式行为。',
+  '2.1.0 修复设置页 options-layout.css 未被构建打包、布局样式长期缺失的问题。',
   '2.0.0 全面 TypeScript 重构：JS → TS（strict 模式）、esbuild 构建、zod 运行时校验、统一错误/日志体系、目录状态与文档生成逻辑模块化。',
   '2.0.0 云枢 FromCode 控件解析修复：基于抓取 HTML 解析控件元数据（key→编码、data-name→名称、日期 data-format1、选择类 data-options），主子表规则一致，输出格式对齐氚云。',
   '2.0.0 目录记忆：记录上次成功选择的目录，跨页面 / 跨平台共享，重新打开弹窗不再恢复到默认目录。',
