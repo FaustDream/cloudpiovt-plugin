@@ -695,50 +695,107 @@ body {
   margin: var(--spacing-md) 0;
 }
 
-.genfiles-toggles {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--spacing-sm);
+/* ── 产物配置：两区分组 + 卡片 ─────────────────────── */
+
+.artifact-zone {
+  margin-bottom: var(--spacing-md);
 }
 
-/* 文件生成开关标签 */
-.genfile-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  border: 1px solid var(--color-border-input);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
+.artifact-zone-title {
+  margin: 0 0 var(--spacing-sm);
   font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.genfile-tag:hover {
-  border-color: var(--color-primary);
-}
-
-.genfile-tag.is-checked {
-  background: var(--color-primary-bg);
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-}
-
-.genfile-tag.is-required {
-  background: var(--bg-input);
-  cursor: default;
   color: var(--color-text-tertiary);
 }
 
-.genfile-tag.is-required.is-checked {
-  background: var(--color-primary-bg);
-  color: var(--color-primary);
+.artifact-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
 }
 
-.genfile-tag input {
-  display: none;
+/* 抓取产物：只有开关的一行 */
+.artifact-capture-row {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  font-size: var(--font-size-caption);
+}
+
+/* 可自定义产物卡片 */
+.artifact-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  padding: 12px;
+  border: 1px solid var(--color-border-input);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+}
+
+.artifact-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.artifact-label-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.artifact-delete-btn {
+  flex-shrink: 0;
+  color: var(--color-danger);
+}
+
+.artifact-field-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--spacing-sm);
+}
+
+.artifact-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs);
+  min-width: 0;
+}
+
+.artifact-field-label {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-tertiary);
+}
+
+.artifact-content-input {
+  width: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.artifact-variable-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.artifact-var-btn {
+  padding: 2px 8px;
+  font-size: var(--font-size-caption);
+}
+
+.artifact-note {
+  margin: 0;
+  font-size: var(--font-size-caption);
+  color: var(--color-text-tertiary);
+}
+
+.artifact-add-btn {
+  align-self: flex-start;
+  margin-top: var(--spacing-sm);
 }
 
 /* 默认目录双行：行内选择平台 + 输入框 + 按钮 */

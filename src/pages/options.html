@@ -15,7 +15,8 @@
           <div class="top-bar-actions">
             <button id="expand-all-btn" class="ghost-btn-sm" type="button" title="全部展开/折叠">展开/折叠</button>
             <button id="save-btn" class="save-btn" type="button">保存</button>
-            <button id="reset-btn" class="ghost-btn-sm" type="button">恢复</button>
+            <button id="factory-reset-btn" class="ghost-btn-sm" type="button" title="恢复产物出厂配置">恢复默认</button>
+            <button id="reset-btn" class="ghost-btn-sm" type="button" title="丢弃未保存改动">撤销</button>
           </div>
         </div>
       </header>
@@ -85,18 +86,34 @@
 
               <hr class="section-divider" />
 
-              <!-- 云枢文件生成 -->
+              <!-- 云枢产物配置 -->
               <div class="genfiles-platform-block">
                 <h3 class="genfiles-platform-title">云枢</h3>
-                <div class="genfiles-toggles" id="genfiles-cloudpivot"></div>
+                <div class="artifact-zone">
+                  <p class="artifact-zone-title">抓取产物（内容来自页面，仅可开关）</p>
+                  <div class="artifact-list" id="artifacts-cloudpivot-capture"></div>
+                </div>
+                <div class="artifact-zone">
+                  <p class="artifact-zone-title">可自定义产物（可改名称、路径、文件名与默认内容）</p>
+                  <div class="artifact-list" id="artifacts-cloudpivot-template"></div>
+                  <button type="button" class="ghost-btn-sm artifact-add-btn" data-artifact-add="cloudpivot">+ 新建产物</button>
+                </div>
               </div>
 
               <hr class="section-divider" />
 
-              <!-- 氚云文件生成 -->
+              <!-- 氚云产物配置 -->
               <div class="genfiles-platform-block">
                 <h3 class="genfiles-platform-title">氚云</h3>
-                <div class="genfiles-toggles" id="genfiles-h3yun"></div>
+                <div class="artifact-zone">
+                  <p class="artifact-zone-title">抓取产物（内容来自页面，仅可开关）</p>
+                  <div class="artifact-list" id="artifacts-h3yun-capture"></div>
+                </div>
+                <div class="artifact-zone">
+                  <p class="artifact-zone-title">可自定义产物（可改名称、路径、文件名与默认内容）</p>
+                  <div class="artifact-list" id="artifacts-h3yun-template"></div>
+                  <button type="button" class="ghost-btn-sm artifact-add-btn" data-artifact-add="h3yun">+ 新建产物</button>
+                </div>
                 <!-- 氚云一键回写开关（始终可见） -->
                 <label class="toggle-inline h3yun-writeback-toggle">
                   <input id="h3yun-oneclick-writeback" type="checkbox">

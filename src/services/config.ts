@@ -7,7 +7,7 @@
  * **注意**：本模块引用 chrome.storage，严格来说应在 src/ 下。
  * 当前保留在 lib/ 以匹配原始项目结构，后续重构时移至 src/shared/。
  */
-import type { GeneratedFilesConfig, ExtensionConfig } from '../types/config.js';
+import type { ExtensionConfig } from '../types/config.js';
 import type { PlatformKey, PageType, PageTypeConfig, FileMapping } from '../types/platform.js';
 import {
   PLATFORM_LABELS,
@@ -16,13 +16,6 @@ import {
   STORAGE_KEYS,
 } from '../lib/constants.js';
 import { normalizePath } from '../lib/utils.js';
-
-// ── 常量 ──────────────────────────────────────────────
-
-const DEFAULT_GENERATED_FILES: Record<PlatformKey, GeneratedFilesConfig> = {
-  cloudpivot: { fromCode: true, css: true, js: true, html: true, readme: false, agents: false, design: false },
-  h3yun: { fromCode: true, js: true, cs: true, readme: false, agents: false, design: false },
-};
 
 // ── 页面类型配置表 ────────────────────────────────────
 
@@ -92,17 +85,19 @@ const PAGE_TYPE_CONFIG_TABLE: Record<string, PageTypeEntry> = {
 export const CLOUDPIVOT_READONLY_SETTINGS: readonly string[] = [
   '前端抓取写入：按页面类型写入固定文件名（form-index.html / form-style.css / form-script.js 等）',
   '前端回写：将本地 HTML / CSS / JS 通过 data.codes 同步回在线编辑器',
-  '业务规则抓取写入：通过 Monaco API 读取 Java 源码，按 model URI 或类名写入 .java 文件，并补齐 AI 协作文件',
+  '业务规则抓取写入：通过 Monaco API 读取 Java 源码，按 model URI 或类名写入 .java 文件',
   '业务规则回写：同页多开业务规则时按同名 model 回写，单页仅支持一个业务规则编辑器',
   '平台互通：云枢 JS 只能通过业务规则传参协作，不按 Ajax 直连后端生成方案',
+  '产物目录：design/ 与 sql/ 只创建文件夹，内容由 AI 或用户自行维护（DESIGN.md 已由 design/ 取代）',
   '目录规则：更新目标目录会同步当前页面快照和后续新页面默认值，旧页面保持原绑定',
 ];
 
 export const H3YUN_READONLY_SETTINGS: readonly string[] = [
-  '一键抓取写入：读取控件信息、#jsText 前端 JS、#csText 后端 C#，并补齐 README.md / AGENTS.md / DESIGN.md / FromCode.md',
+  '一键抓取写入：读取控件信息、#jsText 前端 JS、#csText 后端 C#，并按产物配置补齐协作文档',
   '平台互通：氚云前端 JS 与后端 C# 通过 Ajax 传参互通，前后端逻辑需要成对设计',
   '前端代码回写：将本地 {表单ID}.js 通过 Monaco model API 回写到 #jsText',
   '后端代码回写：将本地 C# 类名 .cs 通过 Monaco model API 回写到 #csText',
+  '产物目录：design/ 下生成 design-js.md（前端）与 design-cs.md（后端），可分别开关',
   '模型匹配：氚云 Monaco model 语言 ID 为 undefined，先按内容正则区分 JS/C#，多 model 命中时按容器挂载、Monaco 版本号、创建顺序和长度评分',
 ];
 
@@ -200,43 +195,13 @@ function normalizeFallbackDirectoryPaths(value: unknown): Partial<Record<Platfor
   };
 }
 
-function normalizeGeneratedFiles(value: unknown): Record<PlatformKey, GeneratedFilesConfig> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return DEFAULT_GENERATED_FILES;
-  }
-  const obj = value as Record<string, unknown>;
-  const result: Record<string, GeneratedFilesConfig> = {};
-  for (const [platformKey, defaults] of Object.entries(DEFAULT_GENERATED_FILES)) {
-    const pVal = obj[platformKey];
-    if (!pVal || typeof pVal !== 'object') {
-      result[platformKey] = { ...defaults };
-      continue;
-    }
-    const platformObj = pVal as Record<string, boolean>;
-    // 显式逐字段归一化为 boolean，构建满足 GeneratedFilesConfig 形状的对象
-    result[platformKey] = {
-      fromCode: platformObj.fromCode === true,
-      readme: platformObj.readme === true,
-      agents: platformObj.agents === true,
-      design: platformObj.design === true,
-      css: platformObj.css === true,
-      js: platformObj.js === true,
-      html: platformObj.html === true,
-      cs: platformObj.cs === true,
-    };
-  }
-  return result as Record<PlatformKey, GeneratedFilesConfig>;
-}
-
 export async function loadConfig(): Promise<ExtensionConfig> {
   const stored = await chrome.storage.local.get({
     h3yunOneClickWriteback: true,
-    generatedFiles: DEFAULT_GENERATED_FILES,
     fallbackDirectoryPaths: { cloudpivot: '', h3yun: '' },
   });
   return {
     h3yunOneClickWriteback: stored.h3yunOneClickWriteback !== false,
-    generatedFiles: normalizeGeneratedFiles(stored.generatedFiles),
     fallbackDirectoryPaths: normalizeFallbackDirectoryPaths(stored.fallbackDirectoryPaths),
   };
 }
@@ -245,7 +210,6 @@ export async function saveConfig(partial: Partial<ExtensionConfig>): Promise<Ext
   const current = await loadConfig();
   const next: Record<string, unknown> = {};
   if ('h3yunOneClickWriteback' in partial) next.h3yunOneClickWriteback = partial.h3yunOneClickWriteback === true;
-  if ('generatedFiles' in partial) next.generatedFiles = normalizeGeneratedFiles(partial.generatedFiles);
   if ('fallbackDirectoryPaths' in partial) next.fallbackDirectoryPaths = normalizeFallbackDirectoryPaths(partial.fallbackDirectoryPaths);
 
   // chrome.storage.set 接受扁平键值对象；merged 形状与 ExtensionConfig 一致

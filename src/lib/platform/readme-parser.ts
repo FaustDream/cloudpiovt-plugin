@@ -8,6 +8,7 @@
  */
 
 import { cleanInlineText } from '../utils.js';
+import { MARKDOWN_FENCE } from '../constants.js';
 import {
   formatControlTypeLabel,
   supportsAssociationMetadata,
@@ -450,7 +451,8 @@ function buildMetadataDocumentContent(
   appendControlSection(lines, mainControls, existing);
   appendSubtableSection(lines, subtables, existing);
 
-  return `${lines.join('\n')}\n`;
+  // 整份内容包进代码块，避免 Markdown 预览把单换行折叠成一整段
+  return [MARKDOWN_FENCE, ...lines, MARKDOWN_FENCE, ''].join('\n');
 }
 
 /** 生成 FromCode.md 内容（含编码信息，不含需求说明） */

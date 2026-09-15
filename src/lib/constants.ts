@@ -33,9 +33,23 @@ export const CLOUDPIVOT_FILE_MAPPINGS = [
 export const H3YUN_CSHARP_PATTERN = /using\s+System|namespace\s+\w+|public\s+class\s+\w+|H3\.SmartForm/;
 export const H3YUN_FRONTEND_PATTERN = /\/\*|\$\..*extend|function\s*\(|控件接口/;
 
+// ── Markdown ──────────────────────────────────────────
+
+/**
+ * Markdown 代码块围栏。
+ *
+ * FromCode.md 是「标签: 值」逐行结构，行间只有单个换行；CommonMark 会把段落内的
+ * 单个换行渲染为空格，导致 Markdown 预览里所有行糊成一整段。用围栏包住整份内容后
+ * 预览所见即所得，且围栏行不会被 FromCode 的反向解析误判。
+ */
+export const MARKDOWN_FENCE = '```';
+
 // ── 存储键 ────────────────────────────────────────────
 export const STORAGE_KEYS = {
   CONFIG: 'config',
+  /** 产物配置（新结构，替代旧的 generatedFiles） */
+  ARTIFACTS: 'artifacts',
+  /** @deprecated 旧版逐字段开关，仅用于一次性迁移 */
   GENERATED_FILES: 'generatedFiles',
   H3YUN_ONE_CLICK_WRITEBACK: 'h3yunOneClickWriteback',
   FALLBACK_DIRECTORY_PATHS: 'fallbackDirectoryPaths',
