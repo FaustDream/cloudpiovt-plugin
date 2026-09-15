@@ -946,14 +946,6 @@ button:disabled {
   gap: var(--spacing-xs);
 }
 
-.file-picker-footnote {
-  margin: 0;
-  font-size: var(--font-size-caption);
-  line-height: 1.5;
-  color: var(--color-text-tertiary);
-  text-align: center;
-}
-
 /* 单行紧凑：名称占满剩余宽度并省略，已存在状态用右侧小标签 */
 .file-picker-check-name {
   flex: 1;
