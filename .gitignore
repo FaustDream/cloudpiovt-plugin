@@ -7,4 +7,5 @@ scripts/
 tests/
 BUG_FIXES.md
 docs/
-.workbuddy/.workbuddy-ai/
+.workbuddy/
+.workbuddy-ai/
