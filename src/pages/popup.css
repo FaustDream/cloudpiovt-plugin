@@ -841,7 +841,7 @@ button:disabled {
   text-align: center;
 }
 
-/* ========== 文件选择器弹层 ========== */
+/* ========== 产物选择弹层 ========== */
 .file-picker-overlay {
   position: fixed;
   inset: 0;
@@ -849,6 +849,7 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: var(--spacing-md);
   background: var(--bg-overlay-light);
   backdrop-filter: blur(4px);
   animation: overlay-in 0.2s ease-out;
@@ -858,16 +859,19 @@ button:disabled {
   display: none;
 }
 
+/* 宽度贴合 popup（420px），高度不超过可视区，避免被 popup 裁掉 */
 .file-picker-card {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--spacing-md);
-  width: 320px;
-  padding: 28px 32px;
+  align-items: stretch;
+  gap: var(--spacing-sm);
+  width: 100%;
+  max-width: 380px;
+  max-height: calc(100vh - 24px);
+  padding: 16px 18px;
   background: var(--bg-list-hover);
   border: 1px solid var(--color-border-card);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   box-shadow: var(--shadow-modal);
   animation: modal-in 0.2s ease-out;
   z-index: 1001;
@@ -875,7 +879,7 @@ button:disabled {
 
 .file-picker-title {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
   text-align: center;
@@ -893,11 +897,12 @@ button:disabled {
   align-items: center;
   gap: var(--spacing-sm);
   width: 100%;
-  padding: 8px 12px;
+  min-width: 0;
+  padding: 6px 10px;
   border: 1px solid var(--color-border-input);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   background: var(--bg-card);
-  font-size: 13px;
+  font-size: var(--font-size-body-sm);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
   cursor: pointer;
@@ -910,8 +915,8 @@ button:disabled {
 }
 
 .file-picker-check input[type="checkbox"] {
-  width: 16px;
-  height: 16px;
+  width: 15px;
+  height: 15px;
   accent-color: var(--color-primary);
   flex-shrink: 0;
 }
@@ -930,14 +935,15 @@ button:disabled {
   flex-direction: column;
   gap: var(--spacing-sm);
   width: 100%;
-  max-height: 300px;
+  min-height: 0;
+  max-height: 340px;
   overflow-y: auto;
 }
 
 .file-picker-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--spacing-xs);
 }
 
 .file-picker-group-title {
@@ -949,26 +955,25 @@ button:disabled {
 .file-picker-group-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--spacing-xs);
 }
 
-.file-picker-check-main {
+/* 单行紧凑：名称占满剩余宽度并省略，已存在状态用右侧小标签 */
+.file-picker-check-name {
   flex: 1;
   min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-.file-picker-check-name {
-  font-size: 13px;
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-  word-break: break-all;
-}
-
-.file-picker-check-note {
+.file-picker-tag {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-input);
   font-size: var(--font-size-caption);
+  font-weight: 400;
   color: var(--color-text-tertiary);
 }
 

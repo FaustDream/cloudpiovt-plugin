@@ -639,7 +639,7 @@ async function probeExistingArtifactPaths(artifacts: readonly ArtifactDefinition
   }
 }
 
-/** 渲染产物勾选列表（按「抓取产物 / 可自定义产物」两区分组） */
+/** 渲染产物勾选列表（按「抓取产物 / 可自定义产物」两区分组，每行单行紧凑展示） */
 function renderArtifactPicker(
   artifacts: readonly ArtifactDefinition[],
   existingPaths: ReadonlySet<string>,
@@ -657,17 +657,18 @@ function renderArtifactPicker(
       container.innerHTML = '<p class="file-picker-empty">该平台暂无产物</p>';
       continue;
     }
+    // 每行只放「勾选框 + 名称」：路径信息收进 title 提示，已存在状态用右侧小标签表示，
+    // 避免弹层在 420px 宽的 popup 里换行、把卡片撑到超出可视高度。
     container.innerHTML = items.map((artifact) => {
       const relativePath = normalizeArtifactPath(artifact.dirPath, artifact.fileName);
       const exists = Boolean(relativePath) && existingPaths.has(relativePath.toLowerCase());
-      const note = exists ? '已存在，将跳过' : (relativePath || artifact.label);
+      const tag = exists ? '<span class="file-picker-tag">已存在</span>' : '';
+      const hint = relativePath || '内容来自页面抓取';
       return `
-        <label class="file-picker-check">
+        <label class="file-picker-check" title="${escapeHtml(hint)}">
           <input type="checkbox" data-artifact-check="${escapeHtml(artifact.id)}" ${artifact.enabled ? 'checked' : ''}>
-          <span class="file-picker-check-main">
-            <span class="file-picker-check-name">${escapeHtml(artifact.label)}</span>
-            <span class="file-picker-check-note">${escapeHtml(note)}</span>
-          </span>
+          <span class="file-picker-check-name">${escapeHtml(artifact.label)}</span>
+          ${tag}
         </label>
       `;
     }).join('');
