@@ -9,15 +9,16 @@
  */
 
 // ── Types & Imports ───────────────────────────────────
-import type { PlatformKey, PageType, PageTypeConfig, CodeEntry } from '../types/platform.js';
-import type { ExtensionConfig, GeneratedFilesConfig } from '../types/config.js';
+import type { PlatformKey, PageTypeConfig } from '../types/platform.js';
+import type { ExtensionConfig } from '../types/config.js';
+import type { ArtifactConfig, ArtifactDefinition } from '../types/artifacts.js';
 import type { RecentDirectoryEntry } from '../services/recent-target-directories.js';
 import type { WriteFilesResult } from '../services/target-directory-access.js';
 import type { PreflightResult } from '../services/preflight-diagnostics.js';
 import type { PageCaptureResult, PageWritebackResult, BizRuleProbeResult, BizRuleWritebackResult, H3yunCodeEditorProbeResult, H3yunCodeEditorWritebackResult, H3yunDesignerMetadataResult } from '../types/injection.js';
 
 import { logger } from '../lib/logger.js';
-import { resolvePageTypeConfig, resolveH3yunDesignMode, loadConfig, saveConfig, isRecognizedPlatformUrl } from '../services/config.js';
+import { resolvePageTypeConfig, resolveH3yunDesignMode, loadConfig, isRecognizedPlatformUrl } from '../services/config.js';
 import { pageCaptureMain } from '../injection/cloudpivot-capture.js';
 import { pageWritebackMain } from '../injection/cloudpivot-writeback.js';
 import { bizRuleProbeMain } from '../injection/cloudpivot-bizrule-probe.js';
@@ -27,6 +28,12 @@ import { h3yunCodeEditorProbeMain } from '../injection/h3yun-code-probe.js';
 import { h3yunCodeEditorWritebackMain } from '../injection/h3yun-code-writeback.js';
 import { resolveH3yunBackendFileName, resolveH3yunFrontendFileName, buildH3yunFromCodeContent } from '../lib/platform/h3yun-code.js';
 import { buildFromCodeContent, extractReadmeMetadataFromHtml } from '../lib/platform/readme-parser.js';
+import {
+  ARTIFACT_IDS,
+  FILE_MAPPING_KEY_TO_ARTIFACT_ID,
+  FROM_CODE_FILE_NAME,
+  buildDefaultArtifactConfig,
+} from '../lib/platform/artifacts.js';
 import { BIZ_RULE_USAGE_NOTICE, buildBizRuleMissingFileDetails } from '../lib/platform/bizrule-constraints.js';
 import {
   getRecentTargetDirectories,
@@ -44,19 +51,29 @@ import {
   requestHandlePermissionState,
 } from '../services/target-directory-access.js';
 import { getTargetDirectoryHandleForScope } from '../lib/directory/file-handle-db.js';
-import { buildMissingWorkspaceDocumentFiles, WORKSPACE_DOCUMENT_FILE_NAMES } from '../services/workspace-documents.js';
+import {
+  buildMissingArtifactFiles,
+  resolveArtifactEnabled,
+  toExistingPathSet,
+  DIRECTORY_PATH_SUFFIX,
+} from '../services/artifact-files.js';
+import {
+  getPlatformArtifacts,
+  loadArtifactConfig,
+  saveArtifactConfig,
+} from '../services/artifacts.js';
 import {
   createPreflightResult,
   hasBlockingPreflightResult,
   saveLastDiagnosticPackage,
   buildDiagnosticPackage,
 } from '../services/preflight-diagnostics.js';
-import { PREFLIGHT_SEVERITY, PREFLIGHT_OPERATION_IDS } from '../lib/constants.js';
+import { PREFLIGHT_OPERATION_IDS } from '../lib/constants.js';
 import { CURRENT_EXTENSION_VERSION } from '../lib/release-notes.js';
+import { normalizeArtifactPath } from '../lib/utils.js';
 import {
   type PageContext,
   type LogEntry,
-  SEARCH_ITEM_SELECT_ANIMATION_MS,
   H3YUN_CODE_EDITOR_CONFIG,
   extractLastFolderName,
   escapeHtml,
@@ -74,6 +91,8 @@ const state = {
   pageContext: { url: '', title: '' } as PageContext,
   pageTypeConfig: null as PageTypeConfig | null,
   config: null as ExtensionConfig | null,
+  /** 产物配置（持久化默认值） */
+  artifacts: null as ArtifactConfig | null,
   busy: false,
   logEntries: [] as LogEntry[],
   recentDirectories: [] as RecentDirectoryEntry[],
@@ -82,8 +101,8 @@ const state = {
   searchDropdownOpen: false,
   exportDropdownOpen: false,
   activePlatformTab: 'auto' as PlatformKey | 'auto',
-  /** 缓存本次操作的额外文档开关 */
-  pendingExtraDocs: null as Record<string, boolean> | null,
+  /** 缓存本次操作的产物开关覆盖（产物 id → 是否启用） */
+  pendingArtifactOverrides: null as Record<string, boolean> | null,
 };
 
 // ── DOM Refs ──────────────────────────────────────────
@@ -542,105 +561,193 @@ async function handleH3yunOneClickWriteback(): Promise<void> {
   }
 }
 
-// ── 文件选择器弹层（写入时选择目标文件） ──────────────
+// ── 产物选择弹层（齿轮入口：选择本次生成的产物） ──────
 
-/** 重置文件选择器复选框到配置默认值 */
-function resetFilePickerChecks(): void {
-  const platformKey = state.pageTypeConfig?.platformKey || 'cloudpivot';
-  const generatedFiles = (state.config?.generatedFiles || {})[platformKey] || {};
-  const checkboxMap: Record<string, string> = {
-    readme: '#extra-readme-check',
-    agents: '#extra-agents-check',
-    design: '#extra-design-check',
-  };
-  for (const [key, sel] of Object.entries(checkboxMap)) {
-    const cb = $(sel) as HTMLInputElement | null;
-    if (cb) cb.checked = (generatedFiles as unknown as Record<string, boolean>)[key] === true;
+/** 产物选择结果 */
+interface ArtifactPickerResult {
+  readonly overrides: Record<string, boolean>;
+  readonly remember: boolean;
+}
+
+/** 取指定平台的产物清单 */
+function getArtifactsFor(platformKey: PlatformKey): ArtifactDefinition[] {
+  const config = state.artifacts ?? buildDefaultArtifactConfig();
+  return getPlatformArtifacts(config, platformKey);
+}
+
+/** 当前生效平台的产物清单 */
+function getActiveArtifacts(): ArtifactDefinition[] {
+  return getArtifactsFor(getActivePlatformKey());
+}
+
+/** 解析某条产物在本次抓取中是否启用（本次覆盖优先于持久配置） */
+function isArtifactOn(
+  artifactId: string,
+  overrides: Record<string, boolean> = {},
+  platformKey: PlatformKey = getActivePlatformKey(),
+): boolean {
+  const artifact = getArtifactsFor(platformKey).find((item) => item.id === artifactId);
+  // 配置中不存在该产物时视为启用，避免升级过程中静默丢功能
+  if (!artifact) return true;
+  return resolveArtifactEnabled(artifact, overrides);
+}
+
+/** 取出本次一次性覆盖（取用后清空，避免污染下一次操作） */
+function takePendingArtifactOverrides(): Record<string, boolean> {
+  if (!state.pendingArtifactOverrides) return {};
+  const overrides = { ...state.pendingArtifactOverrides };
+  state.pendingArtifactOverrides = null;
+  return overrides;
+}
+
+/**
+ * 汇总写入结果并输出日志。
+ * 「只建文件夹」的产物不产出文件，全部命中时 written 为 0 属正常，不算失败。
+ * @returns 是否视为成功
+ */
+function reportArtifactWriteResult(
+  writeResult: WriteFilesResult,
+  fileEntries: readonly { fileName: string; content: string }[],
+  label: string,
+): boolean {
+  const hasFileEntries = fileEntries.some((entry) => !entry.fileName.endsWith(DIRECTORY_PATH_SUFFIX));
+  if (writeResult.written === 0 && hasFileEntries) {
+    addErrorLog(`${label}写入失败：所有文件均未写入目标目录`, '请确认已选择目标目录且目录可写，或点击「更新当前路径」重新选择');
+    return false;
+  }
+  const dirNote = writeResult.directories > 0 ? `，新建 ${writeResult.directories} 个目录` : '';
+  const dirPathNote = writeResult.directoryPath ? ` → ${writeResult.directoryPath}` : '';
+  addSuccessLog(`${label}写入完成：${writeResult.written} 个文件${dirNote}${dirPathNote}`);
+  return true;
+}
+
+/** 探测模板类产物在目标目录中的存在状态（未选目录 / 无权限时返回空集合） */
+async function probeExistingArtifactPaths(artifacts: readonly ArtifactDefinition[]): Promise<ReadonlySet<string>> {
+  const pageType = state.pageTypeConfig?.pageType || 'default';
+  const probePaths = artifacts
+    .filter((artifact) => artifact.kind === 'template' && String(artifact.fileName ?? '').trim())
+    .map((artifact) => normalizeArtifactPath(artifact.dirPath, artifact.fileName))
+    .filter(Boolean);
+  if (probePaths.length === 0) return new Set<string>();
+
+  try {
+    const stat = await fileExistsInSelection(state.pageContext, pageType, probePaths);
+    return toExistingPathSet(stat.files.filter((file) => file.exists).map((file) => file.fileName));
+  } catch (error: unknown) {
+    logger.warn('Probe artifact existence failed', { error: String(error) });
+    return new Set<string>();
   }
 }
 
-/** 打开文件选择器弹层 */
-function showFilePicker(platformKey: string, options: { gearMode?: boolean } = {}): Promise<{ extraDocs: Record<string, boolean> }> {
-  return new Promise((resolve) => {
-    resetFilePickerChecks();
-    const overlay = dom.filePickerOverlay;
-    if (!overlay) { resolve({ extraDocs: {} }); return; }
-    overlay.hidden = false;
+/** 渲染产物勾选列表（按「抓取产物 / 可自定义产物」两区分组） */
+function renderArtifactPicker(
+  artifacts: readonly ArtifactDefinition[],
+  existingPaths: ReadonlySet<string>,
+): void {
+  const groups: ReadonlyArray<{ selector: string; kind: ArtifactDefinition['kind'] }> = [
+    { selector: '#artifact-picker-capture', kind: 'capture' },
+    { selector: '#artifact-picker-template', kind: 'template' },
+  ];
 
-    const confirmBtn = $('#file-picker-confirm-btn') as HTMLButtonElement | null;
-    const skipBtn = $('#file-picker-skip-btn') as HTMLButtonElement | null;
-    const titleEl = $('.file-picker-title') as HTMLElement | null;
-    const hintEl = $('.file-picker-hint') as HTMLElement | null;
-
-    if (options.gearMode) {
-      if (titleEl) titleEl.textContent = '配置额外生成的协作文件';
-      if (hintEl) hintEl.hidden = true;
-      if (confirmBtn) confirmBtn.textContent = '确认';
-      if (skipBtn) skipBtn.hidden = true;
+  for (const group of groups) {
+    const container = $(group.selector);
+    if (!container) continue;
+    const items = artifacts.filter((artifact) => artifact.kind === group.kind);
+    if (items.length === 0) {
+      container.innerHTML = '<p class="file-picker-empty">该平台暂无产物</p>';
+      continue;
     }
+    container.innerHTML = items.map((artifact) => {
+      const relativePath = normalizeArtifactPath(artifact.dirPath, artifact.fileName);
+      const exists = Boolean(relativePath) && existingPaths.has(relativePath.toLowerCase());
+      const note = exists ? '已存在，将跳过' : (relativePath || artifact.label);
+      return `
+        <label class="file-picker-check">
+          <input type="checkbox" data-artifact-check="${escapeHtml(artifact.id)}" ${artifact.enabled ? 'checked' : ''}>
+          <span class="file-picker-check-main">
+            <span class="file-picker-check-name">${escapeHtml(artifact.label)}</span>
+            <span class="file-picker-check-note">${escapeHtml(note)}</span>
+          </span>
+        </label>
+      `;
+    }).join('');
+  }
+}
 
-    function cleanup(): void { overlay!.hidden = true; }
+/** 读取弹层里本次勾选的产物开关 */
+function collectArtifactPickerOverrides(): Record<string, boolean> {
+  const overrides: Record<string, boolean> = {};
+  for (const input of $$<HTMLInputElement>('[data-artifact-check]')) {
+    const id = input.dataset.artifactCheck;
+    if (id) overrides[id] = input.checked;
+  }
+  return overrides;
+}
 
-    const onConfirm = (): void => {
-      cleanup();
-      resolve({ extraDocs: collectExtraDocsFromPicker() });
-    };
-    const onSkip = (): void => {
-      cleanup();
-      resolve({ extraDocs: {} });
-    };
+/** 打开产物选择弹层 */
+async function openArtifactPicker(): Promise<ArtifactPickerResult> {
+  const overlay = dom.filePickerOverlay;
+  if (!overlay) return { overrides: {}, remember: false };
 
-    confirmBtn?.addEventListener('click', onConfirm, { once: true });
-    if (skipBtn && !options.gearMode) skipBtn.addEventListener('click', onSkip, { once: true });
+  const artifacts = getActiveArtifacts();
+  const existingPaths = await probeExistingArtifactPaths(artifacts);
+  renderArtifactPicker(artifacts, existingPaths);
+
+  const rememberCheck = $('#artifact-picker-remember') as HTMLInputElement | null;
+  if (rememberCheck) rememberCheck.checked = false;
+
+  overlay.hidden = false;
+  return new Promise<ArtifactPickerResult>((resolve) => {
+    const confirmBtn = $('#file-picker-confirm-btn') as HTMLButtonElement | null;
+    confirmBtn?.addEventListener('click', () => {
+      overlay.hidden = true;
+      resolve({ overrides: collectArtifactPickerOverrides(), remember: rememberCheck?.checked === true });
+    }, { once: true });
   });
 }
 
-function collectExtraDocsFromPicker(): Record<string, boolean> {
+/** 把本次勾选结果合并进产物配置（只改开关，不动路径与内容） */
+function applyOverridesToConfig(
+  config: ArtifactConfig,
+  platformKey: PlatformKey,
+  overrides: Record<string, boolean>,
+): ArtifactConfig {
   return {
-    readme: ($('#extra-readme-check') as HTMLInputElement | null)?.checked ?? false,
-    agents: ($('#extra-agents-check') as HTMLInputElement | null)?.checked ?? false,
-    design: ($('#extra-design-check') as HTMLInputElement | null)?.checked ?? false,
+    ...config,
+    [platformKey]: getPlatformArtifacts(config, platformKey).map((artifact) =>
+      Object.prototype.hasOwnProperty.call(overrides, artifact.id)
+        ? { ...artifact, enabled: overrides[artifact.id] === true }
+        : artifact,
+    ),
   };
 }
 
+/**
+ * 齿轮入口：配置本次生成的产物。
+ *
+ * 「记住此选择」未勾选时只影响本次抓取（写入 `pendingArtifactOverrides`），
+ * 不会隐式修改设置页的持久配置。
+ */
 async function handleOpenFilePickerGear(): Promise<void> {
   if (state.busy) return;
-  const platformKey = state.pageTypeConfig?.platformKey || 'cloudpivot';
-  const { extraDocs } = await showFilePicker(platformKey, { gearMode: true });
-  state.pendingExtraDocs = extraDocs;
-  // 同步持久化到 generatedFiles 配置，避免 popup 重开/切换后配置丢失
-  try {
-    const generatedFiles = mergeGeneratedFiles(state.config?.generatedFiles ?? {}, platformKey, extraDocs);
-    state.config = await saveConfig({ generatedFiles });
-  } catch (error: unknown) {
-    logger.warn('保存额外生成文件配置失败', { error: String(error) });
-  }
-  const checked: string[] = [];
-  if (extraDocs.readme) checked.push('README.md');
-  if (extraDocs.agents) checked.push('AGENTS.md');
-  if (extraDocs.design) checked.push('DESIGN.md');
-  if (checked.length) addSuccessLog(`已配置额外生成文件：${checked.join('、')}。下次抓取生效。`);
-  else addSuccessLog('已取消额外生成文件，下次抓取仅使用默认文件。');
-}
+  const platformKey = getActivePlatformKey();
+  const result = await openArtifactPicker();
+  state.pendingArtifactOverrides = result.overrides;
 
-/** 将弹层勾选的协作文档开关合并进对应平台的 generatedFiles 配置 */
-function mergeGeneratedFiles(
-  current: Record<string, GeneratedFilesConfig>,
-  platformKey: string,
-  extraDocs: Record<string, boolean>,
-): Record<string, GeneratedFilesConfig> {
-  const base = current[platformKey];
-  const platformFiles: GeneratedFilesConfig = {
-    fromCode: base?.fromCode ?? true,
-    readme: extraDocs.readme === true,
-    agents: extraDocs.agents === true,
-    design: extraDocs.design === true,
-    css: base?.css,
-    js: base?.js,
-    html: base?.html,
-    cs: base?.cs,
-  };
-  return { ...current, [platformKey]: platformFiles };
+  if (result.remember) {
+    try {
+      const next = applyOverridesToConfig(state.artifacts ?? buildDefaultArtifactConfig(), platformKey, result.overrides);
+      state.artifacts = await saveArtifactConfig(next);
+      addSuccessLog('已记住本次产物选择，并同步到设置页。');
+    } catch (error: unknown) {
+      logger.warn('保存产物配置失败', { error: String(error) });
+      addErrorLog(`保存产物配置失败：${error instanceof Error ? error.message : String(error)}`);
+    }
+    return;
+  }
+
+  const enabledCount = Object.values(result.overrides).filter(Boolean).length;
+  addSuccessLog(`本次生成产物已配置（启用 ${enabledCount} 项），仅对下次抓取生效。`);
 }
 
 function renderPlatformButtons(): void {
@@ -753,67 +860,67 @@ async function handleCloudpivotCapture(): Promise<void> {
         return;
       }
 
-      // 按页面类型 fileMappings 将 codes 三键映射为本地固定文件名
+      // 按页面类型 fileMappings 将 codes 三键映射为本地固定文件名（受对应抓取产物开关控制）
+      const overrides = takePendingArtifactOverrides();
       const codes = (data.data?.codes ?? {}) as Record<string, unknown>;
       const filesToWrite: { fileName: string; content: string }[] = [];
-      let matchedCount = 0;
+      // availableCount 统计编辑器里「实际有内容」的代码块数，与产物开关无关，
+      // 用于区分「编辑器没内容」与「用户把产物全关了」两种失败。
+      let availableCount = 0;
       for (const mapping of config.fileMappings) {
         const content = codes[mapping.key];
-        if (typeof content === 'string' && content.trim()) {
-          filesToWrite.push({ fileName: mapping.fileName, content });
-          matchedCount++;
-        }
+        if (typeof content !== 'string' || !content.trim()) continue;
+        availableCount++;
+        const artifactId = FILE_MAPPING_KEY_TO_ARTIFACT_ID[mapping.key];
+        if (artifactId && !isArtifactOn(artifactId, overrides, config.platformKey)) continue;
+        filesToWrite.push({ fileName: mapping.fileName, content });
       }
 
-      if (matchedCount === 0) {
+      if (availableCount === 0) {
         addErrorLog('前端抓取失败：编辑器数据中无可用代码内容（HTML/CSS/JS 均为空）', '请确认编辑器已加载代码后再试');
         return;
       }
 
-      const extraDocs = collectExtraDocs();
       const meta = data.metadata ?? {};
       const formName = typeof meta.formName === 'string' ? meta.formName : '';
 
       // Write FromCode：解析抓取到的 HTML（codes.html）提取控件元数据，修复控件为空
-      if (extraDocs.fromCode !== false) {
+      if (isArtifactOn(ARTIFACT_IDS.fromCode, overrides, config.platformKey)) {
         const htmlSource = typeof codes.html === 'string' ? codes.html : '';
         const htmlMetadata = extractReadmeMetadataFromHtml(htmlSource, state.pageContext.url);
         // 优先使用 Vue 组件扫描出的表单名称（HTML 中 a-title 可能缺失）
         const metadata = { ...htmlMetadata, formName: formName || htmlMetadata.formName };
         // 读取现有 FromCode.md，跨多次抓取保留人工填写的关联表单信息
-        const existingFromCodeRead = await readFilesFromSelection(state.pageContext, config.pageType, [WORKSPACE_DOCUMENT_FILE_NAMES.fromCode]);
-        const existingFromCodeContent = existingFromCodeRead.files.find((f) => f.fileName === WORKSPACE_DOCUMENT_FILE_NAMES.fromCode)?.content ?? '';
+        const existingFromCodeRead = await readFilesFromSelection(state.pageContext, config.pageType, [FROM_CODE_FILE_NAME]);
+        const existingFromCodeContent = existingFromCodeRead.files.find((f) => f.fileName === FROM_CODE_FILE_NAME)?.content ?? '';
         const fromCodeContent = buildFromCodeContent(metadata, state.pageContext.url, existingFromCodeContent);
-        filesToWrite.push({ fileName: WORKSPACE_DOCUMENT_FILE_NAMES.fromCode, content: fromCodeContent });
+        filesToWrite.push({ fileName: FROM_CODE_FILE_NAME, content: fromCodeContent });
       }
 
-      // Write workspace docs
-      const existingFiles = await fileExistsInSelection(state.pageContext, config.pageType, [WORKSPACE_DOCUMENT_FILE_NAMES.readme, WORKSPACE_DOCUMENT_FILE_NAMES.agents, WORKSPACE_DOCUMENT_FILE_NAMES.design]);
-      const workspaceDocs = buildMissingWorkspaceDocumentFiles(
+      // 补建模板类产物（README / AGENTS / design 目录 / sql 目录），已存在的不覆盖
+      const templateArtifacts = getArtifactsFor(config.platformKey).filter((artifact) => artifact.kind === 'template');
+      const existingPaths = await probeExistingArtifactPaths(templateArtifacts);
+      const artifactFiles = buildMissingArtifactFiles(
+        templateArtifacts,
         {
           platformKey: config.platformKey,
-          platformLabel: config.pageLabel,
+          pageLabel: config.pageLabel,
           pageUrl: state.pageContext.url,
           formName,
         },
-        {
-          hasReadme: existingFiles.files.find((f) => f.fileName === WORKSPACE_DOCUMENT_FILE_NAMES.readme)?.exists ?? false,
-          hasAgents: existingFiles.files.find((f) => f.fileName === WORKSPACE_DOCUMENT_FILE_NAMES.agents)?.exists ?? false,
-          hasDesign: existingFiles.files.find((f) => f.fileName === WORKSPACE_DOCUMENT_FILE_NAMES.design)?.exists ?? false,
-        },
-        { generatedFiles: extraDocs },
+        { existingPaths, overrides },
       );
-      for (const doc of workspaceDocs) {
-        filesToWrite.push(doc);
+      for (const artifactFile of artifactFiles) {
+        filesToWrite.push({ fileName: artifactFile.relativePath, content: artifactFile.content });
+      }
+
+      if (filesToWrite.length === 0) {
+        addWarningLog('本次没有任何产物需要写入（相关开关均已关闭）', '请点齿轮开启需要的产物');
+        return;
       }
 
       const writeResult = await writeFilesToSelection(state.pageContext, config.pageType, filesToWrite);
-      if (writeResult.written === 0 && filesToWrite.length > 0) {
-        addErrorLog('抓取写入失败：所有文件均未写入目标目录', '请确认已选择目标目录且目录可写，或点击「更新当前路径」重新选择');
-        return;
-      }
-      const writeDirNote = writeResult.directoryPath ? ` → ${writeResult.directoryPath}` : '';
-      addSuccessLog(`抓取写入完成：${writeResult.written} 个文件已保存${writeDirNote}`);
+      reportArtifactWriteResult(writeResult, filesToWrite, '抓取');
     });
   });
 }
@@ -872,6 +979,11 @@ async function handleCloudpivotBizRuleCapture(): Promise<void> {
     await runOperationWithPreflight(PREFLIGHT_OPERATION_IDS.CAPTURE, async () => {
       addLog('正在抓取业务规则代码...');
       const tabId = state.pageContext.tabId!;
+
+      if (!isArtifactOn(ARTIFACT_IDS.java, takePendingArtifactOverrides(), state.pageTypeConfig!.platformKey)) {
+        addWarningLog('「业务规则 Java」产物已关闭，本次跳过抓取', '如需生成，请在设置页或齿轮中开启该项');
+        return;
+      }
 
       const data = await safeExecuteScript(tabId, bizRuleProbeMain, [{ multiModelHint: BIZ_RULE_USAGE_NOTICE }], '业务规则抓取') as BizRuleProbeResult | null;
 
@@ -957,8 +1069,6 @@ async function handleH3yunCaptureAll(): Promise<void> {
       const designMode = resolveH3yunDesignMode(state.pageTypeConfig);
       const filesToWrite: { fileName: string; content: string }[] = [];
       const skipped: string[] = [];
-      const codeFiles: string[] = [];
-      let capturedFileCount = 0;
 
       // 与 gitHub 原版 handleH3yunCaptureAllAndWrite 一致：并行探测元数据 / 前端 JS / 后端 C#
       const [metadataResult, frontendResult, backendResult] = await Promise.all([
@@ -970,72 +1080,84 @@ async function handleH3yunCaptureAll(): Promise<void> {
       const metadataOk = metadata?.ok === true;
       const controls = metadataOk && Array.isArray(metadata.controls) ? metadata.controls : [];
 
-      // 列表设计模式（designMode === "list"）无图形控件，跳过 FromCode 的图形控件依赖，不误报"没有图形控件"。
-      if (designMode === 'list') {
-        if (metadataOk && controls.length) {
-          filesToWrite.push({ fileName: WORKSPACE_DOCUMENT_FILE_NAMES.fromCode, content: buildH3yunFromCodeContent(metadata) });
-          capturedFileCount += 1;
-        }
-      } else if (metadataOk && controls.length) {
-        filesToWrite.push({ fileName: WORKSPACE_DOCUMENT_FILE_NAMES.fromCode, content: buildH3yunFromCodeContent(metadata) });
-        capturedFileCount += 1;
-      } else {
+      // 与产物开关无关的「页面是否有内容」判定，用于区分「未挂载」与「开关全关」
+      const availableCount =
+        (metadataOk && controls.length ? 1 : 0)
+        + (frontendResult?.ok && frontendResult.sourceContent ? 1 : 0)
+        + (backendResult?.ok && backendResult.sourceContent ? 1 : 0);
+
+      const overrides = takePendingArtifactOverrides();
+      const fromCodeEnabled = isArtifactOn(ARTIFACT_IDS.fromCode, overrides, 'h3yun');
+      const frontendEnabled = isArtifactOn(ARTIFACT_IDS.js, overrides, 'h3yun');
+      const backendEnabled = isArtifactOn(ARTIFACT_IDS.cs, overrides, 'h3yun');
+
+      // 列表设计模式无图形控件，靠 controls.length 判断即可，无需单独分支
+      if (fromCodeEnabled && metadataOk && controls.length) {
+        filesToWrite.push({ fileName: FROM_CODE_FILE_NAME, content: buildH3yunFromCodeContent(metadata) });
+      } else if (fromCodeEnabled) {
         skipped.push('图形控件');
         if (!metadataOk) {
           addLog(`图形控件元数据未就绪：${formatProbeFailure(metadataResult, '未返回结果')}，将跳过 FromCode`, 'warning');
         }
+      } else {
+        skipped.push('FromCode（已关闭）');
       }
 
-      if (frontendResult?.ok && frontendResult.sourceContent) {
+      if (!frontendEnabled) {
+        skipped.push('前端 JS（已关闭）');
+      } else if (frontendResult?.ok && frontendResult.sourceContent) {
         const frontendFileName = resolveH3yunFrontendFileName({ pageUrl: frontendResult.pageUrl || state.pageContext.url, designMode });
-        codeFiles.push(frontendFileName);
         filesToWrite.push({ fileName: frontendFileName, content: frontendResult.sourceContent });
-        capturedFileCount += 1;
       } else {
         skipped.push('前端 JS');
         addLog(`前端 JS 未挂载：${formatProbeFailure(frontendResult, '前端代码区域未找到或内容为空')}`, 'warning');
       }
 
-      if (backendResult?.ok && backendResult.sourceContent) {
+      if (!backendEnabled) {
+        skipped.push('后端 C#（已关闭）');
+      } else if (backendResult?.ok && backendResult.sourceContent) {
         const backendFileName = resolveH3yunBackendFileName({ sourceContent: backendResult.sourceContent, pageUrl: backendResult.pageUrl || state.pageContext.url, designMode });
-        codeFiles.push(backendFileName);
         filesToWrite.push({ fileName: backendFileName, content: backendResult.sourceContent });
-        capturedFileCount += 1;
       } else {
         skipped.push('后端 C#');
         addLog(`后端 C# 未挂载：${formatProbeFailure(backendResult, '后端代码区域未找到或内容为空')}`, 'warning');
       }
 
-      if (capturedFileCount === 0) {
+      if (availableCount === 0) {
         addErrorLog('当前页面没有挂载图形控件、前端 JS 或后端 C# 编辑器', '请确认：1) 已切换到氚云设计页 2) 页面完全加载 3) 前端/后端代码区域已打开');
         return;
       }
 
-      // 按 generatedFiles 开关 + extraDocs 一次性覆写门控生成协作文件（与 gitHub 一致，unshift 到最前）
+      // 补建模板类产物（README / AGENTS / design/design-js.md / design/design-cs.md），已存在的不覆盖
       // 注意：pageType 必须与"更新当前路径"绑定时一致（state.pageTypeConfig.pageType），
       // 否则读不到绑定目录会回退到平台兜底路径，导致文件写到错误目录。
-      const extraDocs = collectExtraDocs();
       const h3yunPageType = state.pageTypeConfig?.pageType || 'default';
-      const existingFiles = await fileExistsInSelection(state.pageContext, h3yunPageType, ['README.md', 'AGENTS.md', 'DESIGN.md']);
-      const workspaceDocs = buildMissingWorkspaceDocumentFiles(
-        { platformKey: 'h3yun', platformLabel: '氚云', pageUrl: state.pageContext.url, codeFiles },
+      const templateArtifacts = getArtifactsFor('h3yun').filter((artifact) => artifact.kind === 'template');
+      const existingPaths = await probeExistingArtifactPaths(templateArtifacts);
+      const artifactFiles = buildMissingArtifactFiles(
+        templateArtifacts,
         {
-          hasReadme: existingFiles.files.find((f) => f.fileName === 'README.md')?.exists ?? false,
-          hasAgents: existingFiles.files.find((f) => f.fileName === 'AGENTS.md')?.exists ?? false,
-          hasDesign: existingFiles.files.find((f) => f.fileName === 'DESIGN.md')?.exists ?? false,
+          platformKey: 'h3yun',
+          pageLabel: state.pageTypeConfig?.pageLabel || '',
+          pageUrl: state.pageContext.url,
         },
-        { generatedFiles: extraDocs },
+        { existingPaths, overrides },
       );
-      filesToWrite.unshift(...workspaceDocs);
+      filesToWrite.push(...artifactFiles.map((artifactFile) => ({
+        fileName: artifactFile.relativePath,
+        content: artifactFile.content,
+      })));
 
-      addLog(`准备写入 ${filesToWrite.length} 个文件：${filesToWrite.map((f) => f.fileName).join('、')}`);
-      const writeResult = await writeFilesToSelection(state.pageContext, h3yunPageType, filesToWrite);
-      if (writeResult.written === 0 && filesToWrite.length > 0) {
-        addErrorLog('氚云一键抓取写入失败：所有文件均未写入目标目录', '请确认已选择目标目录且目录可写，或点击「更新当前路径」重新选择');
+      if (filesToWrite.length === 0) {
+        addWarningLog('本次没有任何产物需要写入（相关开关均已关闭）', '请点齿轮开启需要的产物');
         return;
       }
-      const writeDirNote = writeResult.directoryPath ? ` → ${writeResult.directoryPath}` : '';
-      addSuccessLog(`氚云一键抓取写入完成：已写入 ${writeResult.written} 个文件（未挂载：${skipped.join('、') || '无'}）${writeDirNote}`);
+
+      addLog(`准备写入 ${filesToWrite.length} 项：${filesToWrite.map((f) => f.fileName).join('、')}`);
+      const writeResult = await writeFilesToSelection(state.pageContext, h3yunPageType, filesToWrite);
+      if (reportArtifactWriteResult(writeResult, filesToWrite, '氚云一键抓取')) {
+        addLog(`未写入项：${skipped.join('、') || '无'}`, 'info');
+      }
     });
   });
 }
@@ -1137,25 +1259,6 @@ async function runOperationWithPreflight(
   await task(results);
 }
 
-// ── Extra Docs / File Picker ───────────────────────────
-
-function collectExtraDocs(): Record<string, boolean> {
-  if (state.pendingExtraDocs) {
-    const docs = { ...state.pendingExtraDocs };
-    state.pendingExtraDocs = null;
-    return docs;
-  }
-  // 无本次一次性配置时，回退到持久化的 generatedFiles（齿轮弹层保存的开关）
-  const platformKey = state.pageTypeConfig?.platformKey || 'cloudpivot';
-  const generatedFiles: Partial<GeneratedFilesConfig> = state.config?.generatedFiles?.[platformKey] ?? {};
-  return {
-    fromCode: generatedFiles.fromCode !== false,
-    readme: generatedFiles.readme === true,
-    agents: generatedFiles.agents === true,
-    design: generatedFiles.design === true,
-  };
-}
-
 // ── Runtime Log Export ─────────────────────────────────
 
 function buildRuntimeLogText(): string {
@@ -1249,6 +1352,7 @@ async function init(): Promise<void> {
 
   // 加载配置
   state.config = await loadConfig();
+  state.artifacts = await loadArtifactConfig();
 
   // 获取当前页信息
   await updatePageInfo();

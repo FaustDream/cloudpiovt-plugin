@@ -6,7 +6,7 @@
  */
 
 import { cleanInlineText } from '../utils.js';
-import { H3YUN_CSHARP_PATTERN, H3YUN_FRONTEND_PATTERN } from '../constants.js';
+import { H3YUN_CSHARP_PATTERN, H3YUN_FRONTEND_PATTERN, MARKDOWN_FENCE } from '../constants.js';
 
 // ── 常量 ──────────────────────────────────────────────
 
@@ -257,5 +257,7 @@ export function buildH3yunFromCodeContent(metadata: {
     lines.push('');
   }
 
-  return `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trim()}\n`;
+  const body = lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+  // 整份内容包进代码块，避免 Markdown 预览把单换行折叠成一整段
+  return [MARKDOWN_FENCE, body, MARKDOWN_FENCE, ''].join('\n');
 }

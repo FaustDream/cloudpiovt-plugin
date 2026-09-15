@@ -8,7 +8,8 @@
     "build": "node scripts/build.mjs",
     "dev": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run build"
+    "test": "vitest run",
+    "check": "npm run typecheck && npm run test && npm run build"
   },
   "dependencies": {
     "zod": "^3.23.8"
@@ -16,6 +17,7 @@
   "devDependencies": {
     "@types/chrome": "^0.0.287",
     "esbuild": "^0.24.2",
-    "typescript": "^5.7.2"
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.9"
   }
 }

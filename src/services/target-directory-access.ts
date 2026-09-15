@@ -9,6 +9,7 @@
 
 import { logger } from '../lib/logger.js';
 import { DirectoryError, ValidationError, ERROR_CODE } from '../lib/errors.js';
+import { parseRelativePath, joinRelativePath, type RelativePathParts } from '../lib/utils.js';
 import {
   saveTargetDirectoryHandleForScope,
   getTargetDirectoryHandleForScope,
@@ -25,6 +26,12 @@ import {
 
 // ── 公开类型 ──────────────────────────────────────────
 
+/**
+ * 待写入文件。
+ *
+ * `fileName` 支持相对路径（如 `design/design-js.md`），会按层级逐段创建子目录。
+ * 当路径只包含目录段（如 `sql/`）时表示「只创建文件夹，不写文件」。
+ */
 export interface FileWriteEntry {
   readonly fileName: string;
   readonly content: string;
@@ -58,15 +65,19 @@ export interface SelectDirectoryResult {
 }
 
 export interface WriteFilesResult {
+  /** 实际写入的文件数 */
   readonly written: number;
+  /** 新建（或确认存在）的目录数 */
+  readonly directories: number;
   /** 目录标签（Handle 通道为目录名） */
   readonly directoryPath?: string;
 }
 
 // ── 内部工具 ──────────────────────────────────────────
 
-function normalizeFileName(value: unknown): string {
-  return String(value || '').replace(/[/\\:*?"<>|]/g, '_').trim();
+/** 目录解析选项：写入时需自动创建，读取时只需定位 */
+interface ResolveDirectoryOptions {
+  readonly create: boolean;
 }
 
 interface TabInfo {
@@ -234,7 +245,41 @@ export async function selectAndBindDirectory(
 
 // ── 文件读写（仅 Handle 通道） ─────────────────────────
 
-/** 通过 Handle 通道写文件 */
+/** 相对路径解析结果 + 用于回传的统一路径字符串 */
+interface ResolvedEntryPath {
+  readonly parts: RelativePathParts;
+  /** 统一形态的相对路径（如 `design/design-js.md`）；非法路径为空字符串 */
+  readonly relativePath: string;
+}
+
+/** 解析条目路径；非法路径（含 `..` 逃逸、空路径）时 relativePath 为空 */
+function resolveEntryPath(value: unknown): ResolvedEntryPath {
+  const parts = parseRelativePath(value);
+  return { parts, relativePath: joinRelativePath(parts.dirSegments, parts.fileName) };
+}
+
+/**
+ * 按目录段逐级解析子目录句柄。
+ * `create=false` 时任一环节缺失即返回 null（用于读取 / 存在性检查）。
+ */
+async function resolveSubDirectory(
+  baseHandle: FileSystemDirectoryHandle,
+  dirSegments: readonly string[],
+  options: ResolveDirectoryOptions,
+): Promise<FileSystemDirectoryHandle | null> {
+  let current: FileSystemDirectoryHandle = baseHandle;
+  for (const segment of dirSegments) {
+    try {
+      current = await current.getDirectoryHandle(segment, options.create ? { create: true } : {});
+    } catch (error: unknown) {
+      if (options.create) throw error;
+      return null;
+    }
+  }
+  return current;
+}
+
+/** 通过 Handle 通道写文件（支持子目录；路径只含目录段时仅创建文件夹） */
 async function writeFilesViaHandle(
   handle: ExtendedDirectoryHandle,
   fileEntries: readonly FileWriteEntry[],
@@ -245,25 +290,40 @@ async function writeFilesViaHandle(
   }
 
   let written = 0;
+  let directories = 0;
   for (const entry of fileEntries) {
-    const fileName = normalizeFileName(entry.fileName);
-    if (!fileName) continue;
+    const { parts, relativePath } = resolveEntryPath(entry.fileName);
+    if (!relativePath) {
+      logger.warn('Skip write entry with invalid relative path', { fileName: String(entry.fileName || '') });
+      continue;
+    }
 
     try {
-      const fileHandle = await handle.getFileHandle(fileName, { create: true });
+      // 先探测是否已存在，用于区分「新建目录」与「复用已有目录」
+      let targetDir = await resolveSubDirectory(handle, parts.dirSegments, { create: false });
+      if (!targetDir) {
+        targetDir = await resolveSubDirectory(handle, parts.dirSegments, { create: true });
+        if (parts.dirSegments.length > 0) directories++;
+      }
+      if (!targetDir) continue;
+
+      // 只指定目录（如 `sql/`）：文件夹建好即完成，不写文件
+      if (!parts.fileName) continue;
+
+      const fileHandle = await targetDir.getFileHandle(parts.fileName, { create: true });
       const writable = await fileHandle.createWritable();
       await writable.write(entry.content);
       await writable.close();
       written++;
     } catch (error: unknown) {
-      logger.warn('Handle write file failed', { fileName, error: String(error) });
+      logger.warn('Handle write file failed', { fileName: relativePath, error: String(error) });
     }
   }
 
-  return { written, directoryPath: handle.name };
+  return { written, directories, directoryPath: handle.name };
 }
 
-/** 通过 Handle 通道读取文件 */
+/** 通过 Handle 通道读取文件（支持子目录） */
 async function readFilesViaHandle(
   handle: ExtendedDirectoryHandle,
   fileNames: readonly string[],
@@ -271,26 +331,32 @@ async function readFilesViaHandle(
   const entries: FileReadEntry[] = [];
 
   for (const fileName of fileNames) {
-    const name = normalizeFileName(fileName);
-    if (!name) {
-      entries.push({ fileName: fileName || '', content: '', exists: false });
+    const { parts, relativePath } = resolveEntryPath(fileName);
+    if (!relativePath || !parts.fileName) {
+      entries.push({ fileName: String(fileName || ''), content: '', exists: false });
+      continue;
+    }
+
+    const targetDir = await resolveSubDirectory(handle, parts.dirSegments, { create: false });
+    if (!targetDir) {
+      entries.push({ fileName: relativePath, content: '', exists: false });
       continue;
     }
 
     try {
-      const fileHandle = await handle.getFileHandle(name);
+      const fileHandle = await targetDir.getFileHandle(parts.fileName);
       const file = await fileHandle.getFile();
       const content = await file.text();
-      entries.push({ fileName: name, content, exists: true });
+      entries.push({ fileName: relativePath, content, exists: true });
     } catch {
-      entries.push({ fileName: name, content: '', exists: false });
+      entries.push({ fileName: relativePath, content: '', exists: false });
     }
   }
 
   return entries;
 }
 
-/** 通过 Handle 通道检查文件存在性 */
+/** 通过 Handle 通道检查文件存在性（支持子目录） */
 async function statFilesViaHandle(
   handle: ExtendedDirectoryHandle,
   fileNames: readonly string[],
@@ -298,23 +364,29 @@ async function statFilesViaHandle(
   const entries: FileStatEntry[] = [];
 
   for (const fileName of fileNames) {
-    const name = normalizeFileName(fileName);
-    if (!name) {
-      entries.push({ fileName: fileName || '', exists: false, size: null, modifiedAt: '' });
+    const { parts, relativePath } = resolveEntryPath(fileName);
+    if (!relativePath || !parts.fileName) {
+      entries.push({ fileName: String(fileName || ''), exists: false, size: null, modifiedAt: '' });
+      continue;
+    }
+
+    const targetDir = await resolveSubDirectory(handle, parts.dirSegments, { create: false });
+    if (!targetDir) {
+      entries.push({ fileName: relativePath, exists: false, size: null, modifiedAt: '' });
       continue;
     }
 
     try {
-      const fileHandle = await handle.getFileHandle(name);
+      const fileHandle = await targetDir.getFileHandle(parts.fileName);
       const file = await fileHandle.getFile();
       entries.push({
-        fileName: name,
+        fileName: relativePath,
         exists: true,
         size: file.size,
         modifiedAt: new Date(file.lastModified).toISOString(),
       });
     } catch {
-      entries.push({ fileName: name, exists: false, size: null, modifiedAt: '' });
+      entries.push({ fileName: relativePath, exists: false, size: null, modifiedAt: '' });
     }
   }
 
@@ -328,7 +400,7 @@ export async function writeFilesToSelection(
   fileEntries: readonly FileWriteEntry[],
 ): Promise<WriteFilesResult> {
   if (!Array.isArray(fileEntries) || fileEntries.length === 0) {
-    return { written: 0 };
+    return { written: 0, directories: 0 };
   }
 
   const handle = await resolveTargetDirectoryHandle(tab, pageType) as ExtendedDirectoryHandle | undefined;

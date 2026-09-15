@@ -1,11 +1,22 @@
 /**
- * 设置页控制器 v4 — 纯浏览器模式，File System Access API。
+ * 设置页控制器 v5 — 纯浏览器模式，File System Access API + 产物配置。
  */
 import type { PlatformKey } from '../types/platform.js';
 import type { ExtensionConfig } from '../types/config.js';
+import type { ArtifactConfig, ArtifactDefinition } from '../types/artifacts.js';
 import { logger } from '../lib/logger.js';
 import { loadConfig, saveConfig, getFallbackDirectoryPathByPlatform, CLOUDPIVOT_READONLY_SETTINGS, H3YUN_READONLY_SETTINGS } from '../services/config.js';
 import { CONTROL_TYPE_REFERENCE, H3YUN_CONTROL_TYPE_REFERENCE } from '../lib/platform/control-metadata.js';
+import { ARTIFACT_TEMPLATE_VARIABLES, buildDefaultArtifactConfig, findDuplicateArtifactPaths } from '../lib/platform/artifacts.js';
+import {
+  ARTIFACT_PLATFORM_KEYS,
+  createCustomArtifact,
+  getPlatformArtifacts,
+  loadArtifactConfig,
+  resetArtifactConfig,
+  saveArtifactConfig,
+} from '../services/artifacts.js';
+import { PLATFORM_LABELS } from '../lib/constants.js';
 import { buildDiagnosticPackage, saveLastDiagnosticPackage, loadLastDiagnosticPackage } from '../services/preflight-diagnostics.js';
 import { fetchLatestRelease, isUpToDate, hasNewerVersion, type LatestReleaseInfo } from '../services/update-checker.js';
 import { CURRENT_EXTENSION_VERSION } from '../lib/release-notes.js';
@@ -35,6 +46,7 @@ const COLLAPSE_STATE_KEY = 'optionsCollapseState';
 
 const state = {
   config: null as ExtensionConfig | null,
+  artifacts: null as ArtifactConfig | null,
   activeHelpPlatform: 'cloudpivot' as 'cloudpivot' | 'h3yun',
   collapseStateCache: {} as Record<string, boolean>,
 };
@@ -59,72 +71,217 @@ async function showConfirm(message: string): Promise<boolean> {
   });
 }
 
-// ── 1. 文件助手（File System Access API + 文件生成） ──
+// ── 1. 文件助手（File System Access API + 产物配置） ──
 
-const GENFILE_LABELS: Record<string, string> = {
-  fromCode: 'FromCode.md', css: 'CSS', js: 'JavaScript', html: 'HTML', cs: 'C#',
-  readme: 'README.md', agents: 'AGENTS.md', design: 'DESIGN.md',
-};
+/** 分区渲染顺序：抓取产物在前，可自定义产物在后 */
+const ARTIFACT_ZONE_ORDER: readonly ArtifactDefinition['kind'][] = ['capture', 'template'];
 
-function renderAllGenfiles(): void {
-  if (!state.config) return;
-  const cpKeys = ['fromCode', 'css', 'js', 'html', 'readme', 'agents', 'design'];
-  const hyKeys = ['fromCode', 'js', 'cs', 'readme', 'agents', 'design'];
-  const cpConfig = (state.config.generatedFiles.cloudpivot ?? {}) as unknown as Record<string, boolean>;
-  const hyConfig = (state.config.generatedFiles.h3yun ?? {}) as unknown as Record<string, boolean>;
-
-  fillGenfilesBlock('#genfiles-cloudpivot', cpKeys, 'cloudpivot', cpConfig);
-  fillGenfilesBlock('#genfiles-h3yun', hyKeys, 'h3yun', hyConfig);
-
-  // 氚云一键回写开关
-  const cb = $('#h3yun-oneclick-writeback') as HTMLInputElement | null;
-  if (cb) cb.checked = state.config.h3yunOneClickWriteback;
-}
-
-function fillGenfilesBlock(sel: string, keys: string[], platform: string, config: Record<string, boolean>): void {
-  const container = $(sel);
-  if (!container) return;
-  container.innerHTML = '';
-  for (const key of keys) {
-    if (key === 'fromCode') continue; // fromCode 始终生成，只读不勾选
-    const row = document.createElement('label');
-    row.className = 'toggle-row';
-    const id = `genfile-${platform}-${key}`;
-    row.innerHTML = `<input type="checkbox" id="${id}" data-genfiles-platform="${platform}" data-genfiles-key="${key}"
-        ${config[key] === true ? 'checked' : ''}>
-      <span>${GENFILE_LABELS[key] || key}</span>`;
-    container.appendChild(row);
-  }
-}
-
-function syncGenfilesFromDom(): void {
-  if (!state.config) return;
-  const inputs = $$('[data-genfiles-platform][data-genfiles-key]');
-  for (const inp of inputs) {
-    const p = inp.dataset.genfilesPlatform || '';
-    const k = inp.dataset.genfilesKey || '';
-    if (p && k) {
-      const pf = state.config.generatedFiles as unknown as Record<string, Record<string, boolean>>;
-      if (!pf[p]) pf[p] = {};
-      pf[p]![k] = (inp as HTMLInputElement).checked;
+/** 渲染全部平台的产物分区 */
+function renderAllArtifactZones(): void {
+  const config = state.artifacts ?? buildDefaultArtifactConfig();
+  for (const platformKey of ARTIFACT_PLATFORM_KEYS) {
+    const artifacts = getPlatformArtifacts(config, platformKey);
+    for (const kind of ARTIFACT_ZONE_ORDER) {
+      renderArtifactZone(platformKey, kind, artifacts.filter((artifact) => artifact.kind === kind));
     }
   }
-  const oc = $('#h3yun-oneclick-writeback') as HTMLInputElement | null;
-  state.config = { ...state.config, h3yunOneClickWriteback: oc?.checked ?? true };
 }
 
-function bindGenfileInputs(): void {
-  $$('[data-genfiles-platform][data-genfiles-key]').forEach((cb) => {
-    const fresh = cb.cloneNode(true) as HTMLInputElement;
-    cb.parentNode?.replaceChild(fresh, cb);
-    fresh.addEventListener('change', syncGenfilesFromDom);
-  });
-  const oc = $('#h3yun-oneclick-writeback') as HTMLInputElement | null;
-  if (oc) {
-    const fresh = oc.cloneNode(true) as HTMLInputElement;
-    oc.parentNode?.replaceChild(fresh, oc);
-    fresh.addEventListener('change', () => syncGenfilesFromDom());
+function renderArtifactZone(
+  platformKey: PlatformKey,
+  kind: ArtifactDefinition['kind'],
+  artifacts: readonly ArtifactDefinition[],
+): void {
+  const container = $(`#artifacts-${platformKey}-${kind}`);
+  if (!container) return;
+  container.innerHTML = artifacts
+    .map((artifact) => (kind === 'capture'
+      ? renderCaptureArtifactRow(artifact, platformKey)
+      : renderTemplateArtifactCard(artifact, platformKey)))
+    .join('');
+}
+
+/** 抓取产物：只有开关，路径与内容不可编辑 */
+function renderCaptureArtifactRow(artifact: ArtifactDefinition, platformKey: PlatformKey): string {
+  return `
+    <label class="toggle-inline artifact-capture-row" data-artifact-id="${escapeHtml(artifact.id)}" data-artifact-platform="${escapeHtml(platformKey)}">
+      <input type="checkbox" data-artifact-field="enabled" ${artifact.enabled ? 'checked' : ''}>
+      <span class="toggle-track" aria-hidden="true"></span>
+      <span>${escapeHtml(artifact.label)}</span>
+    </label>
+  `;
+}
+
+/** 可自定义产物：名称 / 路径 / 文件名 / 开关 / 默认内容 五字段全可编辑 */
+function renderTemplateArtifactCard(artifact: ArtifactDefinition, platformKey: PlatformKey): string {
+  const variables = ARTIFACT_TEMPLATE_VARIABLES.map((variable) =>
+    `<button type="button" class="ghost-btn-sm artifact-var-btn" data-artifact-var="${escapeHtml(variable.token)}">${escapeHtml(variable.label)}</button>`,
+  ).join('');
+  const deleteBtn = artifact.builtin
+    ? ''
+    : '<button type="button" class="ghost-btn-sm artifact-delete-btn" data-artifact-delete="1">删除</button>';
+
+  return `
+    <div class="artifact-card" data-artifact-id="${escapeHtml(artifact.id)}" data-artifact-platform="${escapeHtml(platformKey)}">
+      <div class="artifact-card-head">
+        <label class="toggle-inline">
+          <input type="checkbox" data-artifact-field="enabled" ${artifact.enabled ? 'checked' : ''}>
+          <span class="toggle-track" aria-hidden="true"></span>
+          <span>启用</span>
+        </label>
+        <input class="artifact-label-input" type="text" data-artifact-field="label" value="${escapeHtml(artifact.label)}" aria-label="产物名称" placeholder="产物名称">
+        ${deleteBtn}
+      </div>
+      <div class="artifact-field-row">
+        <label class="artifact-field">
+          <span class="artifact-field-label">路径（相对目标目录，留空为根目录）</span>
+          <input type="text" data-artifact-field="dirPath" value="${escapeHtml(artifact.dirPath)}" placeholder="design/">
+        </label>
+        <label class="artifact-field">
+          <span class="artifact-field-label">文件名（留空则只建文件夹）</span>
+          <input type="text" data-artifact-field="fileName" value="${escapeHtml(artifact.fileName)}" placeholder="design-js.md">
+        </label>
+      </div>
+      <label class="artifact-field">
+        <span class="artifact-field-label">默认内容（支持 {{变量}}）</span>
+        <textarea class="artifact-content-input" rows="5" data-artifact-field="defaultContent">${escapeHtml(artifact.defaultContent)}</textarea>
+      </label>
+      <div class="artifact-variable-row">
+        <span class="artifact-field-label">插入变量</span>
+        ${variables}
+      </div>
+      <p class="artifact-note">已存在则跳过，不覆盖已有内容；变量只在首次生成时替换。</p>
+    </div>
+  `;
+}
+
+/** 从 DOM 回读产物配置，保持 state.artifacts 与界面一致 */
+function syncArtifactsFromDom(): void {
+  if (!state.artifacts) return;
+  for (const platformKey of ARTIFACT_PLATFORM_KEYS) {
+    for (const artifact of getPlatformArtifacts(state.artifacts, platformKey)) {
+      const card = document.querySelector<HTMLElement>(
+        `[data-artifact-platform="${platformKey}"][data-artifact-id="${CSS.escape(artifact.id)}"]`,
+      );
+      if (!card) continue;
+
+      for (const field of card.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[data-artifact-field]')) {
+        const name = field.dataset.artifactField;
+        if (name === 'enabled') { artifact.enabled = (field as HTMLInputElement).checked; continue; }
+        if (name === 'label') { artifact.label = field.value; continue; }
+        if (name === 'dirPath') { artifact.dirPath = field.value; continue; }
+        if (name === 'fileName') { artifact.fileName = field.value; continue; }
+        if (name === 'defaultContent') { artifact.defaultContent = field.value; }
+      }
+    }
   }
+}
+
+/** 在默认内容光标处插入变量占位符 */
+function insertTemplateVariable(card: HTMLElement, token: string): void {
+  const textarea = card.querySelector<HTMLTextAreaElement>('[data-artifact-field="defaultContent"]');
+  if (!textarea) return;
+
+  const snippet = `{{${token}}}`;
+  const start = textarea.selectionStart ?? textarea.value.length;
+  const end = textarea.selectionEnd ?? start;
+  textarea.value = `${textarea.value.slice(0, start)}${snippet}${textarea.value.slice(end)}`;
+
+  const caret = start + snippet.length;
+  textarea.setSelectionRange(caret, caret);
+  textarea.focus();
+  syncArtifactsFromDom();
+}
+
+/** 新增一条自定义产物 */
+function handleAddArtifact(platformKey: PlatformKey): void {
+  if (!state.artifacts) return;
+  syncArtifactsFromDom();
+  state.artifacts[platformKey] = [...getPlatformArtifacts(state.artifacts, platformKey), createCustomArtifact()];
+  renderAllArtifactZones();
+  showToast(`已在「${PLATFORM_LABELS[platformKey]}」新增一条产物，保存后生效`, 'info');
+}
+
+/** 删除一条自定义产物（内置产物不可删除） */
+async function handleDeleteArtifact(card: HTMLElement): Promise<void> {
+  if (!state.artifacts) return;
+  const platformKey = card.dataset.artifactPlatform as PlatformKey | undefined;
+  const artifactId = card.dataset.artifactId;
+  if (!platformKey || !artifactId) return;
+
+  const artifact = getPlatformArtifacts(state.artifacts, platformKey).find((item) => item.id === artifactId);
+  if (!artifact) return;
+  if (artifact.builtin) {
+    showToast('内置产物不可删除，直接关闭开关即可', 'error');
+    return;
+  }
+  if (!await showConfirm(`确定删除产物「${artifact.label}」？`)) return;
+
+  syncArtifactsFromDom();
+  state.artifacts[platformKey] = getPlatformArtifacts(state.artifacts, platformKey)
+    .filter((item) => item.id !== artifactId);
+  renderAllArtifactZones();
+  showToast('已删除，保存后生效', 'info');
+}
+
+/** 校验产物路径：同平台内重名会互相覆盖，禁止保存 */
+function validateArtifactPaths(): boolean {
+  if (!state.artifacts) return true;
+  for (const platformKey of ARTIFACT_PLATFORM_KEYS) {
+    const duplicates = findDuplicateArtifactPaths(getPlatformArtifacts(state.artifacts, platformKey));
+    if (duplicates.length > 0) {
+      showToast(`${PLATFORM_LABELS[platformKey]}产物路径重复：${duplicates.join('、')}`, 'error');
+      return false;
+    }
+  }
+  return true;
+}
+
+/** 产物区事件委托（渲染后无需重新绑定） */
+function bindArtifactEvents(): void {
+  const root = $('[data-section="filehelper"]');
+  if (!root) return;
+
+  root.addEventListener('input', () => syncArtifactsFromDom());
+  root.addEventListener('change', () => syncArtifactsFromDom());
+
+  root.addEventListener('click', (event) => {
+    const target = event.target as HTMLElement;
+
+    const addBtn = target.closest('[data-artifact-add]') as HTMLElement | null;
+    if (addBtn) {
+      const platformKey = addBtn.dataset.artifactAdd as PlatformKey | undefined;
+      if (platformKey) handleAddArtifact(platformKey);
+      return;
+    }
+
+    const varBtn = target.closest('[data-artifact-var]') as HTMLElement | null;
+    if (varBtn) {
+      const card = varBtn.closest('.artifact-card') as HTMLElement | null;
+      const token = varBtn.dataset.artifactVar;
+      if (card && token) insertTemplateVariable(card, token);
+      return;
+    }
+
+    const deleteBtn = target.closest('[data-artifact-delete]') as HTMLElement | null;
+    if (deleteBtn) {
+      const card = deleteBtn.closest('.artifact-card') as HTMLElement | null;
+      if (card) void handleDeleteArtifact(card);
+    }
+  });
+}
+
+// ── 1.5 氚云一键回写开关 ──────────────────────────────
+
+function renderH3yunWritebackToggle(): void {
+  const checkbox = $('#h3yun-oneclick-writeback') as HTMLInputElement | null;
+  if (checkbox && state.config) checkbox.checked = state.config.h3yunOneClickWriteback;
+}
+
+function syncH3yunWritebackFromDom(): void {
+  if (!state.config) return;
+  const checkbox = $('#h3yun-oneclick-writeback') as HTMLInputElement | null;
+  state.config = { ...state.config, h3yunOneClickWriteback: checkbox?.checked ?? true };
 }
 
 // ── 2. 默认目录（双行并行） ───────────────────────────
@@ -351,14 +508,17 @@ async function handleCheckUpdate(): Promise<void> {
 // ── 5. 保存 / 重置 ────────────────────────────────────
 
 async function handleSubmit(): Promise<void> {
-  syncGenfilesFromDom();
-  if (!state.config) return;
+  syncArtifactsFromDom();
+  syncH3yunWritebackFromDom();
+  if (!state.config || !state.artifacts) return;
+  if (!validateArtifactPaths()) return;
+
   const cpPath = ($('#default-dir-cloudpivot') as HTMLInputElement | null)?.value || '';
   const hyPath = ($('#default-dir-h3yun') as HTMLInputElement | null)?.value || '';
 
   try {
+    state.artifacts = await saveArtifactConfig(state.artifacts);
     await saveConfig({
-      generatedFiles: state.config.generatedFiles,
       h3yunOneClickWriteback: state.config.h3yunOneClickWriteback,
       fallbackDirectoryPaths: { cloudpivot: cpPath, h3yun: hyPath },
     });
@@ -366,6 +526,7 @@ async function handleSubmit(): Promise<void> {
     if (!cpPath.trim()) await clearDefaultDirectoryHandle('cloudpivot');
     if (!hyPath.trim()) await clearDefaultDirectoryHandle('h3yun');
     state.config = await loadConfig();
+    renderAllConfigUI(state.config);
     showToast('配置已保存', 'success');
   } catch (err: unknown) {
     logger.error('保存配置失败', { error: String(err) });
@@ -373,15 +534,31 @@ async function handleSubmit(): Promise<void> {
   }
 }
 
+/** 恢复出厂产物配置（自定义产物与全部改动都会丢失） */
+async function handleFactoryReset(): Promise<void> {
+  if (!await showConfirm('确定恢复产物默认配置？自定义产物与所有修改都会丢失。')) return;
+  try {
+    state.artifacts = await resetArtifactConfig();
+    renderAllArtifactZones();
+    showToast('已恢复产物默认配置', 'success');
+  } catch (err: unknown) {
+    logger.error('恢复默认失败', { error: String(err) });
+    showToast(`恢复默认失败: ${err instanceof Error ? err.message : String(err)}`, 'error');
+  }
+}
+
+/** 丢弃未保存改动，还原为当前已保存的设置 */
 async function handleReset(): Promise<void> {
-  if (!await showConfirm('确定恢复默认设置？')) return;
+  if (!await showConfirm('确定丢弃未保存的改动？')) return;
   state.config = await loadConfig();
+  state.artifacts = await loadArtifactConfig();
   renderAllConfigUI(state.config);
-  showToast('已恢复当前保存的设置', 'info');
+  showToast('已还原为当前保存的设置', 'info');
 }
 
 function renderAllConfigUI(config: ExtensionConfig): void {
-  renderAllGenfiles(); bindGenfileInputs();
+  renderAllArtifactZones();
+  renderH3yunWritebackToggle();
   renderDefaultDirs();
 }
 
@@ -453,8 +630,8 @@ function bindExpandAll(): void {
 // ── 7. 事件绑定 ───────────────────────────────────────
 
 function bindEvents(): void {
-  // 文件生成
-  bindGenfileInputs();
+  // 产物配置
+  bindArtifactEvents();
 
   // 默认目录浏览按钮
   for (const btn of $$('[data-default-dir-platform]')) {
@@ -464,8 +641,9 @@ function bindEvents(): void {
     });
   }
 
-  // 保存/重置
+  // 保存 / 恢复默认 / 撤销
   $('#save-btn')?.addEventListener('click', () => { void handleSubmit(); });
+  $('#factory-reset-btn')?.addEventListener('click', () => { void handleFactoryReset(); });
   $('#reset-btn')?.addEventListener('click', () => { void handleReset(); });
 
   // 问题排查
@@ -496,6 +674,7 @@ async function init(): Promise<void> {
   state.collapseStateCache = (stored[COLLAPSE_STATE_KEY] && typeof stored[COLLAPSE_STATE_KEY] === 'object' ? stored[COLLAPSE_STATE_KEY] : {}) as Record<string, boolean>;
 
   state.config = await loadConfig();
+  state.artifacts = await loadArtifactConfig();
   renderAllConfigUI(state.config);
   renderHelpSection();
   updateDiagnosticInfo();
