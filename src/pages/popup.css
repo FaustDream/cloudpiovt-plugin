@@ -929,7 +929,7 @@ button:disabled {
   margin-top: var(--spacing-xs);
 }
 
-/* 产物弹层：两区分组 + 可滚动列表 */
+/* 产物弹层：可滚动的产物列表 */
 .file-picker-body {
   display: flex;
   flex-direction: column;
@@ -940,22 +940,18 @@ button:disabled {
   overflow-y: auto;
 }
 
-.file-picker-group {
+.file-picker-list {
   display: flex;
   flex-direction: column;
   gap: var(--spacing-xs);
 }
 
-.file-picker-group-title {
+.file-picker-footnote {
   margin: 0;
   font-size: var(--font-size-caption);
+  line-height: 1.5;
   color: var(--color-text-tertiary);
-}
-
-.file-picker-group-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
+  text-align: center;
 }
 
 /* 单行紧凑：名称占满剩余宽度并省略，已存在状态用右侧小标签 */
