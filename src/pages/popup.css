@@ -877,21 +877,6 @@ button:disabled {
   z-index: 1001;
 }
 
-.file-picker-title {
-  margin: 0;
-  font-size: 14px;
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-  text-align: center;
-}
-
-.file-picker-hint {
-  margin: 0;
-  font-size: var(--font-size-caption);
-  color: var(--color-text-tertiary);
-  text-align: center;
-}
-
 .file-picker-check {
   display: flex;
   align-items: center;
