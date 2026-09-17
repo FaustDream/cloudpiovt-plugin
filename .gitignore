@@ -6,6 +6,6 @@ releases/
 scripts/
 tests/
 BUG_FIXES.md
-docs/
+docs/memory/
 .workbuddy/
 .workbuddy-ai/
