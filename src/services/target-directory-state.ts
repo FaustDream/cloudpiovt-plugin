@@ -1,11 +1,10 @@
 /**
  * 目录选择与句柄解析状态（仅页面 scope 记忆）。
  *
- * 新版语义（替代旧版三级回退）：
- * - 目录记忆粒度 = 页面业务实例(scope)，页面间永不串用；
- * - 新页面(无 scope 绑定)强制手动选择「更新当前路径」或从历史恢复，
- *   不再自动绑定任何全局/平台级"上次选择目录"；
- * - 展示路径与读写句柄均以 scope 句柄为唯一权威，杜绝显示/写入不一致；
+ * 新版语义（替代旧版共享槽回退）：
+ * - 页面已绑定时，目录记忆粒度 = 页面业务实例(scope)，页面间永不串用；
+ * - 页面未绑定时，展示与读写统一回退到当前平台自己的默认目录句柄；
+ * - 展示路径、选择器 startIn、文件读写和权限检查共用同一有效句柄解析结果；
  * - 旧共享槽（pageType 全局句柄、平台 LAST_DIRECTORY）已整体退役，
  *   通过 cleanupLegacyDirectoryData() 在扩展启动时清理。
  */
@@ -13,8 +12,10 @@
 import { logger } from '../lib/logger.js';
 import { STORAGE_KEYS } from '../lib/constants.js';
 import { createTargetDirectoryPageScope, saveTargetDirectoryPathByScope, clearTargetDirectoryPathsByScopePrefix, clearTargetDirectorySnapshotsByScopePrefix } from './target-directory-session.js';
-import { getTargetDirectoryHandleForScope, clearTargetDirectoryHandleForScope, saveTargetDirectoryHandleForScope, clearTargetDirectoryHandlesByScopePrefix, clearAllTargetDirectoryHandles } from '../lib/directory/file-handle-db.js';
+import { getTargetDirectoryHandleForScope, clearTargetDirectoryHandleForScope, saveTargetDirectoryHandleForScope, clearTargetDirectoryHandlesByScopePrefix, clearAllTargetDirectoryHandles, getDefaultDirectoryHandle } from '../lib/directory/file-handle-db.js';
 import { addRecentTargetDirectory } from './recent-target-directories.js';
+import { getPlatformKeyFromPageType } from './config.js';
+import type { PlatformKey } from '../types/platform.js';
 
 interface TabInfo {
   readonly id?: number;
@@ -22,23 +23,52 @@ interface TabInfo {
   readonly pendingUrl?: string;
 }
 
-// ── 仅 scope 路径解析 ───────────────────────────────
+// ── 有效目录解析 ──────────────────────────────────────
+
+export type TargetDirectorySource = 'page' | 'platform-default';
+
+export interface ResolvedTargetDirectory {
+  readonly handle: FileSystemDirectoryHandle;
+  readonly source: TargetDirectorySource;
+  readonly platformKey: PlatformKey;
+  readonly pageScope: string;
+}
 
 /**
- * 获取页面当前绑定目录的展示路径（目录名）。
+ * 解析当前页面真正使用的目录句柄。
  *
- * 只认 page scope 句柄（权威）：句柄存在即返回其目录名；否则返回 ''，
- * 不经过任何全局/平台回退，保证「展示 = 写入」。
+ * 页面绑定句柄优先；页面没有绑定时才使用当前平台的默认句柄。展示、选择器
+ * startIn、文件读写和权限检查都必须使用这个解析结果，避免不同链路各自回退
+ * 到不同目录。
+ */
+export async function resolveTargetDirectorySelection(
+  tab: TabInfo | number,
+  pageType: string,
+): Promise<ResolvedTargetDirectory | undefined> {
+  const pageScope = createTargetDirectoryPageScope(tab, pageType);
+  const platformKey = getPlatformKeyFromPageType(pageType);
+  if (pageScope) {
+    const pageHandle = await getTargetDirectoryHandleForScope(pageScope);
+    if (pageHandle) return { handle: pageHandle, source: 'page', platformKey, pageScope };
+  }
+
+  const defaultHandle = await getDefaultDirectoryHandle(platformKey);
+  if (!defaultHandle) return undefined;
+  return { handle: defaultHandle, source: 'platform-default', platformKey, pageScope };
+}
+
+/**
+ * 获取页面当前有效目录的展示名称。
+ *
+ * 只从 resolveTargetDirectorySelection 读取句柄名称，不读取独立的路径快照或
+ * 最近使用记录，保证页面显示的目录与后续实际使用的句柄保持同一数据源。
  */
 export async function getStoredDirectoryPath(
   tab: TabInfo | number,
-  _pageType: string,
+  pageType: string,
 ): Promise<string> {
-  const pageScope = createTargetDirectoryPageScope(tab, _pageType);
-  if (!pageScope) return '';
-
-  const scopeHandle = await getTargetDirectoryHandleForScope(pageScope);
-  return scopeHandle?.name || '';
+  const resolved = await resolveTargetDirectorySelection(tab, pageType);
+  return resolved?.handle.name || '';
 }
 
 // ── 选择目录后同步落库 ────────────────────────────────
@@ -68,21 +98,17 @@ export async function saveHandleSelection(
 }
 
 /**
- * 解析当前页面已绑定的目录句柄。
- * 回退顺序与 getStoredDirectoryPath（展示）保持一致：
- *  1) 当前页面的 scope 句柄（唯一来源）
- *  2) 无 → undefined（页面未绑定，写入方上报「请先选择目录」）
+ * 解析当前页面实际使用的目录句柄。
  *
- * 关键：不再回退到 页类型全局句柄 / 平台上次选择目录，
- * 避免页面 A 被页面 B 最后选择的目录覆盖（旧版污染根源）。
+ * 回退顺序与 getStoredDirectoryPath（展示）完全一致：页面 scope 句柄 → 当前平台
+ * 默认句柄 → undefined。不同页面不会共享页面 scope，云枢与氚云也不会共享默认句柄。
  */
 export async function resolveTargetDirectoryHandle(
   tab: TabInfo | number,
   pageType: string,
 ): Promise<FileSystemDirectoryHandle | undefined> {
-  const pageScope = createTargetDirectoryPageScope(tab, pageType);
-  if (!pageScope) return undefined;
-  return getTargetDirectoryHandleForScope(pageScope);
+  const resolved = await resolveTargetDirectorySelection(tab, pageType);
+  return resolved?.handle;
 }
 
 // ── 标签页关闭清理 ────────────────────────────────────

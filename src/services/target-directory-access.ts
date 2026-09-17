@@ -11,13 +11,6 @@ import { logger } from '../lib/logger.js';
 import { DirectoryError, ValidationError, ERROR_CODE } from '../lib/errors.js';
 import { parseRelativePath, joinRelativePath, type RelativePathParts } from '../lib/utils.js';
 import {
-  saveTargetDirectoryHandleForScope,
-  getTargetDirectoryHandleForScope,
-  getDefaultDirectoryHandle,
-} from '../lib/directory/file-handle-db.js';
-import { createTargetDirectoryPageScope } from './target-directory-session.js';
-import { getPlatformKeyFromPageType } from './config.js';
-import {
   getStoredDirectoryPath,
   saveHandleSelection,
   clearTabTargetDirectoryData,
@@ -165,33 +158,19 @@ export function supportsDirectoryPicker(): boolean {
  *
  * 优先级（由高到低）：
  *  1) 当前页面 scope 句柄（该页面已绑定目录，选择器定位到当前目录）
- *  2) 当前项目（平台）设置的默认目录句柄（新页面手动选择时的快捷定位）
- *  3) 无（回退为系统默认，即不带 startIn）
+ *  2) 当前平台默认目录句柄（页面未绑定时，选择器定位到对应系统默认目录）
+ *  3) 无（当前平台没有可用句柄时才回退为系统默认位置）
  *
- * 明确排除旧共享槽：不经过 resolveTargetDirectoryHandle（scope 之外还有
- * 平台「上次选择目录」回退），也不读取 pageType 全局句柄，避免选择器
- * 打开到其他页面 / 其他项目的历史目录。
+ * 解析直接复用 resolveTargetDirectoryHandle，避免展示、读写和选择器各自维护
+ * 不同的回退链；旧共享槽和其他平台目录不会进入此流程。
  */
 async function resolveDirectoryPickerStartIn(
   tab: TabInfo | number,
   pageType: string,
 ): Promise<FileSystemDirectoryHandle | undefined> {
-  const granted = async (handle?: FileSystemDirectoryHandle): Promise<FileSystemDirectoryHandle | undefined> =>
-    handle && (await queryHandlePermission(handle)) === 'granted' ? handle : undefined;
-
-  // 1) 当前页面 scope 句柄（该页面已绑定目录）
-  const pageScope = createTargetDirectoryPageScope(tab, pageType);
-  if (pageScope) {
-    const scopeHandle = await granted(await getTargetDirectoryHandleForScope(pageScope));
-    if (scopeHandle) return scopeHandle;
-  }
-
-  // 2) 当前项目（平台）设置的默认目录句柄（新页面手动选择时的快捷定位）
-  const platformKey = getPlatformKeyFromPageType(pageType);
-  const defaultHandle = await granted(await getDefaultDirectoryHandle(platformKey));
-  if (defaultHandle) return defaultHandle;
-
-  return undefined;
+  // 即使句柄当前权限为 prompt/denied，也把它作为 startIn 传入：目录选择器的
+  // 定位信息与授权状态是两件事。若句柄已失效，showDirPicker 会自动无 startIn 重试。
+  return resolveTargetDirectoryHandle(tab, pageType);
 }
 
 /** 弹出原生目录选择器并保存绑定 */
@@ -408,8 +387,6 @@ export async function writeFilesToSelection(
     throw new DirectoryError(ERROR_CODE.DIRECTORY_NOT_SELECTED, '请先选择目标目录。');
   }
 
-  const pageScope = createTargetDirectoryPageScope(tab, pageType);
-  await saveTargetDirectoryHandleForScope(handle, pageScope);
   return await writeFilesViaHandle(handle, fileEntries);
 }
 

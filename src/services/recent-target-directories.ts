@@ -1,7 +1,7 @@
 /**
  * 最近使用目录历史管理。
  *
- * 基于 chrome.storage.local 持久化，不设数量上限，按 path 去重、时间降序排列。
+ * 基于 chrome.storage.local 持久化，不设数量上限，按平台与 path 去重、时间降序排列。
  */
 import { STORAGE_KEYS } from '../lib/constants.js';
 import { normalizePath, extractLastFolderName } from '../lib/utils.js';
@@ -49,6 +49,13 @@ function normalizePageType(value: unknown): string {
   return String(value || '').trim() || 'default';
 }
 
+/** 历史目录去重键：云枢与氚云即使选择同一目录，也必须保留两条独立记录。 */
+function getRecentEntryIdentity(entry: RecentDirectoryEntry): string {
+  const pageType = normalizePageType(entry.pageType).toLowerCase();
+  const platform = pageType === 'default' ? 'unknown' : getPlatformKeyFromPageType(pageType);
+  return `${platform}:${entry.path}`;
+}
+
 /** 清洗并排序最近目录列表 */
 export function normalizeRecentTargetDirectories(value: unknown): RecentDirectoryEntry[] {
   if (!Array.isArray(value)) return [];
@@ -65,12 +72,13 @@ export function normalizeRecentTargetDirectories(value: unknown): RecentDirector
     .filter((e): e is RecentDirectoryEntry => e !== null)
     .sort((a, b) => b.lastUsedAt - a.lastUsedAt);
 
-  // 按 path 去重，保留时间戳最新的
+  // 按平台 + path 去重，保留时间戳最新的
   const seen = new Set<string>();
   const deduped: RecentDirectoryEntry[] = [];
   for (const record of sorted) {
-    if (seen.has(record.path)) continue;
-    seen.add(record.path);
+    const identity = getRecentEntryIdentity(record);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
     deduped.push(record);
   }
   return deduped;

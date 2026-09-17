@@ -242,16 +242,16 @@ async function safeExecuteScript(
 // ── Directory Display ──────────────────────────────────
 
 async function updateDirectoryDisplay(): Promise<void> {
-  const path = state.currentDirectoryPath || (state.pageTypeConfig
-    ? await getStoredDirectoryPath(state.pageContext, state.pageTypeConfig.pageType)
-    : '');
-  const label = state.currentDirectoryLabel || extractLastFolderName(path);
+  const pageType = state.pageTypeConfig?.pageType;
+  const path = pageType ? await getStoredDirectoryPath(state.pageContext, pageType) : '';
+  state.currentDirectoryPath = path;
+  state.currentDirectoryLabel = extractLastFolderName(path);
 
   if (dom.copyPathBtn) {
     dom.copyPathBtn.style.display = path ? '' : 'none';
   }
   if (dom.currentPathTag) {
-    dom.currentPathTag.textContent = path ? (label || path) : '未选择目录';
+    dom.currentPathTag.textContent = path ? state.currentDirectoryLabel || path : '未选择目录';
     dom.currentPathTag.title = path
       ? path
       : '请点击「更新当前路径」选择本地目录，或从历史目录中搜索恢复';
@@ -274,7 +274,10 @@ async function handleSelectHistoryPath(path: string): Promise<void> {
   // 精确定位历史路径对应的句柄：仅用历史条目自身记录的 scope 从 IndexedDB
   // 获取页面级句柄（句柄名必须与历史 path 一致，防止 scope 被其他目录覆盖后误恢复）。
   // 不再回退 pageType 全局句柄——旧共享槽已退役，且该槽会被其他页面污染导致恢复落空。
-  const entry = state.recentDirectories.find((r) => r.path === path);
+  const activePlatform = getActivePlatformKey();
+  const entry = state.recentDirectories.find(
+    (r) => r.path === path && resolveRecentEntryPlatform(r, state.config) === activePlatform,
+  );
   let handle: FileSystemDirectoryHandle | undefined;
   if (entry?.scope) {
     const scopedHandle = await getTargetDirectoryHandleForScope(entry.scope);
@@ -342,12 +345,10 @@ async function handleClearHistory(): Promise<void> {
 }
 
 async function handleCopyPath(): Promise<void> {
-  const path = state.currentDirectoryPath || (state.pageTypeConfig
-    ? await getStoredDirectoryPath(state.pageContext, state.pageTypeConfig.pageType)
-    : '');
+  await updateDirectoryDisplay();
+  const path = state.currentDirectoryPath;
   if (path) {
     await navigator.clipboard.writeText(path);
-    state.currentDirectoryPath = path;
     addSuccessLog('路径已复制到剪贴板');
   } else {
     addWarningLog('当前未选择目录', '请先点击「选择目录」或从历史目录中选择');
@@ -1259,13 +1260,13 @@ async function runOperationWithPreflight(
 
   // Directory check — 使用 scope 级解析（与实际写入路径一致），而非 pageType 全局
   const handle = await resolveTargetDirectoryHandle(state.pageContext, state.pageTypeConfig?.pageType || 'default');
-  const hasDirectory = Boolean(handle) || Boolean(state.currentDirectoryPath);
+  const hasDirectory = Boolean(handle);
   results.push(createPreflightResult({
     operationId, checkId: 'directory.selected',
     severity: hasDirectory ? 'info' : 'blocker',
     ok: hasDirectory,
     errorCode: hasDirectory ? '' : 'ERR_DIRECTORY_NOT_SELECTED',
-    evidence: hasDirectory ? (state.currentDirectoryLabel || '已选择') : 'no directory selected',
+    evidence: hasDirectory ? (handle?.name || '已选择') : 'no directory selected',
     nextAction: hasDirectory ? '' : '请先选择目标目录',
   }));
 
