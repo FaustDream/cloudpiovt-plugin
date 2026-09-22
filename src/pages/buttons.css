@@ -1,0 +1,136 @@
+/**
+ * 语义按钮配色层（popup / options 共用）。
+ *
+ * 设计原则：**色相由「功能类型」决定，填充强度由「动作层级」决定**。
+ * 本文件只声明颜色（背景 / 文字 / 边框色 / 阴影 / hover / active），
+ * 几何尺寸（高度、内边距、圆角、字号、动画）仍由各页按钮类负责——
+ * 各页 CSS 不再声明按钮颜色，从而保证同一功能在 popup 与 options 颜色一致。
+ *
+ * 功能 → 语义类 → 颜色（新增按钮请直接使用语义类）
+ * ┌ 提交 / 执行 · 主入口 ── .btn-primary         主色实心（保存、确认、抓取、全面检查、检查更新）
+ * ├ 提交 / 执行 · 同级次要 ─ .btn-primary-outline 主色描边（回写、绑定默认目录、新建产物）
+ * ├ 取消 / 关闭 / 中性 ──── .btn-neutral         中性灰（取消、撤销、展开折叠、更多 ▾）
+ * ├ 图标 / 芯片工具 ────── .btn-tool            中性描边 + hover 主色（刷新路径、复制路径、页面来源）
+ * ├ 下拉菜单项 ────────── .btn-menu-item       透明底 + hover 主色（复制全部信息、导出诊断…）
+ * ├ 删除 / 清空 / 重置 ─── .btn-danger          危险红（删除产物、清空历史、恢复默认、破坏性确认）
+ * ├ 完成反馈（瞬时） ───── .btn-success         成功绿（保存成功 ✓、恢复默认 ✓）
+ * └ 文字链接动作 ──────── .btn-link            主色文字（导出 ▾、复制日志、设置、前往下载页面）
+ *
+ * 注意：`.btn-danger` 与 `.btn-success` 是「按语义改色」的类，若与 `.btn-primary` 等
+ * 同时出现，必须保证本文件在页面 CSS 之后加载（HTML 中 buttons.css 放在最后）。
+ */
+
+/* ── 1. 提交 / 执行 · 主入口 ─────────────────────────── */
+.btn-primary {
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  font-weight: var(--font-weight-semibold);
+  box-shadow: 0 2px 4px var(--color-primary-shadow);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--color-primary-hover);
+  box-shadow: 0 4px 10px var(--color-primary-shadow);
+}
+
+.btn-primary:active:not(:disabled) {
+  background: var(--color-primary-active);
+}
+
+/* ── 2. 提交 / 执行 · 同级次要（描边） ───────────────── */
+.btn-primary-outline {
+  background: var(--bg-card);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+
+.btn-primary-outline:hover:not(:disabled) {
+  background: var(--color-primary-bg);
+  border-color: var(--color-primary-hover);
+}
+
+.btn-primary-outline:active:not(:disabled) {
+  background: var(--color-primary-bg);
+  border-color: var(--color-primary-active);
+  color: var(--color-primary-active);
+}
+
+/* ── 3. 取消 / 关闭 / 中性 ──────────────────────────── */
+.btn-neutral {
+  background: var(--bg-input);
+  color: var(--color-text-secondary);
+  border-color: transparent;
+}
+
+.btn-neutral:hover:not(:disabled) {
+  background: var(--bg-card);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-input);
+}
+
+/* ── 4. 图标 / 芯片工具 ─────────────────────────────── */
+.btn-tool {
+  background: var(--bg-card);
+  color: var(--color-text-secondary);
+  border-color: var(--color-border-input);
+}
+
+.btn-tool:hover:not(:disabled) {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  background: var(--color-primary-bg);
+}
+
+/* ── 5. 下拉 / 浮层菜单项 ───────────────────────────── */
+.btn-menu-item {
+  background: transparent;
+  color: var(--color-text-primary);
+}
+
+.btn-menu-item:hover:not(:disabled) {
+  background: var(--bg-input);
+  color: var(--color-primary);
+}
+
+/* ── 6. 删除 / 清空 / 重置（破坏性） ────────────────── */
+.btn-danger {
+  background: transparent;
+  color: var(--color-danger);
+  border-color: var(--color-danger-border);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+/* 破坏性的低干扰形态（列表行内的小图标按钮）：默认中性，hover 才显危险 */
+.btn-danger.is-quiet {
+  background: var(--bg-input);
+  color: var(--color-text-tertiary);
+  border-color: var(--color-border-card);
+}
+
+.btn-danger.is-quiet:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+/* ── 7. 完成反馈（瞬时态，由 JS 加类后自动移除） ────── */
+.btn-success {
+  background: var(--color-success);
+  color: var(--color-on-primary);
+}
+
+/* ── 8. 文字链接动作 ────────────────────────────────── */
+.btn-link {
+  background: transparent;
+  color: var(--color-primary);
+}
+
+.btn-link:hover:not(:disabled) {
+  background: var(--color-primary-bg);
+  color: var(--color-primary-hover);
+}

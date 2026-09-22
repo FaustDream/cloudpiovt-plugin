@@ -6,17 +6,43 @@
     <title>开发助手</title>
     <link rel="stylesheet" href="options.css">
     <link rel="stylesheet" href="options-layout.css">
+    <!-- 语义按钮配色层：颜色按功能类型统一，须在页面样式之后加载 -->
+    <link rel="stylesheet" href="buttons.css">
   </head>
   <body>
     <main class="page-shell">
-      <!-- 顶栏 sticky：左侧应用名+版本，右侧操作按钮 -->
+      <!-- 顶栏 sticky：左侧顶部导航，右侧操作按钮 -->
       <header class="top-bar">
         <div class="top-bar-row">
+          <!-- 顶部导航：每项只展示对应的设置分区 -->
+          <nav class="segmented top-nav" id="top-nav" role="tablist" aria-label="设置导航">
+            <button class="segmented-item is-active" type="button" role="tab" aria-selected="true" aria-controls="section-filehelper" data-nav-target="filehelper">
+              <svg class="segmented-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+              <span>文件助手</span>
+            </button>
+            <button class="segmented-item" type="button" role="tab" aria-selected="false" aria-controls="section-defaultdir" data-nav-target="defaultdir">
+              <svg class="segmented-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              <span>默认目录</span>
+            </button>
+            <button class="segmented-item" type="button" role="tab" aria-selected="false" aria-controls="section-diagnostic" data-nav-target="diagnostic">
+              <svg class="segmented-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <span>问题排查</span>
+            </button>
+            <button class="segmented-item" type="button" role="tab" aria-selected="false" aria-controls="section-help" data-nav-target="help">
+              <svg class="segmented-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+              <span>使用说明</span>
+            </button>
+            <button class="segmented-item" type="button" role="tab" aria-selected="false" aria-controls="section-update" data-nav-target="update">
+              <svg class="segmented-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/></svg>
+              <span>项目更新</span>
+            </button>
+          </nav>
+
           <div class="top-bar-actions">
-            <button id="expand-all-btn" class="ghost-btn-sm" type="button" title="全部展开/折叠">展开/折叠</button>
-            <button id="save-btn" class="save-btn" type="button">保存</button>
-            <button id="factory-reset-btn" class="ghost-btn-sm" type="button" title="恢复产物出厂配置">恢复默认</button>
-            <button id="reset-btn" class="ghost-btn-sm" type="button" title="丢弃未保存改动">撤销</button>
+            <button id="expand-all-btn" class="btn-neutral ghost-btn-sm" type="button" title="全部展开/折叠">展开/折叠</button>
+            <button id="save-btn" class="btn-primary save-btn" type="button">保存</button>
+            <button id="factory-reset-btn" class="btn-danger ghost-btn-sm" type="button" title="恢复产物出厂配置">恢复默认</button>
+            <button id="reset-btn" class="btn-neutral ghost-btn-sm" type="button" title="丢弃未保存改动">撤销</button>
           </div>
         </div>
       </header>
@@ -29,43 +55,18 @@
         <div class="confirm-card">
           <p class="confirm-message" id="confirm-message"></p>
           <div class="confirm-actions">
-            <button id="confirm-cancel-btn" class="ghost-btn-sm" type="button">取消</button>
-            <button id="confirm-ok-btn" class="save-btn" type="button">确认</button>
+            <button id="confirm-cancel-btn" class="btn-neutral ghost-btn-sm" type="button">取消</button>
+            <button id="confirm-ok-btn" class="btn-primary save-btn" type="button">确认</button>
           </div>
         </div>
       </div>
 
-      <!-- 侧边栏 + 内容区双栏布局 -->
+      <!-- 内容区：全宽单栏，分区由顶部导航切换（同时只展示一个） -->
       <div class="page-layout">
-        <nav class="sidebar" id="sidebar-nav" aria-label="设置导航">
-          <ul class="sidebar-list">
-            <li class="sidebar-item is-active" data-nav-target="filehelper">
-              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-              <span>文件助手</span>
-            </li>
-            <li class="sidebar-item" data-nav-target="defaultdir">
-              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-              <span>默认目录</span>
-            </li>
-            <li class="sidebar-item" data-nav-target="diagnostic">
-              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-              <span>问题排查</span>
-            </li>
-            <li class="sidebar-item" data-nav-target="help">
-              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-              <span>使用说明</span>
-            </li>
-            <li class="sidebar-item" data-nav-target="update">
-              <svg class="sidebar-item-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/></svg>
-              <span>项目更新</span>
-            </li>
-          </ul>
-        </nav>
-
         <div class="content-area">
 
           <!-- 文件助手：File System Access API + 文件生成 -->
-          <section class="section" data-section="filehelper">
+          <section class="section" id="section-filehelper" data-section="filehelper">
             <div class="section-head" role="button" tabindex="0" aria-expanded="true">
               <span class="section-icon" aria-hidden="true">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
@@ -84,8 +85,6 @@
                 </p>
               </div>
 
-              <hr class="section-divider" />
-
               <!-- 云枢产物配置 -->
               <div class="genfiles-platform-block">
                 <h3 class="genfiles-platform-title">云枢</h3>
@@ -96,11 +95,9 @@
                 <div class="artifact-zone">
                   <p class="artifact-zone-title">可自定义产物（可改名称、路径、文件名与默认内容）</p>
                   <div class="artifact-list" id="artifacts-cloudpivot-template"></div>
-                  <button type="button" class="ghost-btn-sm artifact-add-btn" data-artifact-add="cloudpivot">+ 新建产物</button>
+                  <button type="button" class="btn-primary-outline ghost-btn-sm artifact-add-btn" data-artifact-add="cloudpivot">+ 新建产物</button>
                 </div>
               </div>
-
-              <hr class="section-divider" />
 
               <!-- 氚云产物配置 -->
               <div class="genfiles-platform-block">
@@ -112,7 +109,7 @@
                 <div class="artifact-zone">
                   <p class="artifact-zone-title">可自定义产物（可改名称、路径、文件名与默认内容）</p>
                   <div class="artifact-list" id="artifacts-h3yun-template"></div>
-                  <button type="button" class="ghost-btn-sm artifact-add-btn" data-artifact-add="h3yun">+ 新建产物</button>
+                  <button type="button" class="btn-primary-outline ghost-btn-sm artifact-add-btn" data-artifact-add="h3yun">+ 新建产物</button>
                 </div>
                 <!-- 氚云一键回写开关（始终可见） -->
                 <label class="toggle-inline h3yun-writeback-toggle">
@@ -125,31 +122,34 @@
           </section>
 
           <!-- 默认目录 -->
-          <section class="section" data-section="defaultdir">
+          <section class="section" id="section-defaultdir" data-section="defaultdir" hidden>
             <div class="section-head" role="button" tabindex="0" aria-expanded="true">
               <span class="section-icon" aria-hidden="true">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
               </span>
               <span class="section-arrow">▲</span>
               <h2 class="section-title">默认目录</h2>
-              <p class="section-desc">当页面没有已选目录时自动使用对应平台的默认路径。</p>
+              <p class="section-desc">当页面没有已选目录时自动使用对应平台的默认目录。需通过「浏览」绑定：浏览器只对绑定过的目录授权读写，仅填写路径文本无法生效。</p>
             </div>
             <div class="section-body">
               <div class="default-dir-platform-row">
                 <label class="dir-platform-label">云枢</label>
-                <input class="dir-path-input" id="default-dir-cloudpivot" type="text" placeholder="D:\Projects\cloudpivot-workspace">
-                <button type="button" class="ghost-btn-sm default-dir-browse-btn" data-default-dir-platform="cloudpivot">浏览</button>
+                <input class="dir-path-input" id="default-dir-cloudpivot" type="text" readonly placeholder="点击「浏览」绑定目录">
+                <button type="button" class="btn-primary-outline ghost-btn-sm default-dir-browse-btn" data-default-dir-platform="cloudpivot">浏览</button>
               </div>
+              <p class="dir-unbound-hint" id="default-dir-cloudpivot-hint" hidden></p>
               <div class="default-dir-platform-row">
                 <label class="dir-platform-label">氚云</label>
-                <input class="dir-path-input" id="default-dir-h3yun" type="text" placeholder="D:\Projects\h3yun-workspace">
-                <button type="button" class="ghost-btn-sm default-dir-browse-btn" data-default-dir-platform="h3yun">浏览</button>
+                <input class="dir-path-input" id="default-dir-h3yun" type="text" readonly placeholder="点击「浏览」绑定目录">
+                <button type="button" class="btn-primary-outline ghost-btn-sm default-dir-browse-btn" data-default-dir-platform="h3yun">浏览</button>
               </div>
+              <p class="dir-unbound-hint" id="default-dir-h3yun-hint" hidden></p>
+              <p class="artifact-note">浏览器出于隐私限制不提供完整路径，此处只显示已绑定目录的名称；重新「浏览」会覆盖原有绑定。</p>
             </div>
           </section>
 
       <!-- 问题排查 -->
-      <section class="section" data-section="diagnostic">
+      <section class="section" id="section-diagnostic" data-section="diagnostic" hidden>
         <div class="section-head" role="button" tabindex="0" aria-expanded="true">
           <span class="section-icon" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
@@ -159,12 +159,17 @@
           <p class="section-desc">扩展状态概览、运行日志与诊断导出。</p>
         </div>
         <div class="section-body">
-          <div class="action-row" style="margin-bottom: var(--spacing-md); flex-wrap: wrap;">
-            <button id="diag-health-check-btn" class="ghost-btn-sm" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> 全面检查</button>
-            <button id="diag-copy-all-btn" class="ghost-btn-sm" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制全部信息</button>
-            <button id="copy-diagnostic-summary-btn" class="ghost-btn-sm" type="button">复制摘要</button>
-            <button id="export-last-diagnostic-btn" class="ghost-btn-sm" type="button">导出诊断</button>
-            <button id="diag-export-btn" class="ghost-btn-sm" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 导出 JSON</button>
+          <div class="action-row action-row-diagnostic">
+            <button id="diag-health-check-btn" class="btn-primary save-btn" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg> 全面检查</button>
+            <div class="dropdown" id="diag-more-dropdown">
+              <button id="diag-more-btn" class="btn-neutral ghost-btn-sm" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="diag-more-menu">更多 ▾</button>
+              <div class="dropdown-menu" id="diag-more-menu" role="menu" hidden>
+                <button id="diag-copy-all-btn" class="btn-menu-item dropdown-item" type="button" role="menuitem">复制全部信息</button>
+                <button id="copy-diagnostic-summary-btn" class="btn-menu-item dropdown-item" type="button" role="menuitem">复制摘要</button>
+                <button id="export-last-diagnostic-btn" class="btn-menu-item dropdown-item" type="button" role="menuitem">导出诊断</button>
+                <button id="diag-export-btn" class="btn-menu-item dropdown-item" type="button" role="menuitem">导出 JSON</button>
+              </div>
+            </div>
           </div>
 
           <!-- 扩展信息概览 -->
@@ -200,7 +205,7 @@
       </section>
 
       <!-- 使用说明 -->
-      <section class="section" data-section="help">
+      <section class="section" id="section-help" data-section="help" hidden>
         <div class="section-head" role="button" tabindex="0" aria-expanded="true">
           <span class="section-icon" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -210,9 +215,9 @@
           <p class="section-desc">各平台控件参考与内置规则。</p>
         </div>
         <div class="section-body">
-          <div class="platform-switch" role="tablist" aria-label="使用说明平台">
-            <button id="help-cloudpivot-tab" class="platform-switch-tab is-active" type="button" role="tab" aria-selected="true" data-help-platform="cloudpivot">云枢</button>
-            <button id="help-h3yun-tab" class="platform-switch-tab" type="button" role="tab" aria-selected="false" data-help-platform="h3yun">氚云</button>
+          <div class="segmented help-platform-switch" role="tablist" aria-label="使用说明平台">
+            <button id="help-cloudpivot-tab" class="segmented-item is-active" type="button" role="tab" aria-selected="true" data-help-platform="cloudpivot">云枢</button>
+            <button id="help-h3yun-tab" class="segmented-item" type="button" role="tab" aria-selected="false" data-help-platform="h3yun">氚云</button>
           </div>
 
           <!-- 云枢面板 -->
@@ -237,8 +242,8 @@
             <div class="help-sub-card">
               <h4>控件参考</h4>
               <div class="help-table-wrap">
-                <table class="help-ref-table">
-                  <thead><tr><th>控件类型</th><th>中文名称</th><th>说明</th></tr></thead>
+                <table class="help-ref-table help-ref-table-4col">
+                  <thead><tr><th>控件类型</th><th>中文名称</th><th>读取</th><th>说明</th></tr></thead>
                   <tbody id="h3yun-control-ref-body"></tbody>
                 </table>
               </div>
@@ -252,7 +257,7 @@
       </section>
 
       <!-- 项目更新：检查 GitHub Releases 最新版本并下载 -->
-      <section class="section" data-section="update">
+      <section class="section" id="section-update" data-section="update" hidden>
         <div class="section-head" role="button" tabindex="0" aria-expanded="true">
           <span class="section-icon" aria-hidden="true">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/></svg>
@@ -268,14 +273,14 @@
           </div>
 
           <div class="action-row">
-            <button id="update-check-btn" class="ghost-btn-sm" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/></svg> 检查更新</button>
+            <button id="update-check-btn" class="btn-primary ghost-btn-sm" type="button"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-9-9"/><polyline points="21 3 21 9 15 9"/></svg> 检查更新</button>
           </div>
 
           <div class="update-result" id="update-result" hidden>
             <p class="update-status-text" id="update-status-text"></p>
             <div class="update-actions" id="update-actions" hidden>
-              <a id="update-download-link" class="save-btn btn-link" href="#" download><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 下载最新版</a>
-              <a id="update-open-link" class="ghost-btn-sm btn-link" href="#" target="_blank" rel="noopener noreferrer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> 前往下载页面</a>
+              <a id="update-download-link" class="btn-primary save-btn btn-anchor" href="#" download><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> 下载最新版</a>
+              <a id="update-open-link" class="btn-link btn-anchor" href="#" target="_blank" rel="noopener noreferrer"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg> 前往下载页面</a>
             </div>
           </div>
         </div>
