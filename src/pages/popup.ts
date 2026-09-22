@@ -19,7 +19,7 @@ import type { PageCaptureResult, PageWritebackResult, BizRuleProbeResult, BizRul
 
 import { logger } from '../lib/logger.js';
 import { DirectoryError, ERROR_CODE } from '../lib/errors.js';
-import { resolvePageTypeConfig, resolveH3yunDesignMode, loadConfig, isRecognizedPlatformUrl } from '../services/config.js';
+import { resolvePageTypeConfig, resolveH3yunDesignMode, loadConfig, isRecognizedPlatformUrl, getFallbackDirectoryPathByPlatform } from '../services/config.js';
 import { pageCaptureMain } from '../injection/cloudpivot-capture.js';
 import { pageWritebackMain } from '../injection/cloudpivot-writeback.js';
 import { bizRuleProbeMain } from '../injection/cloudpivot-bizrule-probe.js';
@@ -43,14 +43,30 @@ import {
 } from '../services/recent-target-directories.js';
 import { getStoredDirectoryPath, saveHandleSelection, resolveTargetDirectoryHandle } from '../services/target-directory-state.js';
 import {
+  buildScopeOptions,
+  formatArtifactScopeBadge,
+  formatArtifactScopeSummary,
+  hasPlatformScopeOverrides,
+  platformScopeOverrides,
+  resolveArtifactScopeState,
+  toggleScopeArtifact,
+  withPlatformScopeOverrides,
+  withoutPlatformScopeOverrides,
+  type ArtifactScopeInput,
+  type ArtifactScopeOverrides,
+} from '../lib/platform/artifact-scope.js';
+import { loadScopeOverrides, saveScopeOverrides, clearScopeOverrides } from '../services/artifact-scope-store.js';
+import {
   selectAndBindDirectory,
   writeFilesToSelection,
   readFilesFromSelection,
   fileExistsInSelection,
-  getTargetDirectoryPermission,
   queryHandlePermissionState,
   requestHandlePermissionState,
+  requestTargetDirectoryPermission,
 } from '../services/target-directory-access.js';
+import { checkTargetDirectoryHealth } from '../services/target-directory-check.js';
+import type { TargetDirectoryCheckResult } from '../services/target-directory-check.js';
 import { getTargetDirectoryHandleForScope } from '../lib/directory/file-handle-db.js';
 import {
   buildMissingArtifactFiles,
@@ -61,7 +77,6 @@ import {
 import {
   getPlatformArtifacts,
   loadArtifactConfig,
-  saveArtifactConfig,
 } from '../services/artifacts.js';
 import {
   createPreflightResult,
@@ -69,7 +84,7 @@ import {
   saveLastDiagnosticPackage,
   buildDiagnosticPackage,
 } from '../services/preflight-diagnostics.js';
-import { PREFLIGHT_OPERATION_IDS } from '../lib/constants.js';
+import { PREFLIGHT_OPERATION_IDS, PLATFORM_LABELS } from '../lib/constants.js';
 import { CURRENT_EXTENSION_VERSION } from '../lib/release-notes.js';
 import { normalizeArtifactPath } from '../lib/utils.js';
 import {
@@ -102,8 +117,11 @@ const state = {
   searchDropdownOpen: false,
   exportDropdownOpen: false,
   activePlatformTab: 'auto' as PlatformKey | 'auto',
-  /** 缓存本次操作的产物开关覆盖（产物 id → 是否启用） */
-  pendingArtifactOverrides: null as Record<string, boolean> | null,
+  /**
+   * 更新范围已保存的选择（平台 → 产物 id → 是否启用）。
+   * 落盘在 `chrome.storage.local`，重开弹窗按它还原勾选；「恢复为设置页配置」清除。
+   */
+  scopeOverrides: null as ArtifactScopeOverrides | null,
 };
 
 // ── DOM Refs ──────────────────────────────────────────
@@ -126,17 +144,18 @@ const dom = {
   get writebackBtn() { return $('#frontend-writeback-btn') as HTMLElement; },
   get bizRuleCaptureBtn() { return $('#bizrule-capture-write-btn') as HTMLElement; },
   get bizRuleWritebackBtn() { return $('#bizrule-writeback-btn') as HTMLElement; },
-  get filePickerGearBtn() { return $('#cloudpivot-frontend-gear-btn') as HTMLElement; },
+  get cloudpivotScopeBtn() { return $('#cloudpivot-scope-btn') as HTMLElement; },
+  get cloudpivotScopeMenu() { return $('#cloudpivot-scope-menu') as HTMLElement; },
   // H3Yun buttons
   get h3yunCaptureAllBtn() { return $('#h3yun-capture-all-btn') as HTMLElement; },
-  get h3yunCaptureGearBtn() { return $('#h3yun-capture-gear-btn') as HTMLElement; },
+  get h3yunScopeBtn() { return $('#h3yun-scope-btn') as HTMLElement; },
+  get h3yunScopeMenu() { return $('#h3yun-scope-menu') as HTMLElement; },
   get h3yunOneClickWritebackBtn() { return $('#h3yun-oneclick-writeback-btn') as HTMLElement; },
   get h3yunWritebackFrontendBtn() { return $('#h3yun-frontend-writeback-btn') as HTMLElement; },
   get h3yunWritebackBackendBtn() { return $('#h3yun-backend-writeback-btn') as HTMLElement; },
   // Status
   get statusOutput() { return $('.status-output') as HTMLElement; },
   // Overlays
-  get filePickerOverlay() { return $('#file-picker-overlay') as HTMLElement; },
   // Status action buttons (corrected IDs matching popup.html)
   get exportDropdownMenu() { return $('#export-dropdown-menu') as HTMLElement; },
   get exportDropdownBtn() { return $('#export-dropdown-btn') as HTMLElement; },
@@ -155,18 +174,32 @@ function addLog(message: string, level: LogEntry['level'] = 'info', suggestion?:
   renderStatus();
 }
 
-function addSuccessLog(message: string): void { addLog(message, 'success'); }
+function addSuccessLog(message: string, suggestion?: string): void { addLog(message, 'success', suggestion); }
 function addErrorLog(message: string, suggestion?: string): void { addLog(message, 'error', suggestion); }
 function addWarningLog(message: string, suggestion?: string): void { addLog(message, 'warning', suggestion); }
 
+/** 日志级别前缀图标（颜色由 CSS 按级别着色：错误红字、成功绿字） */
+const LOG_LEVEL_PREFIX: Record<LogEntry['level'], string> = {
+  info: 'ℹ',
+  success: '✅',
+  error: '❌',
+  warning: '⚠️',
+};
+
+/**
+ * 渲染状态区。
+ *
+ * 用 HTML 而非纯文本：错误与成功必须一眼可辨（红字 / 绿字），
+ * 建议文案紧随同级日志（缩进一行），保证结论与处置动作同时可见。
+ */
 function renderStatus(): void {
   const el = dom.statusOutput;
   if (!el) return;
-  const lines = state.logEntries.map((e) => {
-    const prefix = { info: 'ℹ', success: '✅', error: '❌', warning: '⚠️' }[e.level] || 'ℹ';
-    return `[${e.time}] ${prefix} ${e.message}`;
-  });
-  el.textContent = lines.join('\n');
+  el.innerHTML = state.logEntries.map((entry) => {
+    const prefix = LOG_LEVEL_PREFIX[entry.level] || LOG_LEVEL_PREFIX.info;
+    const suggestion = entry.suggestion ? `\n   ↳ ${escapeHtml(entry.suggestion)}` : '';
+    return `<span class="log-line log-${entry.level}">[${escapeHtml(entry.time)}] ${prefix} ${escapeHtml(entry.message)}${suggestion}</span>`;
+  }).join('\n');
   el.scrollTop = el.scrollHeight;
 }
 
@@ -241,9 +274,20 @@ async function safeExecuteScript(
 
 // ── Directory Display ──────────────────────────────────
 
+/**
+ * 当前页面生效的 pageType（展示、选择器、预检、读写共用同一来源）。
+ *
+ * 页面已识别时用页面自身的 pageType；未识别时按用户当前打开的平台标签推导。
+ * 统一来源可避免「展示按页面推导、选择器按标签推导」时各自回退到不同平台的目录。
+ */
+function resolveEffectivePageType(): string {
+  if (state.pageTypeConfig) return state.pageTypeConfig.pageType;
+  return getActivePlatformKey() === 'h3yun' ? 'h3yunDefault' : 'default';
+}
+
 async function updateDirectoryDisplay(): Promise<void> {
-  const pageType = state.pageTypeConfig?.pageType;
-  const path = pageType ? await getStoredDirectoryPath(state.pageContext, pageType) : '';
+  // 未绑定页面时 getStoredDirectoryPath 会回退到本平台默认目录，展示与读写同源
+  const path = await getStoredDirectoryPath(state.pageContext, resolveEffectivePageType());
   state.currentDirectoryPath = path;
   state.currentDirectoryLabel = extractLastFolderName(path);
 
@@ -284,8 +328,11 @@ async function handleSelectHistoryPath(path: string): Promise<void> {
     if (scopedHandle && scopedHandle.name === path) handle = scopedHandle;
   }
   if (!handle) {
-    addLog(`历史目录「${extractLastFolderName(path)}」句柄已失效，请重新选择目录`, 'warning');
-    await handleRefreshDirectory();
+    // 目录选择器只由用户显式点击「更新当前路径」触发，这里只提示、不代用户弹窗
+    addWarningLog(
+      `历史目录「${extractLastFolderName(path)}」的句柄已失效`,
+      '请点击「更新当前路径」重新选择目标目录',
+    );
     return;
   }
 
@@ -316,9 +363,11 @@ async function handleSelectHistoryPath(path: string): Promise<void> {
     return;
   }
 
-  // 无句柄或用户拒绝授权：弹出目录选择对话框重新绑定
-  addLog(`历史目录「${extractLastFolderName(path)}」无法恢复，请重新选择目录`, 'warning');
-  await handleRefreshDirectory();
+  // 无句柄或用户拒绝授权：同样只提示，不代用户弹窗（选择器仅由显式点击触发）
+  addWarningLog(
+    `历史目录「${extractLastFolderName(path)}」无法恢复`,
+    '请点击「更新当前路径」重新选择目标目录',
+  );
 }
 
 async function handleRemoveHistoryPath(path: string): Promise<void> {
@@ -356,33 +405,107 @@ async function handleCopyPath(): Promise<void> {
 }
 
 /**
- * 「更新当前路径」：始终直接弹出目录选择对话框重新绑定。
- * 选择器默认打开当前环境已绑定的目录（target-directory-access 内部通过 startIn 处理）；
- * 授权由 showDirectoryPicker({ mode:'readwrite' }) 在选择时一并完成，无需前置重新授权步骤。
+ * 输出自检未通过的原因（红字 / 黄字）与处置建议。
+ *
+ * 只处理「需要用户处理」的结论：目录已消失（红）、平台默认目录配置冲突（红）、
+ * 无读写授权（黄）。自检通过与未绑定不在此输出，由调用方决定是否需要提示。
+ */
+function reportDirectoryCheckIssue(check: TargetDirectoryCheckResult): void {
+  const platformLabel = PLATFORM_LABELS[check.platformKey];
+  const label = check.label || '未命名目录';
+
+  switch (check.health) {
+    case 'missing':
+      addErrorLog(
+        `路径自检未通过：${platformLabel}目录「${label}」已不存在（可能已被移动或删除）`
+        + (check.clearedBinding ? '，已清除该目录的失效绑定' : ''),
+        '请点击「更新当前路径」重新选择目标目录',
+      );
+      return;
+    case 'platform-conflict':
+      addErrorLog(
+        `路径自检未通过：${platformLabel}默认目录与另一个平台的默认目录是同一个目录「${label}」`,
+        '请在设置页「默认目录」为云枢与氚云分别配置各自的工作目录',
+      );
+      return;
+    case 'permission-denied':
+      addWarningLog(
+        `路径自检未通过：目录「${label}」没有读写授权`,
+        '请点击「更新当前路径」重新授权或重新选择目标目录',
+      );
+      return;
+    default:
+      return;
+  }
+}
+
+/**
+ * 平台默认目录「配了路径但没绑句柄」时给出可操作提示。
+ *
+ * File System Access 只能通过句柄访问目录：设置页里仅填写路径文本不会被浏览器授权，
+ * 表现为「设置页看着配了默认目录，弹窗却定位不到、选择器只能打开系统默认位置」。
+ *
+ * @returns 是否输出了提示（false 表示该平台没有配置默认目录）
+ */
+function reportUnboundDefaultDirectory(platformKey: PlatformKey): boolean {
+  const defaultPath = state.config ? getFallbackDirectoryPathByPlatform(state.config, platformKey) : '';
+  if (!defaultPath) return false;
+
+  addWarningLog(
+    `${PLATFORM_LABELS[platformKey]}默认目录「${defaultPath}」未绑定访问句柄，无法定位该目录`,
+    '请在设置页「默认目录」点「浏览」重新绑定该目录',
+  );
+  return true;
+}
+
+/**
+ * 「更新当前路径」：用户主动点击即弹出目录选择器（云枢 / 氚云行为一致）。
+ *
+ * 自检只作为**信息反馈**（红字 / 绿字说明当前目录状态），不再阻断选择器：
+ * - 目录正常 → 绿字说明当前目录可用，仍可换成其它目录；
+ * - 目录已被移动 / 删除 → 红字提示并清理失效绑定；
+ * - 无读写授权 → 先在手势内补一次授权（保证重新授权流程能完成、选择器能定位到当前目录），
+ *   再进入选择器；
+ * - 未绑定 / 平台默认目录没绑句柄 → 相应提示。
  */
 async function handleRefreshDirectory(): Promise<void> {
   if (state.busy) return;
   await runWithButtonBusy(dom.refreshHandleBtn, async () => {
-    const pageType = state.pageTypeConfig?.pageType
-      || (getActivePlatformKey() === 'h3yun' ? 'h3yunDefault' : 'default');
+    const pageType = resolveEffectivePageType();
 
-    addLog('正在弹出目录选择对话框...');
-    const result = await selectAndBindDirectory(state.pageContext, {
-      pageType,
-      isPageSnapshot: false,
-    });
+    // 1) 自检：只输出结论，不决定是否弹窗
+    const check = await checkTargetDirectoryHealth(state.pageContext, pageType, { clearStaleBinding: true });
+    const label = check.label || '未命名目录';
 
-    if (!result) {
-      addLog('目录选择已取消', 'warning');
-      return;
+    if (check.health === 'ok') {
+      addSuccessLog(`路径自检通过：目录「${label}」存在且可读写`, '可在弹出的对话框中选择其它目录');
+    } else if (check.health === 'permission-denied') {
+      // 浏览器重启后句柄权限常退化为 prompt：在用户手势内补授权，成功即恢复当前目录的读写
+      const permission = await requestTargetDirectoryPermission(state.pageContext, pageType);
+      if (permission === 'granted') {
+        await updateDirectoryDisplay();
+        addSuccessLog(`目录「${label}」已重新授权`, '可在弹出的对话框中选择其它目录');
+      } else {
+        addWarningLog(`目录「${label}」没有读写授权`, '可在弹出的对话框中选择目标目录');
+      }
+    } else if (check.health === 'unbound') {
+      // 已配置默认目录却没有句柄时，提示去设置页重新绑定（路径文本无法定位目录）
+      if (!reportUnboundDefaultDirectory(check.platformKey)) {
+        addLog('当前页面尚未绑定目录，请选择目标目录');
+      }
+    } else {
+      reportDirectoryCheckIssue(check);
     }
 
-    state.currentDirectoryLabel = result.label;
-    state.currentDirectoryPath = result.label;
-
+    // 2) 无论自检结论如何，用户点击即弹出目录选择器（初始位置由 access 层按本平台解析）
+    const result = await selectAndBindDirectory(state.pageContext, { pageType, isPageSnapshot: false });
+    if (!result) {
+      addWarningLog('目录选择已取消');
+      return;
+    }
     await updateDirectoryDisplay();
     await loadRecentDirectories();
-    addSuccessLog(`路径已更新: ${state.currentDirectoryLabel}`);
+    addSuccessLog(`路径已更新：${result.label}`);
   });
 }
 
@@ -446,7 +569,7 @@ function renderSearchDropdown(query = ''): void {
         <div class="search-item" data-index="${i}" data-path="${escapeHtml(d.path)}">
           <span class="search-item-platform ${badgeClass}">${badgeLabel}</span>
           <span class="search-item-path">${escapeHtml(extractLastFolderName(d.path))}</span>
-          <button class="search-item-remove" data-remove="${escapeHtml(d.path)}" title="删除">×</button>
+          <button class="btn-danger is-quiet search-item-remove" data-remove="${escapeHtml(d.path)}" title="删除">×</button>
         </div>
       `;
     }).join('');
@@ -544,7 +667,6 @@ async function handleCopyPageOrigin(): Promise<void> {
  */
 async function handleH3yunOneClickWriteback(): Promise<void> {
   if (state.busy || !state.pageContext.tabId) return;
-  addLog('正在一键回写氚云前后端...');
   const kinds: Array<'frontend' | 'backend'> = ['frontend', 'backend'];
   let okCount = 0;
   let failCount = 0;
@@ -563,13 +685,7 @@ async function handleH3yunOneClickWriteback(): Promise<void> {
   }
 }
 
-// ── 产物选择弹层（齿轮入口：选择本次生成的产物） ──────
-
-/** 产物选择结果 */
-interface ArtifactPickerResult {
-  readonly overrides: Record<string, boolean>;
-  readonly remember: boolean;
-}
+// ── 更新范围（主按钮 + 下拉多选） ─────────────────────
 
 /** 取指定平台的产物清单 */
 function getArtifactsFor(platformKey: PlatformKey): ArtifactDefinition[] {
@@ -582,7 +698,10 @@ function getActiveArtifacts(): ArtifactDefinition[] {
   return getArtifactsFor(getActivePlatformKey());
 }
 
-/** 解析某条产物在本次抓取中是否启用（本次覆盖优先于持久配置） */
+/**
+ * 解析某条产物是否启用。
+ * 生效范围 = 设置页产物配置 ⊕ 该平台已保存的范围选择（见 `platformOverrides`）。
+ */
 function isArtifactOn(
   artifactId: string,
   overrides: Record<string, boolean> = {},
@@ -594,23 +713,200 @@ function isArtifactOn(
   return resolveArtifactEnabled(artifact, overrides);
 }
 
-/** 取出本次一次性覆盖（取用后清空，避免污染下一次操作） */
-function takePendingArtifactOverrides(): Record<string, boolean> {
-  if (!state.pendingArtifactOverrides) return {};
-  const overrides = { ...state.pendingArtifactOverrides };
-  state.pendingArtifactOverrides = null;
-  return overrides;
+/** 取某平台已保存的范围选择（无记录返回空表 = 完全按设置页配置） */
+function platformOverrides(platformKey: PlatformKey): Record<string, boolean> {
+  return platformScopeOverrides(state.scopeOverrides, platformKey);
+}
+
+/** 该平台是否存在已保存的范围选择（决定是否显示「恢复为设置页配置」） */
+function hasScopeOverride(platformKey: PlatformKey): boolean {
+  return hasPlatformScopeOverrides(state.scopeOverrides, platformKey);
+}
+
+/**
+ * 读取已保存的范围选择（弹窗打开时调用，保证与上次选择一致）。
+ * 读取失败按「无选择」处理：界面回退到设置页配置，不影响其它功能。
+ */
+async function restoreScopeOverrides(): Promise<void> {
+  try {
+    state.scopeOverrides = await loadScopeOverrides();
+  } catch (error: unknown) {
+    state.scopeOverrides = null;
+    logger.warn('更新范围读取失败，按设置页配置显示', { error: String(error) });
+  }
+}
+
+/**
+ * 落盘当前范围选择。
+ *
+ * 失败只记录日志（内存与界面已生效），不阻断交互：范围保存只承担「记住上次选择」，
+ * 不参与抓取本身的正确性。
+ */
+async function persistScopeOverrides(): Promise<void> {
+  try {
+    if (state.scopeOverrides) await saveScopeOverrides(state.scopeOverrides);
+    else await clearScopeOverrides();
+  } catch (error: unknown) {
+    logger.error('更新范围保存失败', { error: String(error) });
+    addErrorLog('更新范围保存失败，本次选择仅当前弹窗有效', '可在设置页「文件助手」直接调整产物开关');
+  }
+}
+
+/**
+ * 抓取入口涉及的产物 id。
+ *
+ * 云枢「前端抓取」不含业务规则 Java（由「业务规则抓取」独立入口负责），
+ * 所以范围下拉里不会出现「业务规则 Java」；氚云「一键抓取写入」三类都覆盖。
+ */
+function resolveCaptureEntryArtifactIds(platformKey: PlatformKey): string[] {
+  return getArtifactsFor(platformKey)
+    .filter((artifact) => platformKey !== 'cloudpivot' || artifact.id !== ARTIFACT_IDS.java)
+    .map((artifact) => artifact.id);
+}
+
+/**
+ * 构造范围输入。
+ *
+ * 选项由设置页产物配置**动态读取**（`buildScopeOptions`）：设置页新增 / 改名 / 删除的文件
+ * 会自动同步到下拉，无需改动范围逻辑；enabledIds = 生效范围（设置页开关 ⊕ 已保存的选择）。
+ */
+function buildScopeInput(platformKey: PlatformKey): ArtifactScopeInput {
+  const artifacts = getArtifactsFor(platformKey);
+  const entryArtifactIds = resolveCaptureEntryArtifactIds(platformKey);
+  const owned = new Set(entryArtifactIds);
+  const overrides = platformOverrides(platformKey);
+  return {
+    options: buildScopeOptions(artifacts, entryArtifactIds),
+    enabledIds: artifacts
+      .filter((artifact) => owned.has(artifact.id) && isArtifactOn(artifact.id, overrides, platformKey))
+      .map((artifact) => artifact.id),
+  };
+}
+
+/**
+ * 应用范围选择：写入内存并**落盘**，重开弹窗后仍按本次选择还原。
+ * 设置页产物配置不受影响，「恢复为设置页配置」可清除这里保存的选择。
+ */
+async function applyScopeEnabledIds(platformKey: PlatformKey, enabledIds: readonly string[]): Promise<void> {
+  state.scopeOverrides = withPlatformScopeOverrides(
+    state.scopeOverrides,
+    platformKey,
+    enabledIds,
+    resolveCaptureEntryArtifactIds(platformKey),
+  );
+
+  renderScopeBadge(platformKey);
+  renderScopeDropdown(platformKey);
+  await persistScopeOverrides();
+}
+
+/** 恢复为设置页配置（清除该平台已保存的选择并落盘） */
+async function resetScopeToConfig(platformKey: PlatformKey): Promise<void> {
+  state.scopeOverrides = withoutPlatformScopeOverrides(state.scopeOverrides, platformKey);
+
+  renderScopeBadge(platformKey);
+  renderScopeDropdown(platformKey);
+  await persistScopeOverrides();
+}
+
+/** 刷新范围徽标与主按钮可用性（已选状态的常驻展示） */
+function renderScopeBadge(platformKey: PlatformKey): void {
+  const isH3yun = platformKey === 'h3yun';
+  const scopeState = resolveArtifactScopeState(buildScopeInput(platformKey));
+  const summary = formatArtifactScopeSummary(scopeState);
+
+  const badge = $(isH3yun ? '#h3yun-scope-badge' : '#cloudpivot-scope-badge');
+  if (badge) badge.textContent = formatArtifactScopeBadge(scopeState);
+
+  const source = hasScopeOverride(platformKey) ? '已保存的范围' : '设置页配置';
+  const scopeBtn = isH3yun ? dom.h3yunScopeBtn : dom.cloudpivotScopeBtn;
+  if (scopeBtn) scopeBtn.title = `更新范围（${source}）：${summary}`;
+
+  // 空范围无法执行：禁用主按钮并说明原因，避免静默空跑
+  const mainBtn = (isH3yun ? dom.h3yunCaptureAllBtn : dom.captureBtn) as HTMLButtonElement | null;
+  if (mainBtn) {
+    mainBtn.disabled = scopeState.isEmpty;
+    mainBtn.title = scopeState.isEmpty
+      ? '请先选择更新范围（至少一项）'
+      : `本次范围（${source}）：${summary}`;
+  }
+}
+
+/**
+ * 渲染范围下拉：该入口的每个文件独立一行（勾选 = 本次抓取并写入，取消 = 本次跳过）。
+ *
+ * 选项由设置页产物配置动态读取（`buildScopeOptions`），设置页新增 / 改名 / 删除的文件会自动
+ * 同步到这里，因此本函数不维护任何文件清单；`is-on` 供样式层叠加选中态（主色左条 / 行底 /
+ * 文字色），勾选框本身由 CSS 样式化的原生 checkbox 呈现（`input:checked` 即真实状态）。
+ * 列表只显示主体名称（`displayLabel`，去掉末尾括号说明），完整名称放在 `title` 悬浮提示里。
+ */
+function renderScopeDropdown(platformKey: PlatformKey): void {
+  const menu = platformKey === 'h3yun' ? dom.h3yunScopeMenu : dom.cloudpivotScopeMenu;
+  if (!menu) return;
+
+  const input = buildScopeInput(platformKey);
+  const overrides = platformOverrides(platformKey);
+  const optionRows = input.options
+    .map((option) => {
+      const checked = isArtifactOn(option.id, overrides, platformKey);
+      return `
+      <label class="scope-artifact${checked ? ' is-on' : ''}" title="${escapeHtml(option.label)}">
+        <input type="checkbox" data-scope-artifact="${escapeHtml(option.id)}" ${checked ? 'checked' : ''}>
+        <span class="scope-artifact-name">${escapeHtml(option.displayLabel)}</span>
+      </label>`;
+    })
+    .join('');
+
+  // 「恢复为设置页配置」只在有已保存的范围时出现，作为撤销入口（属于操作而非说明文字）
+  const resetRow = hasScopeOverride(platformKey)
+    ? '<button class="scope-reset" type="button" data-scope-reset>↺ 恢复为设置页配置</button>'
+    : '';
+
+  menu.innerHTML = `${optionRows}${resetRow}`;
+}
+
+/** 关闭范围下拉（两个平台共用） */
+function closeScopeDropdown(): void {
+  for (const [btn, menu] of [[dom.cloudpivotScopeBtn, dom.cloudpivotScopeMenu], [dom.h3yunScopeBtn, dom.h3yunScopeMenu]] as const) {
+    if (menu) menu.hidden = true;
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+  }
+}
+
+/** 范围下拉开合（按钮点击切换；点击外部 / Esc 关闭） */
+function handleScopeToggle(platformKey: PlatformKey): void {
+  if (state.busy) return;
+  const menu = platformKey === 'h3yun' ? dom.h3yunScopeMenu : dom.cloudpivotScopeMenu;
+  const btn = platformKey === 'h3yun' ? dom.h3yunScopeBtn : dom.cloudpivotScopeBtn;
+  if (!menu || !btn) return;
+
+  const willOpen = menu.hidden;
+  closeScopeDropdown();
+  if (!willOpen) return;
+
+  renderScopeDropdown(platformKey);
+  menu.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+}
+
+/** 范围下拉内的勾选处理：每个文件独立勾选（状态反解规则见 artifact-scope.ts） */
+async function handleScopeMenuChange(platformKey: PlatformKey, target: HTMLInputElement): Promise<void> {
+  const artifactId = target.dataset.scopeArtifact;
+  if (!artifactId) return;
+  await applyScopeEnabledIds(platformKey, toggleScopeArtifact(buildScopeInput(platformKey), artifactId, target.checked));
 }
 
 /**
  * 汇总写入结果并输出日志。
  * 「只建文件夹」的产物不产出文件，全部命中时 written 为 0 属正常，不算失败。
+ * @param skipped 本次未写入的项（已关闭的产物 / 未挂载的编辑器），合并进结果行避免多行冗余
  * @returns 是否视为成功
  */
 function reportArtifactWriteResult(
   writeResult: WriteFilesResult,
   fileEntries: readonly { fileName: string; content: string }[],
   label: string,
+  skipped: readonly string[] = [],
 ): boolean {
   const hasFileEntries = fileEntries.some((entry) => !entry.fileName.endsWith(DIRECTORY_PATH_SUFFIX));
   if (writeResult.written === 0 && hasFileEntries) {
@@ -619,7 +915,10 @@ function reportArtifactWriteResult(
   }
   const dirNote = writeResult.directories > 0 ? `，新建 ${writeResult.directories} 个目录` : '';
   const dirPathNote = writeResult.directoryPath ? ` → ${writeResult.directoryPath}` : '';
-  addSuccessLog(`${label}写入完成：${writeResult.written} 个文件${dirNote}${dirPathNote}`);
+  const skippedNote = skipped.length > 0 ? `；跳过：${skipped.join('、')}` : '';
+  addSuccessLog(`${label}写入完成：${writeResult.written} 个文件${dirNote}${dirPathNote}${skippedNote}`);
+  // 范围选择保持不变（已持久化），仅刷新徽标以反映当前生效值
+  renderScopeBadge(getActivePlatformKey());
   return true;
 }
 
@@ -654,7 +953,7 @@ async function probeExistingArtifactPaths(artifacts: readonly ArtifactDefinition
     return toExistingPathSet(stat.files.filter((file) => file.exists).map((file) => file.fileName));
   } catch (error: unknown) {
     if (isDirectoryUnavailableError(error)) {
-      logger.info('尚未选择目标目录，本次跳过产物存在性检查');
+      logger.debug('尚未选择目标目录，本次跳过产物存在性检查');
     } else {
       logger.warn('产物存在性检查失败，按「全部待生成」处理', { error: String(error) });
     }
@@ -662,118 +961,10 @@ async function probeExistingArtifactPaths(artifacts: readonly ArtifactDefinition
   }
 }
 
-/**
- * 渲染产物勾选列表。
- *
- * 只列「可自定义产物」——抓取产物的内容完全来自页面、路径与开关都固定，
- * 在弹层里占位置没有意义（也省掉弹层高度），统一到设置页配置。
- */
-function renderArtifactPicker(
-  artifacts: readonly ArtifactDefinition[],
-  existingPaths: ReadonlySet<string>,
-): void {
-  const container = $('#artifact-picker-template');
-  if (!container) return;
-
-  const items = artifacts.filter((artifact) => artifact.kind === 'template');
-  if (items.length === 0) {
-    container.innerHTML = '<p class="file-picker-empty">暂无可自定义产物，可在设置页新建</p>';
-    return;
-  }
-
-  // 每行只放「勾选框 + 名称」：路径信息收进 title 提示，已存在状态用右侧小标签表示，
-  // 避免弹层在 420px 宽的 popup 里换行、把卡片撑到超出可视高度。
-  container.innerHTML = items.map((artifact) => {
-    const relativePath = normalizeArtifactPath(artifact.dirPath, artifact.fileName);
-    const exists = Boolean(relativePath) && existingPaths.has(relativePath.toLowerCase());
-    const tag = exists ? '<span class="file-picker-tag">已存在</span>' : '';
-    return `
-      <label class="file-picker-check" title="${escapeHtml(relativePath || artifact.label)}">
-        <input type="checkbox" data-artifact-check="${escapeHtml(artifact.id)}" ${artifact.enabled ? 'checked' : ''}>
-        <span class="file-picker-check-name">${escapeHtml(artifact.label)}</span>
-        ${tag}
-      </label>
-    `;
-  }).join('');
-}
-
-/** 读取弹层里本次勾选的产物开关 */
-function collectArtifactPickerOverrides(): Record<string, boolean> {
-  const overrides: Record<string, boolean> = {};
-  for (const input of $$<HTMLInputElement>('[data-artifact-check]')) {
-    const id = input.dataset.artifactCheck;
-    if (id) overrides[id] = input.checked;
-  }
-  return overrides;
-}
-
-/** 打开产物选择弹层 */
-async function openArtifactPicker(): Promise<ArtifactPickerResult> {
-  const overlay = dom.filePickerOverlay;
-  if (!overlay) return { overrides: {}, remember: false };
-
-  const artifacts = getActiveArtifacts();
-  const existingPaths = await probeExistingArtifactPaths(artifacts);
-  renderArtifactPicker(artifacts, existingPaths);
-
-  const rememberCheck = $('#artifact-picker-remember') as HTMLInputElement | null;
-  if (rememberCheck) rememberCheck.checked = false;
-
-  overlay.hidden = false;
-  return new Promise<ArtifactPickerResult>((resolve) => {
-    const confirmBtn = $('#file-picker-confirm-btn') as HTMLButtonElement | null;
-    confirmBtn?.addEventListener('click', () => {
-      overlay.hidden = true;
-      resolve({ overrides: collectArtifactPickerOverrides(), remember: rememberCheck?.checked === true });
-    }, { once: true });
-  });
-}
-
-/** 把本次勾选结果合并进产物配置（只改开关，不动路径与内容） */
-function applyOverridesToConfig(
-  config: ArtifactConfig,
-  platformKey: PlatformKey,
-  overrides: Record<string, boolean>,
-): ArtifactConfig {
-  return {
-    ...config,
-    [platformKey]: getPlatformArtifacts(config, platformKey).map((artifact) =>
-      Object.prototype.hasOwnProperty.call(overrides, artifact.id)
-        ? { ...artifact, enabled: overrides[artifact.id] === true }
-        : artifact,
-    ),
-  };
-}
-
-/**
- * 齿轮入口：配置本次生成的产物。
- *
- * 「记住此选择」未勾选时只影响本次抓取（写入 `pendingArtifactOverrides`），
- * 不会隐式修改设置页的持久配置。
- */
-async function handleOpenFilePickerGear(): Promise<void> {
-  if (state.busy) return;
-  const platformKey = getActivePlatformKey();
-  const result = await openArtifactPicker();
-  state.pendingArtifactOverrides = result.overrides;
-
-  if (result.remember) {
-    try {
-      const next = applyOverridesToConfig(state.artifacts ?? buildDefaultArtifactConfig(), platformKey, result.overrides);
-      state.artifacts = await saveArtifactConfig(next);
-      addSuccessLog('已记住本次产物选择，并同步到设置页。');
-    } catch (error: unknown) {
-      logger.warn('保存产物配置失败', { error: String(error) });
-      addErrorLog(`保存产物配置失败：${error instanceof Error ? error.message : String(error)}`);
-    }
-    return;
-  }
-
-  const enabledCount = Object.values(result.overrides).filter(Boolean).length;
-  addSuccessLog(`本次生成产物已配置（启用 ${enabledCount} 项），仅对下次抓取生效。`);
-}
-
 function renderPlatformButtons(): void {
+  // 范围徽标与主按钮可用性依赖产物配置，平台按钮重算时一并刷新
+  renderScopeBadge('cloudpivot');
+  renderScopeBadge('h3yun');
   const isCP = state.pageTypeConfig?.platformKey === 'cloudpivot';
   const isHY = state.pageTypeConfig?.platformKey === 'h3yun';
   const hasConfig = Boolean(state.pageTypeConfig);
@@ -783,12 +974,12 @@ function renderPlatformButtons(): void {
 
   if (isCP && hasConfig) {
     show(dom.captureBtn); show(dom.writebackBtn); show(dom.bizRuleCaptureBtn);
-    show(dom.bizRuleWritebackBtn); show(dom.filePickerGearBtn);
+    show(dom.bizRuleWritebackBtn); show(dom.cloudpivotScopeBtn);
     hide(dom.h3yunCaptureAllBtn); hide(dom.h3yunWritebackFrontendBtn); hide(dom.h3yunWritebackBackendBtn);
   } else if (isHY && hasConfig) {
     hide(dom.captureBtn); hide(dom.writebackBtn); hide(dom.bizRuleCaptureBtn);
-    hide(dom.bizRuleWritebackBtn); hide(dom.filePickerGearBtn);
-    show(dom.h3yunCaptureAllBtn); show(dom.h3yunCaptureGearBtn);
+    hide(dom.bizRuleWritebackBtn); hide(dom.cloudpivotScopeBtn);
+    show(dom.h3yunCaptureAllBtn); show(dom.h3yunScopeBtn);
     // 一键回写 vs 分开回写：根据配置决定显示哪个
     const separateRow = $('#h3yun-separate-writeback-row');
     const captureGroup = $('#h3yun-capture-all-btn')?.parentElement;
@@ -805,8 +996,8 @@ function renderPlatformButtons(): void {
     }
   } else {
     hide(dom.captureBtn); hide(dom.writebackBtn); hide(dom.bizRuleCaptureBtn);
-    hide(dom.bizRuleWritebackBtn); hide(dom.filePickerGearBtn);
-    hide(dom.h3yunCaptureAllBtn); hide(dom.h3yunCaptureGearBtn);
+    hide(dom.bizRuleWritebackBtn); hide(dom.cloudpivotScopeBtn);
+    hide(dom.h3yunCaptureAllBtn); hide(dom.h3yunScopeBtn);
     hide(dom.h3yunOneClickWritebackBtn);
     hide(dom.h3yunWritebackFrontendBtn); hide(dom.h3yunWritebackBackendBtn);
   }
@@ -814,10 +1005,12 @@ function renderPlatformButtons(): void {
 
 /**
  * 切换平台标签的激活态 + 对应 panel 显隐（HTML 使用 BEM `is-active` 类与 `hidden` 属性）。
+ * 面板本身即为可见反馈，不再输出「X标签已打开」这类无信息量日志。
  */
-function setActivePlatform(platformKey: PlatformKey, options: { silent?: boolean } = {}): void {
+function setActivePlatform(platformKey: PlatformKey): void {
   const target = platformKey === 'h3yun' ? 'h3yun' : 'cloudpivot';
   state.activePlatformTab = target;
+  closeScopeDropdown();
 
   for (const btn of dom.platformTabs) {
     const isActive = btn.dataset.platformTab === target;
@@ -829,10 +1022,6 @@ function setActivePlatform(platformKey: PlatformKey, options: { silent?: boolean
     const isActive = panel.dataset.platformPanel === target;
     panel.classList.toggle('platform-panel-active', isActive);
     panel.hidden = !isActive;
-  }
-
-  if (!options.silent) {
-    addLog(`${target === 'h3yun' ? '氚云' : '云枢'}标签已打开`);
   }
 }
 
@@ -846,7 +1035,7 @@ function syncActivePlatformFromPage(): void {
   const pageUrl = state.pageContext.url;
 
   // 1) 同步标签 / panel 的激活态（一定有值，未识别则强制 cloudpivot）
-  setActivePlatform((platformKey ?? 'cloudpivot') as PlatformKey, { silent: true });
+  setActivePlatform((platformKey ?? 'cloudpivot') as PlatformKey);
 
   // 2) 当页面是 recognized 平台域名（含 workbench/portal 等）时隐藏 tab row
   const isKnownPlatform = isRecognizedPlatformUrl(pageUrl)
@@ -863,9 +1052,10 @@ async function handleCloudpivotCapture(): Promise<void> {
   if (state.busy || !state.pageContext.tabId) return;
   await runWithButtonBusy(dom.captureBtn, async () => {
     await runOperationWithPreflight(PREFLIGHT_OPERATION_IDS.CAPTURE, async () => {
-      addLog('正在抓取云枢前端代码...');
       const tabId = state.pageContext.tabId!;
       const config = state.pageTypeConfig!;
+      // 本次范围：使用该平台已保存的选择（弹窗下拉持久化，重开弹窗保持一致）
+      const overrides = platformOverrides(config.platformKey);
       const componentName = resolveCloudpivotComponentName(config.pageType);
 
       // 注入 Vue 组件树扫描版抓取函数（读取编辑器组件 $data.codes 三键）
@@ -884,7 +1074,6 @@ async function handleCloudpivotCapture(): Promise<void> {
       }
 
       // 按页面类型 fileMappings 将 codes 三键映射为本地固定文件名（受对应抓取产物开关控制）
-      const overrides = takePendingArtifactOverrides();
       const codes = (data.data?.codes ?? {}) as Record<string, unknown>;
       const filesToWrite: { fileName: string; content: string }[] = [];
       // availableCount 统计编辑器里「实际有内容」的代码块数，与产物开关无关，
@@ -938,7 +1127,7 @@ async function handleCloudpivotCapture(): Promise<void> {
       }
 
       if (filesToWrite.length === 0) {
-        addWarningLog('本次没有任何产物需要写入（相关开关均已关闭）', '请点齿轮开启需要的产物');
+        addWarningLog('本次没有任何产物需要写入（相关开关均已关闭）', '请在「更新范围」下拉或设置页开启需要的文件');
         return;
       }
 
@@ -954,7 +1143,6 @@ async function handleCloudpivotWriteback(): Promise<void> {
   if (state.busy || !state.pageContext.tabId) return;
   await runWithButtonBusy(dom.writebackBtn, async () => {
     await runOperationWithPreflight(PREFLIGHT_OPERATION_IDS.WRITE_BACK, async () => {
-      addLog('正在从本地文件回写到云枢编辑器...');
       const tabId = state.pageContext.tabId!;
       const config = state.pageTypeConfig!;
       const componentName = resolveCloudpivotComponentName(config.pageType);
@@ -1000,11 +1188,11 @@ async function handleCloudpivotBizRuleCapture(): Promise<void> {
   if (state.busy || !state.pageContext.tabId) return;
   await runWithButtonBusy(dom.bizRuleCaptureBtn, async () => {
     await runOperationWithPreflight(PREFLIGHT_OPERATION_IDS.CAPTURE, async () => {
-      addLog('正在抓取业务规则代码...');
       const tabId = state.pageContext.tabId!;
 
-      if (!isArtifactOn(ARTIFACT_IDS.java, takePendingArtifactOverrides(), state.pageTypeConfig!.platformKey)) {
-        addWarningLog('「业务规则 Java」产物已关闭，本次跳过抓取', '如需生成，请在设置页或齿轮中开启该项');
+      // 业务规则入口独立于前端抓取范围，只读设置页持久配置（不受本次覆盖影响）
+      if (!isArtifactOn(ARTIFACT_IDS.java, {}, state.pageTypeConfig!.platformKey)) {
+        addWarningLog('「业务规则 Java」产物已关闭，本次跳过抓取', '如需抓取，请在设置页「文件助手」开启该项');
         return;
       }
 
@@ -1029,7 +1217,7 @@ async function handleCloudpivotBizRuleCapture(): Promise<void> {
       }
 
       // 业务规则抓取只输出业务规则文件本身，不生成 README/AGENTS/DESIGN 等协作文件，
-      // 也不受齿轮配置影响（与 gitHub 原版规则一致，避免污染业务规则目录）。
+      // 也不受更新范围配置影响（与 gitHub 原版规则一致，避免污染业务规则目录）。
       const existingFiles = await fileExistsInSelection(state.pageContext, state.pageTypeConfig!.pageType, [data.fileName]);
       const hadTargetFile = existingFiles.files.find((f) => f.fileName === data.fileName)?.exists ?? false;
 
@@ -1049,7 +1237,6 @@ async function handleCloudpivotBizRuleWriteback(): Promise<void> {
   if (state.busy || !state.pageContext.tabId) return;
   await runWithButtonBusy(dom.bizRuleWritebackBtn, async () => {
     await runOperationWithPreflight(PREFLIGHT_OPERATION_IDS.WRITE_BACK, async () => {
-      addLog('正在从本地回写业务规则...');
       const tabId = state.pageContext.tabId!;
 
       // 先探测 model 获取文件名（与 gitHub 原版一致：probe 传入 multiModelHint）
@@ -1087,9 +1274,10 @@ async function handleH3yunCaptureAll(): Promise<void> {
   if (state.busy || !state.pageContext.tabId) return;
   await runWithButtonBusy(dom.h3yunCaptureAllBtn, async () => {
     await runOperationWithPreflight(PREFLIGHT_OPERATION_IDS.CAPTURE, async () => {
-      addLog('正在执行氚云一键抓取...');
       const tabId = state.pageContext.tabId!;
       const designMode = resolveH3yunDesignMode(state.pageTypeConfig);
+      // 本次范围：使用氚云已保存的选择（弹窗下拉持久化，重开弹窗保持一致）
+      const overrides = platformOverrides('h3yun');
       const filesToWrite: { fileName: string; content: string }[] = [];
       const skipped: string[] = [];
 
@@ -1109,7 +1297,6 @@ async function handleH3yunCaptureAll(): Promise<void> {
         + (frontendResult?.ok && frontendResult.sourceContent ? 1 : 0)
         + (backendResult?.ok && backendResult.sourceContent ? 1 : 0);
 
-      const overrides = takePendingArtifactOverrides();
       const fromCodeEnabled = isArtifactOn(ARTIFACT_IDS.fromCode, overrides, 'h3yun');
       const frontendEnabled = isArtifactOn(ARTIFACT_IDS.js, overrides, 'h3yun');
       const backendEnabled = isArtifactOn(ARTIFACT_IDS.cs, overrides, 'h3yun');
@@ -1172,15 +1359,12 @@ async function handleH3yunCaptureAll(): Promise<void> {
       })));
 
       if (filesToWrite.length === 0) {
-        addWarningLog('本次没有任何产物需要写入（相关开关均已关闭）', '请点齿轮开启需要的产物');
+        addWarningLog('本次没有任何产物需要写入（相关开关均已关闭）', '请在「更新范围」下拉或设置页开启需要的文件');
         return;
       }
 
-      addLog(`准备写入 ${filesToWrite.length} 项：${filesToWrite.map((f) => f.fileName).join('、')}`);
       const writeResult = await writeFilesToSelection(state.pageContext, h3yunPageType, filesToWrite);
-      if (reportArtifactWriteResult(writeResult, filesToWrite, '氚云一键抓取')) {
-        addLog(`未写入项：${skipped.join('、') || '无'}`, 'info');
-      }
+      reportArtifactWriteResult(writeResult, filesToWrite, '氚云一键抓取', skipped);
     });
   });
 }
@@ -1194,7 +1378,6 @@ async function handleH3yunCodeWriteback(codeKind: 'frontend' | 'backend'): Promi
   await runWithButtonBusy(btn, async () => {
     await runOperationWithPreflight(PREFLIGHT_OPERATION_IDS.WRITE_BACK, async () => {
       const config = H3YUN_CODE_EDITOR_CONFIG[codeKind];
-      addLog(`正在回写氚云${config.label}...`);
       const tabId = state.pageContext.tabId!;
       const designMode = resolveH3yunDesignMode(state.pageTypeConfig);
 
@@ -1227,8 +1410,7 @@ async function handleH3yunCodeWriteback(codeKind: 'frontend' | 'backend'): Promi
 
       if (writeData?.ok) {
         const modelNote = writeData.writableCount > 1 ? `（已写入 ${writeData.writableCount} 个 model）` : '';
-        const logNote = writeData.debugLog ? `\n调试日志：${writeData.debugLog}` : '';
-        addSuccessLog(`氚云${config.label}回写成功。${modelNote} 文件名：${fileName} 源码长度：${writeData.sourceLength} 字符${logNote}`);
+        addSuccessLog(`氚云${config.label}回写成功。${modelNote} 文件名：${fileName} 源码长度：${writeData.sourceLength} 字符`);
       } else {
         const logExtra = writeData?.debugLog ? `\n调试日志：${writeData.debugLog}` : '';
         addErrorLog(`氚云${config.label}回写失败：${writeData?.details || '页面编辑器拒绝回写'}${logExtra}`, '确认氚云页面已切到对应前端/后端代码区域并完全加载');
@@ -1238,6 +1420,12 @@ async function handleH3yunCodeWriteback(codeKind: 'frontend' | 'backend'): Promi
 }
 
 // ── Preflight ──────────────────────────────────────────
+
+/** 预检 blocker 的可读文案（内部 checkId 不直接展示给用户） */
+const PREFLIGHT_BLOCKER_MESSAGES: Record<string, string> = {
+  'page.recognized': '当前页面不是云枢 / 氚云的设计页面',
+  'directory.selected': '尚未选择目标目录',
+};
 
 async function runOperationWithPreflight(
   operationId: string,
@@ -1258,8 +1446,8 @@ async function runOperationWithPreflight(
     }));
   }
 
-  // Directory check — 使用 scope 级解析（与实际写入路径一致），而非 pageType 全局
-  const handle = await resolveTargetDirectoryHandle(state.pageContext, state.pageTypeConfig?.pageType || 'default');
+  // Directory check — 使用与展示 / 写入一致的页面生效 pageType 解析
+  const handle = await resolveTargetDirectoryHandle(state.pageContext, resolveEffectivePageType());
   const hasDirectory = Boolean(handle);
   results.push(createPreflightResult({
     operationId, checkId: 'directory.selected',
@@ -1271,10 +1459,9 @@ async function runOperationWithPreflight(
   }));
 
   if (hasBlockingPreflightResult(results)) {
-    for (const r of results) {
-      if (r.severity === 'blocker' && !r.ok) {
-        addErrorLog(`${r.checkId}: ${r.evidence}`, r.nextAction);
-      }
+    for (const result of results) {
+      if (result.severity !== 'blocker' || result.ok) continue;
+      addErrorLog(PREFLIGHT_BLOCKER_MESSAGES[result.checkId] || `预检未通过：${result.checkId}`, result.nextAction);
     }
     return;
   }
@@ -1371,42 +1558,35 @@ async function loadRecentDirectories(): Promise<void> {
 // ── Init ───────────────────────────────────────────────
 
 async function init(): Promise<void> {
-  logger.info('Popup initializing');
+  logger.debug('Popup initializing');
 
   // 加载配置
   state.config = await loadConfig();
   state.artifacts = await loadArtifactConfig();
+  // 更新范围：恢复上次保存的选择，重开弹窗后勾选与上次一致
+  await restoreScopeOverrides();
 
   // 获取当前页信息
   await updatePageInfo();
 
-  // 加载目录状态
-  if (state.pageTypeConfig) {
-    const path = await getStoredDirectoryPath(state.pageContext, state.pageTypeConfig.pageType);
-    state.currentDirectoryPath = path;
-    state.currentDirectoryLabel = extractLastFolderName(path);
-  }
-
   // 加载最近目录
   await loadRecentDirectories();
 
-  // 渲染 UI
+  // 渲染 UI（目录名从当前有效句柄解析，展示与读写同源）
   await updateDirectoryDisplay();
 
-  // 检测目录权限状态，浏览器重启后句柄权限可能需重新授权
-  if (state.pageTypeConfig && state.currentDirectoryPath) {
-    const permission = await getTargetDirectoryPermission(state.pageContext, state.pageTypeConfig.pageType);
-    if (permission === 'prompt' || permission === 'denied') {
-      addWarningLog(
-        `上次选择的目录「${state.currentDirectoryLabel || state.currentDirectoryPath}」需要重新授权`,
-        '请点击「更新当前路径」重新选择目录',
-      );
-    }
+  // 目录路径自检：只报告异常结论（目录已被移动 / 删除、平台默认目录配置冲突、
+  // 权限失效、默认目录未绑定句柄），通过时不输出，避免每次打开弹窗都刷一条绿字。
+  const check = await checkTargetDirectoryHealth(state.pageContext, resolveEffectivePageType());
+  if (check.health === 'unbound') {
+    reportUnboundDefaultDirectory(check.platformKey);
+  } else if (check.health !== 'ok') {
+    reportDirectoryCheckIssue(check);
   }
 
   // 状态
   if (state.pageTypeConfig) {
-    addLog(`平台: ${state.pageTypeConfig.platformKey === 'h3yun' ? '氚云' : '云枢'} (${state.pageTypeConfig.pageLabel})`);
+    addLog(`平台: ${PLATFORM_LABELS[state.pageTypeConfig.platformKey]} (${state.pageTypeConfig.pageLabel})`);
   }
 }
 
@@ -1481,13 +1661,34 @@ function bindEvents(): void {
 
   // 氚云按钮
   dom.h3yunCaptureAllBtn?.addEventListener('click', () => handleH3yunCaptureAll());
-  dom.h3yunCaptureGearBtn?.addEventListener('click', () => handleOpenFilePickerGear());
   dom.h3yunOneClickWritebackBtn?.addEventListener('click', () => handleH3yunOneClickWriteback());
   dom.h3yunWritebackFrontendBtn?.addEventListener('click', () => handleH3yunCodeWriteback('frontend'));
   dom.h3yunWritebackBackendBtn?.addEventListener('click', () => handleH3yunCodeWriteback('backend'));
 
-  // 文件选择器弹层按钮
-  dom.filePickerGearBtn?.addEventListener('click', () => handleOpenFilePickerGear());
+  // 更新范围：主按钮旁的 ▾ 打开下拉（面板绝对定位，不占布局）
+  dom.cloudpivotScopeBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleScopeToggle('cloudpivot'); });
+  dom.h3yunScopeBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleScopeToggle('h3yun'); });
+
+  for (const [platformKey, menu] of [['cloudpivot', dom.cloudpivotScopeMenu], ['h3yun', dom.h3yunScopeMenu]] as const) {
+    menu?.addEventListener('click', (event) => {
+      const target = event.target as HTMLElement;
+      if (target.closest('[data-scope-reset]')) {
+        void resetScopeToConfig(platformKey as PlatformKey);
+        return;
+      }
+      // 行内点击交给原生 checkbox，不关闭面板
+      if (target.closest('.scope-artifact')) event.stopPropagation();
+    });
+    menu?.addEventListener('change', (event) => {
+      const target = event.target as HTMLInputElement;
+      if (target.matches('[data-scope-artifact]')) {
+        void handleScopeMenuChange(platformKey as PlatformKey, target);
+      }
+    });
+  }
+
+  document.addEventListener('click', closeScopeDropdown);
+  document.addEventListener('keydown', (event) => { if (event.key === 'Escape') closeScopeDropdown(); });
 
   // 导出 / 复制日志 / 设置
   dom.exportDropdownBtn?.addEventListener('click', (e) => { e.stopPropagation(); handleExportDropdownToggle(); });
@@ -1510,5 +1711,5 @@ function bindEvents(): void {
 
 document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
-  init().then(() => logger.info('Popup ready'));
+  init().then(() => logger.debug('Popup ready'));
 });

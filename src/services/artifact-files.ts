@@ -55,7 +55,7 @@ export function isDirectoryOnlyArtifact(artifact: ArtifactDefinition): boolean {
   return !String(artifact.fileName ?? '').trim();
 }
 
-/** 解析某条产物在本次抓取中是否启用（本次覆盖优先于持久配置） */
+/** 解析某条产物在本次抓取中是否启用（弹窗已保存的范围优先于设置页配置） */
 export function resolveArtifactEnabled(
   artifact: ArtifactDefinition,
   overrides?: Readonly<Record<string, boolean>>,

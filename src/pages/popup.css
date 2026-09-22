@@ -225,8 +225,6 @@ body {
   padding: 4px 10px;
   border: 1px solid var(--color-border-input);
   border-radius: var(--radius-sm);
-  background: var(--bg-input);
-  color: var(--color-text-secondary);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   line-height: 1.5;
@@ -238,16 +236,8 @@ body {
 
 .copy-chip-prominent {
   padding: 5px 12px;
-  border-color: var(--color-border-card);
-  background: var(--bg-card);
   font-size: 13px;
   font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-}
-
-.copy-chip:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
 }
 
 .copy-chip:disabled {
@@ -285,8 +275,6 @@ body {
   justify-content: center;
   border: 1px solid var(--color-border-input);
   border-radius: var(--radius-md);
-  background: var(--bg-card);
-  color: var(--color-text-secondary);
   font-size: 13px;
   cursor: pointer;
   transition: all var(--transition-fast);
@@ -296,12 +284,6 @@ body {
 .icon-btn-prominent {
   width: 30px;
   height: 30px;
-}
-
-.icon-btn:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: var(--color-primary-bg);
 }
 
 .icon-btn:focus-visible {
@@ -474,8 +456,6 @@ body {
   margin-left: auto;
   border: 1px solid var(--color-border-card);
   border-radius: var(--radius-md);
-  background: var(--bg-muted);
-  color: var(--color-text-tertiary);
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
@@ -484,9 +464,6 @@ body {
 }
 
 .search-item-remove:hover {
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
-  border-color: var(--color-danger);
   transform: scale(1.15);
 }
 
@@ -501,18 +478,11 @@ body {
   padding: 6px 10px;
   border: none;
   border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text-tertiary);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   text-align: center;
   cursor: pointer;
   transition: all var(--transition-fast);
-}
-
-.clear-history-btn:hover {
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
 }
 
 /* 下拉入场动画 */
@@ -558,6 +528,7 @@ body {
 
 /* 抓取按钮组：主按钮 + 齿轮配置（占满所在网格列，主按钮 flex 填充） */
 .capture-btn-group {
+  position: relative;
   display: flex;
   gap: 0;
   align-items: stretch;
@@ -570,35 +541,176 @@ body {
   border-bottom-right-radius: 0 !important;
   flex: 1;
   min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 抓取按钮旁的齿轮配置按钮 */
-.capture-gear-btn {
+/* 抓取按钮组：主按钮 + 范围按钮（显示当前范围）+ 绝对定位下拉面板 */
+.capture-scope-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  min-width: 28px;
-  padding: 0;
-  border: 1px solid var(--color-primary);
+  gap: 4px;
+  flex: 0 0 auto;
+  min-width: 0;
+  padding: 0 8px;
   border-left: 1px solid var(--color-on-primary-border);
   border-radius: 0 var(--radius-md) var(--radius-md) 0;
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-  font-size: 13px;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
 }
 
-.capture-gear-btn:hover:not(:disabled) {
-  background: var(--color-primary-hover);
+.capture-scope-btn:hover:not(:disabled) {
   transform: translateY(-1px);
 }
 
-.capture-gear-btn:disabled {
+.capture-scope-btn:disabled {
   opacity: 0.65;
   cursor: wait;
+}
+
+/*
+ * 范围下拉：浮层绝对定位，不占布局、不压缩页面空间。
+ *
+ * 定位=与触发按钮**左对齐**（`left: 0`，触发按钮是按钮组的第一个子元素）：
+ * 按钮组只占两列网格的一列（约半宽），若用 `right: 0` 面板会向左越出按钮左边界，
+ * 窄弹窗下甚至被窗口左边界切掉左侧内容（勾选框只露一段弧）。宽度同时受视口限制，
+ * 保证面板始终完整落在弹窗内。
+ */
+.scope-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  width: min(236px, calc(100vw - var(--spacing-lg) * 2));
+  max-height: min(360px, 64vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  /* 滚动条占真实宽度（stable）且内容另有 6px 内边距：行高亮与文字都不会被滚动条压住 */
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
+  padding: 6px;
+  border: 1px solid var(--color-border-card);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-dropdown);
+}
+
+.scope-dropdown[hidden] {
+  display: none;
+}
+
+/* 滚动条自定义：窄轨道 + 内缩的圆角滑块，不会压住内容或伸出面板圆角 */
+.scope-dropdown::-webkit-scrollbar {
+  width: 10px;
+}
+
+.scope-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scope-dropdown::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: var(--radius-lg);
+  background-clip: padding-box;
+  background-color: var(--color-border-input);
+}
+
+.scope-dropdown::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-text-tertiary);
+}
+
+/* 范围下拉的文件选项：每个文件独立一行（勾选 = 本次抓取并写入该文件） */
+.scope-artifact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 8px;
+  /* 选中态的左侧强调条：始终占位，勾选时不产生文字位移 */
+  border-left: 3px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.scope-artifact:hover {
+  background: var(--bg-input);
+}
+
+/*
+ * 勾选框：直接样式化原生 checkbox（方框永远是真实控件本身，不依赖额外装饰元素）。
+ * 未选 = 白底 + 深灰描边；选中 = 主色实心 + 白色对勾（内联 data URI，无外部依赖）。
+ */
+.scope-artifact input[type="checkbox"] {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  border: 1px solid var(--color-text-tertiary);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-card);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.scope-artifact input[type="checkbox"]:checked {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px 10px;
+}
+
+.scope-artifact input[type="checkbox"]:focus-visible {
+  box-shadow: var(--shadow-focus-ring);
+}
+
+/* 选中态：主色左条 + 整行主色底 + 文件名主色，与未选中行一眼可辨（hover 是中灰色，不会混淆） */
+.scope-artifact.is-on,
+.scope-artifact.is-on:hover {
+  background: var(--color-primary-bg);
+  border-left-color: var(--color-primary);
+}
+
+.scope-artifact.is-on .scope-artifact-name {
+  color: var(--color-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.scope-artifact-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--color-text-primary);
+  transition: color var(--transition-fast);
+}
+
+.scope-reset {
+  display: block;
+  width: calc(100% - 16px);
+  margin: 6px 8px 0;
+  padding: 4px 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scope-reset:hover {
+  background: var(--color-primary-bg);
 }
 
 /* ========== 按钮 ========== */
@@ -628,11 +740,7 @@ button:disabled {
   height: var(--btn-height);
   padding: 0 var(--spacing-lg);
   border-radius: var(--radius-md);
-  background: var(--color-primary);
-  color: var(--color-on-primary);
   font-size: 14px;
-  font-weight: var(--font-weight-medium);
-  box-shadow: 0 2px 4px var(--color-primary-ring);
 }
 
 .accent-btn:focus-visible {
@@ -640,13 +748,7 @@ button:disabled {
   box-shadow: var(--shadow-focus-ring), 0 2px 4px var(--color-primary-ring);
 }
 
-.accent-btn:hover:not(:disabled) {
-  background: var(--color-primary-hover);
-  box-shadow: 0 4px 10px var(--color-primary-shadow);
-}
-
 .accent-btn:active:not(:disabled) {
-  background: var(--color-primary-active);
   transform: translateY(0);
 }
 
@@ -660,15 +762,7 @@ button:disabled {
   padding: 0 var(--spacing-lg);
   border: 1px solid var(--color-border-input);
   border-radius: var(--radius-md);
-  background: var(--bg-card);
-  color: var(--color-text-primary);
   font-size: 14px;
-  font-weight: var(--font-weight-medium);
-}
-
-.secondary-btn:hover:not(:disabled) {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
 }
 
 .secondary-btn:focus-visible {
@@ -678,8 +772,6 @@ button:disabled {
 }
 
 .secondary-btn:active:not(:disabled) {
-  border-color: var(--color-primary-active);
-  color: var(--color-primary-active);
   transform: translateY(0);
 }
 
@@ -744,16 +836,10 @@ button:disabled {
   padding: 2px 6px;
   border: none;
   border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-primary);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
   transition: all var(--transition-fast);
-}
-
-.link-btn:hover {
-  background: var(--color-primary-bg);
 }
 
 /* 导出下拉菜单 */
@@ -781,18 +867,11 @@ button:disabled {
   padding: 6px 10px;
   border: none;
   border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text-primary);
   font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   text-align: left;
   cursor: pointer;
   transition: background var(--transition-fast);
-}
-
-.export-menu-item:hover {
-  background: var(--bg-input);
-  color: var(--color-primary);
 }
 
 /* ========== 状态输出区 ========== */
@@ -810,6 +889,27 @@ button:disabled {
   overflow: auto;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* 日志分级着色：错误红字、成功绿字、警告橙字、普通信息保持次级文字色 */
+.status-output .log-line {
+  display: block;
+}
+
+.status-output .log-error {
+  color: var(--color-danger);
+}
+
+.status-output .log-success {
+  color: var(--color-success);
+}
+
+.status-output .log-warning {
+  color: var(--color-warning);
+}
+
+.status-output .log-info {
+  color: var(--color-text-secondary);
 }
 
 /* 成功态：单行绿色条 */
@@ -839,154 +939,6 @@ button:disabled {
   max-height: 28px;
   overflow: hidden;
   text-align: center;
-}
-
-/* ========== 产物选择弹层 ========== */
-.file-picker-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--spacing-md);
-  background: var(--bg-overlay-light);
-  backdrop-filter: blur(4px);
-  animation: overlay-in 0.2s ease-out;
-}
-
-.file-picker-overlay[hidden] {
-  display: none;
-}
-
-/* 宽度贴合 popup（420px），高度不超过可视区，避免被 popup 裁掉 */
-.file-picker-card {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: var(--spacing-sm);
-  width: 100%;
-  max-width: 380px;
-  max-height: calc(100vh - 24px);
-  padding: 16px 18px;
-  background: var(--bg-list-hover);
-  border: 1px solid var(--color-border-card);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-modal);
-  animation: modal-in 0.2s ease-out;
-  z-index: 1001;
-}
-
-.file-picker-check {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm);
-  width: 100%;
-  min-width: 0;
-  padding: 6px 10px;
-  border: 1px solid var(--color-border-input);
-  border-radius: var(--radius-md);
-  background: var(--bg-card);
-  font-size: var(--font-size-body-sm);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.file-picker-check:hover {
-  border-color: var(--color-primary);
-  background: var(--color-primary-bg);
-}
-
-.file-picker-check input[type="checkbox"] {
-  width: 15px;
-  height: 15px;
-  accent-color: var(--color-primary);
-  flex-shrink: 0;
-}
-
-.file-picker-actions {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--spacing-sm);
-  width: 100%;
-  margin-top: var(--spacing-xs);
-}
-
-/* 产物弹层：可滚动的产物列表 */
-.file-picker-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-sm);
-  width: 100%;
-  min-height: 0;
-  max-height: 340px;
-  overflow-y: auto;
-}
-
-.file-picker-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--spacing-xs);
-}
-
-/* 单行紧凑：名称占满剩余宽度并省略，已存在状态用右侧小标签 */
-.file-picker-check-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.file-picker-tag {
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: var(--radius-sm);
-  background: var(--bg-input);
-  font-size: var(--font-size-caption);
-  font-weight: 400;
-  color: var(--color-text-tertiary);
-}
-
-.file-picker-remember {
-  font-weight: var(--font-weight-medium);
-}
-
-.file-picker-actions-single {
-  grid-template-columns: 1fr;
-}
-
-.file-picker-empty {
-  margin: 0;
-  font-size: var(--font-size-caption);
-  color: var(--color-text-tertiary);
-}
-
-.file-picker-actions button {
-  height: var(--btn-height);
-  padding: 0 var(--spacing-md);
-  border-radius: var(--radius-md);
-  font-size: 13px;
-  font-weight: var(--font-weight-medium);
-}
-
-/* 弹窗入场动画 */
-@keyframes overlay-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-
-@keyframes modal-in {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
-  }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
 }
 
 /* ========== 响应式适配 ========== */
