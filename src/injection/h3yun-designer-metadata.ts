@@ -13,6 +13,16 @@ import type { H3yunDesignerMetadataResult } from '../types/injection.js';
 
 export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
   // ── 局部常量（executeScript 序列化约束：不能引用文件外层常量）──
+  // 氚云统一读取规则：布局 / 容器 / 说明类控件不读取（一行多列 102、分组标题 101、
+  // 描述说明 FormDescription、标签页 FormTab）。镜像实现——与 src/lib/platform/control-metadata.ts
+  // 的忽略清单保持一致，修改需同步（executeScript 序列化约束：不能引用文件外层常量）。
+  const IGNORED_CONTROL_KEYS = ["102", "101", "formdescription", "formtab"];
+  /** 类型码缺失时按「读取」处理，避免漏抓设计器新增控件 */
+  function isReadableControlKey(controlKey: unknown): boolean {
+    const key = text(controlKey).toLowerCase();
+    return key === "" || IGNORED_CONTROL_KEYS.indexOf(key) < 0;
+  }
+
   const DOM_SCAN_ELEMENT_LIMIT = 5000;
   const VUE_SOURCE_NODE_LIMIT = 1200;
   const CONTENT_SNIPPET_LENGTH = 2000;
@@ -587,11 +597,14 @@ export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
       const bucket = childrenBySheetCode[sheetCode];
       if (!bucket) continue;
       const cDefaultItems = readAllControlField(cEntry, "DefaultItems");
+      // ControlKey（options 内字符串，如 "FormTextBox"）优先于 type（顶层数字，如 301）
+      const cControlKey = text(readAllControlField(cEntry, "ControlKey") || readAllControlField(cEntry, "type"));
+      // 子表内同样遵守读取规则：布局 / 说明类子控件不读取
+      if (!isReadableControlKey(cControlKey)) continue;
       bucket.push({
         code: fieldCode,
         displayName: text(readAllControlField(cEntry, "DisplayName")),
-        // ControlKey（options 内字符串，如 "FormTextBox"）优先于 type（顶层数字，如 301）
-        controlKey: text(readAllControlField(cEntry, "ControlKey") || readAllControlField(cEntry, "type")),
+        controlKey: cControlKey,
         defaultValue: text(readAllControlField(cEntry, "DefaultValue")),
         boschemaCode: text(readAllControlField(cEntry, "BOSchemaCode")),
         displayRule: safeText(readAllControlField(cEntry, "DisplayRule")),
@@ -610,6 +623,8 @@ export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
       const tEntry = containerEntry.entry;
       // ControlKey（options 内字符串，如 "FormTextBox"）优先于 type（顶层数字，如 301）
       const controlKey = text(readAllControlField(tEntry, "ControlKey") || readAllControlField(tEntry, "type"));
+      // 布局 / 容器 / 说明类控件不读取（子表 FormGridView 属读取类型，其子控件已单独过滤）
+      if (!isReadableControlKey(controlKey)) continue;
       const children = childrenBySheetCode[tKey] || [];
       const tDefaultItems = readAllControlField(tEntry, "DefaultItems");
 
@@ -685,8 +700,12 @@ export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
     // 子表控件 .sheet-control 不要在此处获取，由 childrenOf() 按子表容器递归获取，避免重复
     const controlElements = allDataCodeElements.filter((el) => {
       const className = String(el.className || "");
-      return className.includes("control-container") ||
-             className.includes("layout-control__item");
+      if (!className.includes("control-container") &&
+          !className.includes("layout-control__item")) {
+        return false;
+      }
+      // 布局 / 容器 / 说明类控件不读取（类型码缺失时保留，避免漏抓）
+      return isReadableControlKey((el as HTMLElement).dataset.controlkey);
     });
     const sheetFieldCatalog = buildSheetFieldCodeCatalog(designerRootForDom);
     const controls = controlElements.map((item) => {
@@ -700,7 +719,7 @@ export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
       const rawChildren = childrenOf(item);
       const sheetFieldGroup = resolveSheetFieldGroup(sheetFieldCatalog, { ...control, children: rawChildren });
       control.sheetCode = sheetFieldGroup?.sheetCode || rawChildren.map((child) => sheetCodeFromFieldCode(child.code)).find(Boolean) || "";
-      control.children = childrenOf(item, sheetFieldGroup);
+      control.children = childrenOf(item, sheetFieldGroup).filter((child) => isReadableControlKey(child.controlKey));
       return control;
     });
     const diagnosticDomSnapshot = hasMissingChildCodes(controls) ? buildMissingCodeDomSnapshot(designerRootForDom, sheetFieldCatalog) : null;
