@@ -94,6 +94,8 @@ export const CLOUDPIVOT_READONLY_SETTINGS: readonly string[] = [
 
 export const H3YUN_READONLY_SETTINGS: readonly string[] = [
   '一键抓取写入：读取控件信息、#jsText 前端 JS、#csText 后端 C#，并按产物配置补齐协作文档',
+  '控件读取规则：只读取业务控件，一行多列 / 分组标题 / 描述说明 / 标签页不读取（子表内同样适用）',
+  '选项值规则：只有下拉 / 单选 / 复选输出预设选项值，是否类固定输出 true、false，单行文本 / 多行文本等一律不输出',
   '平台互通：氚云前端 JS 与后端 C# 通过 Ajax 传参互通，前后端逻辑需要成对设计',
   '前端代码回写：将本地 {表单ID}.js 通过 Monaco model API 回写到 #jsText',
   '后端代码回写：将本地 C# 类名 .cs 通过 Monaco model API 回写到 #csText',

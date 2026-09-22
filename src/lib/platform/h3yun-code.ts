@@ -7,6 +7,7 @@
 
 import { cleanInlineText } from '../utils.js';
 import { H3YUN_CSHARP_PATTERN, H3YUN_FRONTEND_PATTERN, MARKDOWN_FENCE } from '../constants.js';
+import { H3YUN_BOOLEAN_OPTION_VALUES, isH3yunControlReadable, resolveH3yunOptionsMode } from './control-metadata.js';
 
 // ── 常量 ──────────────────────────────────────────────
 
@@ -196,9 +197,13 @@ function appendOptionalField(lines: string[], label: string, value: string | und
   if (v) lines.push(`${label}: ${v}`);
 }
 
-function appendOptionalItemsField(lines: string[], label: string, items: readonly { value?: string; name?: string; label?: string; text?: string }[] | undefined): void {
-  if (!Array.isArray(items) || items.length === 0) return;
-  const values = items
+/** 控件预设项（氚云 allControls 的 DefaultItems 形状） */
+type H3yunDefaultItems = readonly { value?: string; name?: string; label?: string; text?: string }[];
+
+/** 从预设项提取选项值文本（去空、保序） */
+function extractOptionValues(items: H3yunDefaultItems | undefined): readonly string[] {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  return items
     .map((item: { value?: string; name?: string; label?: string; text?: string }) => {
       if (item && typeof item === 'object') {
         return String(item.value || item.name || item.label || item.text || '');
@@ -206,7 +211,26 @@ function appendOptionalItemsField(lines: string[], label: string, items: readonl
       return String(item || '');
     })
     .filter(Boolean);
-  if (values.length > 0) lines.push(`${label}: ${values.join('、')}`);
+}
+
+/**
+ * 解析某控件需要输出的选项值。
+ *
+ * 氚云统一规则：只有下拉 / 单选 / 复选输出控件预设选项；是否类固定输出 `true`、`false`；
+ * 其余控件（含单行文本、多行文本、关联属性等）一律不输出——设计器会给文本类控件挂上
+ * 占位选项（如「选项1、选项2、选项3」），直接输出会污染 FromCode。
+ */
+function resolveH3yunOptionsValues(controlKey: string | undefined, items: H3yunDefaultItems | undefined): readonly string[] {
+  const mode = resolveH3yunOptionsMode(controlKey);
+  if (mode === 'boolean') return H3YUN_BOOLEAN_OPTION_VALUES;
+  if (mode !== 'items') return [];
+  return extractOptionValues(items);
+}
+
+/** 追加「选项值」行（无值时不输出该行） */
+function appendOptionsField(lines: string[], values: readonly string[]): void {
+  if (values.length === 0) return;
+  lines.push(`选项值: ${values.join('、')}`);
 }
 
 export function buildH3yunFromCodeContent(metadata: {
@@ -228,6 +252,9 @@ export function buildH3yunFromCodeContent(metadata: {
   ];
 
   for (const c of controls) {
+    // 布局 / 容器 / 说明类控件（一行多列、分组标题、描述说明、标签页）不读取
+    if (!isH3yunControlReadable(c.controlKey, c.displayName)) continue;
+
     lines.push(`控件名称: ${cleanInlineText(c.displayName ?? '')}`);
     lines.push(`控件编码: ${cleanInlineText(c.code ?? '')}`);
     lines.push(`控件类型: ${cleanInlineText(c.controlKey ?? '')}`);
@@ -235,23 +262,26 @@ export function buildH3yunFromCodeContent(metadata: {
     appendOptionalField(lines, '默认值', c.defaultValue);
     appendOptionalField(lines, '关联表单', c.boschemaCode);
     lines.push(`隐藏规则: ${cleanInlineText(c.displayRule ?? '')}`);
-    appendOptionalItemsField(lines, '选项值', c.defaultItems);
+    appendOptionsField(lines, resolveH3yunOptionsValues(c.controlKey, c.defaultItems));
 
-    if (Array.isArray(c.children) && c.children.length > 0) {
+    // 子表内控件同样遵守上述读取与选项值规则；全部子控件都被忽略时不输出子表段
+    const readableChildren = (Array.isArray(c.children) ? c.children : [])
+      .filter((child: FromCodeChildMeta) => isH3yunControlReadable(child.controlKey, child.displayName));
+    if (readableChildren.length > 0) {
       const sheetCode = cleanInlineText(c.sheetCode ?? '') || cleanInlineText(c.code ?? '');
       lines.push('', '子表信息');
       lines.push(`子表名称: ${cleanInlineText(c.displayName ?? '')}`);
       lines.push(`子表编码: ${sheetCode}`);
       appendOptionalField(lines, '关联表单', c.boschemaCode);
 
-      for (const child of c.children) {
+      for (const child of readableChildren) {
         lines.push(`子表控件名称: ${cleanInlineText(child.displayName ?? '')}`);
         lines.push(`子表控件编码: ${stripH3yunSheetCodePrefix(child.code ?? '')}`);
         lines.push(`子表控件类型: ${cleanInlineText(child.controlKey ?? '')}`);
         appendOptionalField(lines, '默认值', child.defaultValue);
         appendOptionalField(lines, '关联表单', child.boschemaCode);
         lines.push(`隐藏规则: ${cleanInlineText(child.displayRule ?? '')}`);
-        appendOptionalItemsField(lines, '选项值', child.defaultItems);
+        appendOptionsField(lines, resolveH3yunOptionsValues(child.controlKey, child.defaultItems));
       }
     }
     lines.push('');
