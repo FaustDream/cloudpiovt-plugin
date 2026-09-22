@@ -10,12 +10,15 @@
 import { logger } from '../lib/logger.js';
 import { DirectoryError, ValidationError, ERROR_CODE } from '../lib/errors.js';
 import { parseRelativePath, joinRelativePath, type RelativePathParts } from '../lib/utils.js';
+import { getDefaultDirectoryHandle } from '../lib/directory/file-handle-db.js';
+import { getPlatformKeyFromPageType } from './config.js';
 import {
   getStoredDirectoryPath,
   saveHandleSelection,
   clearTabTargetDirectoryData,
   resolveTargetDirectoryHandle,
 } from './target-directory-state.js';
+import type { PlatformKey } from '../types/platform.js';
 
 // ── 公开类型 ──────────────────────────────────────────
 
@@ -86,15 +89,51 @@ type ExtendedDirectoryHandle = FileSystemDirectoryHandle & {
 };
 
 interface DirectoryPickerOptions {
-  /** 目录选择器初始打开位置（当前环境已绑定目录的句柄） */
-  readonly startIn?: FileSystemDirectoryHandle;
+  /** 目录选择器初始打开位置；缺省使用中性位置（见 NEUTRAL_PICKER_START_IN） */
+  readonly startIn?: PickerStartIn;
+  /** 选择器记忆 id：浏览器按 id 记住上次选定的目录（见 buildPickerId） */
+  readonly id?: string;
 }
 
-function showDirPicker(options: DirectoryPickerOptions = {}): Promise<FileSystemDirectoryHandle> {
+/** 浏览器标准目录名（startIn 可接受的字面量） */
+type WellKnownDirectoryName = 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos';
+
+/** 目录选择器初始位置：句柄或浏览器标准目录名 */
+type PickerStartIn = FileSystemDirectoryHandle | WellKnownDirectoryName;
+
+/**
+ * 目录选择器「中性」初始位置。
+ *
+ * 调用方没有可用句柄时必须显式传一个中性位置：不给 startIn 时浏览器会复用
+ * 「上一次选择过的目录」，会把另一个平台的默认目录 / 其他页面的历史目录带进来，
+ * 这正是「氚云选择器打开在云枢默认目录」的成因。
+ */
+const NEUTRAL_PICKER_START_IN: WellKnownDirectoryName = 'documents';
+
+/**
+ * 目录选择器记忆 id。
+ *
+ * 浏览器会按 id 记住该 id 上次选定的目录：即使句柄丢失（未绑定 / 已失效），
+ * 选择器也会打开在本平台上次选定的目录，而不是系统默认位置或另一个平台的目录。
+ * 按「用途 + 平台」分桶，保证云枢与氚云的目录记忆互不干扰。
+ */
+function buildPickerId(kind: 'page' | 'default', platformKey: PlatformKey): string {
+  return `${kind}-dir-${platformKey}`;
+}
+
+/**
+ * 弹出目录选择器。
+ *
+ * 始终显式指定初始位置，并逐级降级：请求位置 → 中性位置 → 不带 startIn。
+ * 不传 startIn 时浏览器会复用「上一次选择过的目录」（可能是另一个平台或另一个
+ * 页面遗留的位置），因此只在指定位置都不可用时才作为最后兜底使用。
+ */
+async function showDirPicker(options: DirectoryPickerOptions = {}): Promise<FileSystemDirectoryHandle> {
   const w = window as unknown as {
     showDirectoryPicker?: (options?: {
       mode?: 'read' | 'readwrite';
-      startIn?: FileSystemDirectoryHandle;
+      id?: string;
+      startIn?: PickerStartIn;
     }) => Promise<FileSystemDirectoryHandle>;
   };
   if (typeof w.showDirectoryPicker !== 'function') {
@@ -102,21 +141,32 @@ function showDirPicker(options: DirectoryPickerOptions = {}): Promise<FileSystem
   }
 
   // 选择时直接请求读写权限：授权状态由浏览器缓存，后续操作从缓存获取，避免首次回写失败
-  const build = (startIn?: FileSystemDirectoryHandle): Promise<FileSystemDirectoryHandle> =>
-    w.showDirectoryPicker!({
-      mode: 'readwrite',
-      ...(startIn ? { startIn } : {}),
-    });
+  const pick = (startIn?: PickerStartIn): Promise<FileSystemDirectoryHandle> => {
+    const pickerOptions: { mode: 'readwrite'; id?: string; startIn?: PickerStartIn } = { mode: 'readwrite' };
+    if (options.id) pickerOptions.id = options.id;
+    if (startIn) pickerOptions.startIn = startIn;
+    return w.showDirectoryPicker!(pickerOptions);
+  };
 
-  if (!options.startIn) return build();
+  const candidates: Array<PickerStartIn | undefined> = options.startIn
+    ? [options.startIn, NEUTRAL_PICKER_START_IN, undefined]
+    : [NEUTRAL_PICKER_START_IN, undefined];
 
-  // 指定 startIn（当前环境已绑定目录）时，若句柄因权限被撤销等原因失效会抛错，
-  // 此时回退为不带 startIn 重试，保证目录选择器仍可正常打开。
-  return build(options.startIn).catch((error: unknown) => {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error;
-    logger.warn('showDirectoryPicker with startIn failed, retrying without startIn', { error: String(error) });
-    return build();
-  });
+  let lastError: unknown = null;
+  for (const startIn of candidates) {
+    try {
+      return await pick(startIn);
+    } catch (error: unknown) {
+      if (error instanceof DOMException && error.name === 'AbortError') throw error; // 用户取消
+      lastError = error;
+      logger.warn('目录选择器初始位置不可用，降级重试', {
+        startIn: typeof startIn === 'string' ? startIn : 'handle',
+        error: String(error),
+      });
+    }
+  }
+
+  throw lastError ?? new ValidationError('目录选择器不可用', {});
 }
 
 function requestHandlePermission(
@@ -154,12 +204,33 @@ export function supportsDirectoryPicker(): boolean {
 // ── 目录选择 ──────────────────────────────────────────
 
 /**
+ * 取得可作为目录选择器初始位置的句柄。
+ *
+ * 未授权的句柄可能被浏览器拒绝作为 startIn，从而静默落到系统默认位置——这正是
+ * 「选择器没打开在设置里绑定的默认目录」的成因之一。这里在用户手势内补一次授权
+ * 再返回原句柄：授权成功即可正确定位；授权失败也仍用原句柄尝试，由
+ * showDirPicker 的降级链兜底。
+ */
+async function ensureUsablePickerStartIn(
+  handle: FileSystemDirectoryHandle | undefined,
+): Promise<FileSystemDirectoryHandle | undefined> {
+  if (!handle) return undefined;
+  if (await queryHandlePermission(handle) === 'granted') return handle;
+
+  const granted = await requestHandlePermission(handle, 'readwrite');
+  if (granted !== 'granted') {
+    logger.warn('目录句柄未授权，选择器初始位置可能无法定位', { permission: granted });
+  }
+  return handle;
+}
+
+/**
  * 解析目录选择器初始打开位置（startIn）对应的句柄。
  *
  * 优先级（由高到低）：
  *  1) 当前页面 scope 句柄（该页面已绑定目录，选择器定位到当前目录）
- *  2) 当前平台默认目录句柄（页面未绑定时，选择器定位到对应系统默认目录）
- *  3) 无（当前平台没有可用句柄时才回退为系统默认位置）
+ *  2) 当前平台默认目录句柄（页面未绑定时，选择器定位到该平台自己的默认目录）
+ *  3) 无 → showDirPicker 使用中性位置（绝不继承其他平台 / 其他页面遗留的位置）
  *
  * 解析直接复用 resolveTargetDirectoryHandle，避免展示、读写和选择器各自维护
  * 不同的回退链；旧共享槽和其他平台目录不会进入此流程。
@@ -168,9 +239,9 @@ async function resolveDirectoryPickerStartIn(
   tab: TabInfo | number,
   pageType: string,
 ): Promise<FileSystemDirectoryHandle | undefined> {
-  // 即使句柄当前权限为 prompt/denied，也把它作为 startIn 传入：目录选择器的
-  // 定位信息与授权状态是两件事。若句柄已失效，showDirPicker 会自动无 startIn 重试。
-  return resolveTargetDirectoryHandle(tab, pageType);
+  // 即使句柄当前权限为 prompt/denied 也继续尝试作为 startIn：目录选择器的定位信息与
+  // 授权状态是两件事；先补一次授权以最大化定位成功率，失效时由降级链兜底。
+  return ensureUsablePickerStartIn(await resolveTargetDirectoryHandle(tab, pageType));
 }
 
 /** 弹出原生目录选择器并保存绑定 */
@@ -185,7 +256,10 @@ export async function selectHandleDirectory(
     // 禁止回退到系统全局默认目录 / 上一次缓存目录 / 其他项目历史目录。
     const startIn = await resolveDirectoryPickerStartIn(tab, pageType);
 
-    const handle = await showDirPicker(startIn ? { startIn } : {});
+    const handle = await showDirPicker({
+      ...(startIn ? { startIn } : {}),
+      id: buildPickerId('page', getPlatformKeyFromPageType(pageType)),
+    });
     // 选择后立即确认读写权限已授予（showDirectoryPicker({ mode: 'readwrite' }) 会弹浏览器自带授权，
     // 授权状态写入浏览器缓存，后续 queryPermission/requestPermission 直接复用缓存）
     const permission = await requestHandlePermission(handle, 'readwrite');
@@ -220,6 +294,43 @@ export async function selectAndBindDirectory(
   }
 
   return await selectHandleDirectory(tab, pageType);
+}
+
+/**
+ * 设置页「默认目录」浏览：弹出目录选择器并返回句柄（null 表示用户取消）。
+ *
+ * 初始位置只用「本平台自己的默认目录句柄」；本平台尚未配置时使用中性位置。
+ * 绝不继承另一个平台 / 其他页面遗留的位置——否则很容易把云枢的工作目录绑成
+ * 氚云的默认目录，导致平台默认目录指向错误的工作目录。
+ *
+ * 选择时直接请求读写权限（默认目录会被用于写入）。
+ * 失败（非用户取消）抛出异常，由调用方提示。
+ */
+export async function selectPlatformDefaultDirectory(
+  platformKey: PlatformKey,
+): Promise<FileSystemDirectoryHandle | null> {
+  if (!supportsDirectoryPicker()) {
+    throw new ValidationError('当前浏览器不支持 File System Access API', {
+      hint: '请使用 Chrome 86+ 或 Edge 86+ 版本',
+    });
+  }
+
+  const startIn = await ensureUsablePickerStartIn(await getDefaultDirectoryHandle(platformKey));
+
+  try {
+    const handle = await showDirPicker({
+      ...(startIn ? { startIn } : {}),
+      id: buildPickerId('default', platformKey),
+    });
+    const permission = await requestHandlePermission(handle, 'readwrite');
+    if (permission !== 'granted') {
+      throw new ValidationError('默认目录未授予读写权限', { platformKey, permission });
+    }
+    return handle;
+  } catch (error: unknown) {
+    if (error instanceof DOMException && error.name === 'AbortError') return null;
+    throw error;
+  }
 }
 
 // ── 文件读写（仅 Handle 通道） ─────────────────────────
