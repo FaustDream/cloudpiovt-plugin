@@ -114,4 +114,5 @@ chrome.tabs.onRemoved.addListener((tabId: number) => {
   });
 });
 
-logger.info('Background Service Worker initialized');
+// Service Worker 会频繁重启，启动日志只留调试级别，避免刷无意义输出
+logger.debug('Background Service Worker initialized');
