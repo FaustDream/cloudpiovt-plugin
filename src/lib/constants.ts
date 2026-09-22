@@ -53,6 +53,8 @@ export const STORAGE_KEYS = {
   GENERATED_FILES: 'generatedFiles',
   H3YUN_ONE_CLICK_WRITEBACK: 'h3yunOneClickWriteback',
   FALLBACK_DIRECTORY_PATHS: 'fallbackDirectoryPaths',
+  /** 弹窗「更新范围」保存的选择（平台 → 产物 id → 是否启用） */
+  ARTIFACT_SCOPE_OVERRIDES: 'artifactScopeOverrides',
   RECENT_DIRECTORIES: 'targetDirectoryRecent',
   LAST_DIAGNOSTIC: 'lastDiagnosticPackage',
   LAST_DIRECTORY: 'targetDirectoryLastSelection',
