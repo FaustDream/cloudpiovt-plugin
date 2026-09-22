@@ -179,6 +179,17 @@ export async function saveTargetDirectoryPathByScope(
   return path;
 }
 
+/** 删除单个页面 scope 的路径快照（目录失效时清理该页面绑定） */
+export async function clearTargetDirectoryPathByScope(pageScope: string): Promise<void> {
+  const key = normalizeScopeKey(pageScope);
+  if (!key) return;
+
+  const paths = await loadPagePaths();
+  if (!(key in paths)) return;
+  delete paths[key];
+  await chrome.storage.local.set({ [TARGET_DIRECTORY_PAGE_PATHS_KEY]: paths });
+}
+
 /** 标签页关闭后按前缀清理路径快照 */
 export async function clearTargetDirectoryPathsByScopePrefix(scopePrefix: string): Promise<void> {
   const prefix = normalizeScopeKey(scopePrefix);

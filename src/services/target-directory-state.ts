@@ -11,7 +11,7 @@
 
 import { logger } from '../lib/logger.js';
 import { STORAGE_KEYS } from '../lib/constants.js';
-import { createTargetDirectoryPageScope, saveTargetDirectoryPathByScope, clearTargetDirectoryPathsByScopePrefix, clearTargetDirectorySnapshotsByScopePrefix } from './target-directory-session.js';
+import { createTargetDirectoryPageScope, saveTargetDirectoryPathByScope, clearTargetDirectoryPathByScope, clearTargetDirectoryPathsByScopePrefix, clearTargetDirectorySnapshotsByScopePrefix } from './target-directory-session.js';
 import { getTargetDirectoryHandleForScope, clearTargetDirectoryHandleForScope, saveTargetDirectoryHandleForScope, clearTargetDirectoryHandlesByScopePrefix, clearAllTargetDirectoryHandles, getDefaultDirectoryHandle } from '../lib/directory/file-handle-db.js';
 import { addRecentTargetDirectory } from './recent-target-directories.js';
 import { getPlatformKeyFromPageType } from './config.js';
@@ -111,6 +111,28 @@ export async function resolveTargetDirectoryHandle(
   return resolved?.handle;
 }
 
+// ── 失效绑定清理 ──────────────────────────────────────
+
+/**
+ * 清理指向「已不存在目录」的页面级绑定（句柄 + 路径快照）。
+ *
+ * 目录被移动 / 删除后句柄不会自动失效，继续保留会让该页面反复解析到一个死目录
+ * （显示有目录、实际写入失败）。清理后页面回到未绑定状态，由用户重新选择。
+ *
+ * @returns 是否确实清理了绑定（无页面 scope 时返回 false）
+ */
+export async function clearStaleTargetDirectoryBinding(
+  tab: TabInfo | number,
+  pageType: string,
+): Promise<boolean> {
+  const pageScope = createTargetDirectoryPageScope(tab, pageType);
+  if (!pageScope) return false;
+
+  await clearTargetDirectoryHandleForScope(pageScope);
+  await clearTargetDirectoryPathByScope(pageScope);
+  return true;
+}
+
 // ── 标签页关闭清理 ────────────────────────────────────
 
 /**
@@ -157,7 +179,7 @@ export async function cleanupLegacyDirectoryData(): Promise<void> {
       'targetDirectoryPagePaths',
       'targetDirectoryPageSnapshots',
     ]);
-    logger.info('Cleaned up legacy shared directory slots');
+    logger.debug('Cleaned up legacy shared directory slots');
   } catch (error: unknown) {
     logger.warn('Legacy directory cleanup failed', { error: String(error) });
   }
