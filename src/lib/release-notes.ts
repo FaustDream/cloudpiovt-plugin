@@ -10,6 +10,7 @@ export const CURRENT_EXTENSION_VERSION: string = chrome.runtime.getManifest().ve
 
 /** 版本更新说明（新的在前） */
 export const RELEASE_NOTES: readonly string[] = [
+  '2.2.1 氚云列表设计升级为 Vue 单文件组件：前端代码识别增加 <template> / export default / defineComponent 特征，列表设计的前端文件名改用 .vue（表单设计仍为 .js），Monaco 语言匹配补充 vue / html。',
   '2.2.0 适配氚云新版设计器代码编辑器：容器由 #jsText / #csText 改为 .js-code-editor / .cs-code-editor；前后端编辑器同时挂载在页面中，按容器精确定位，不再依赖可见性判断。',
   '2.2.0 氚云控件元数据改读设计器接口 /v1/formdesign/load 的 designContent 控件树，控件类型、选项值、默认值、关联表单、隐藏规则一次取全；接口不可用时回退 DOM 扫描（data-field / data-control-key）。',
   '2.2.0 氚云模型匹配新增语言 ID 优先（javascript / csharp），容器失配时不再只靠内容正则，避免读写到错误的 Monaco model。',
