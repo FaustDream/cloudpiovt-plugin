@@ -114,7 +114,7 @@ export function h3yunCodeEditorWritebackMain(
     };
   }
 
-  // 查找 Monaco model：容器 editor 匹配 → 内容特征匹配 → 唯一 model 兜底。
+  // 查找 Monaco model：容器 editor 匹配 → 语言 ID 匹配 → 内容特征匹配 → 唯一 model 兜底。
   function findModel(log: string[]): FindModelState {
     log.push(`[writeback] selector=${input.selector}, codeKind=${input.codeKind || "?"}`);
     const container = document.querySelector(input.selector);
@@ -159,6 +159,30 @@ export function h3yunCodeEditorWritebackMain(
       }
     }
     log.push(containerEditor ? "[writeback] 策略1: 容器内找到 editor ✓" : "[writeback] 策略1: 容器内无 editor");
+    // 策略1c：容器失配时按语言 ID 匹配（新版氚云 model 语言 ID 已可用，避免写错编辑器）。
+    if (!model && models.length > 0) {
+      const expectedLanguages = input.codeKind === "frontend"
+        ? ["javascript", "javascriptreact", "typescript"]
+        : ["csharp"];
+      log.push(`[writeback] 策略1c: 按语言 ID 匹配 [${expectedLanguages.join(", ")}]`);
+      const langMatched = models
+        .map((m, index) => createModelCandidate(m, index, null))
+        .filter((candidate) => {
+          const lang = String(candidate.model?.getLanguageId?.() || "").toLowerCase();
+          if (candidate.uiNoise) {
+            log.push(`[writeback]   model[${candidate.index}]: 跳过(UI 噪声), lang=${lang || "undefined"}`);
+            return false;
+          }
+          const hit = expectedLanguages.indexOf(lang) >= 0;
+          log.push(`[writeback]   model[${candidate.index}]: lang=${lang || "undefined"}, hit=${hit}, len=${candidate.length}`);
+          return hit;
+        });
+      if (langMatched.length > 0) {
+        const selected = langMatched.reduce((best, current) => (compareModelCandidates(best, current) >= 0 ? best : current));
+        model = selected.model;
+        log.push(`[writeback] 策略1c: 取 model[${selected.index}], len=${selected.length} ✓`);
+      }
+    }
     // 策略2：内容特征匹配；多个 model 同时命中时按挂载状态、版本号和创建顺序评分。
     if (!model && models.length > 0) {
       if (models.length === 1) {

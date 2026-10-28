@@ -93,14 +93,15 @@ export const CLOUDPIVOT_READONLY_SETTINGS: readonly string[] = [
 ];
 
 export const H3YUN_READONLY_SETTINGS: readonly string[] = [
-  '一键抓取写入：读取控件信息、#jsText 前端 JS、#csText 后端 C#，并按产物配置补齐协作文档',
+  '一键抓取写入：读取控件信息、.js-code-editor 前端 JS、.cs-code-editor 后端 C#，并按产物配置补齐协作文档',
+  '控件来源：优先读取设计器接口 /v1/formdesign/load 的 designContent 控件树（选项值、默认值、关联表单、隐藏规则齐全），接口不可用时回退 DOM 扫描（仅名称 / 编码 / 类型）',
   '控件读取规则：只读取业务控件，一行多列 / 分组标题 / 描述说明 / 标签页不读取（子表内同样适用）',
   '选项值规则：只有下拉 / 单选 / 复选输出预设选项值，是否类固定输出 true、false，单行文本 / 多行文本等一律不输出',
   '平台互通：氚云前端 JS 与后端 C# 通过 Ajax 传参互通，前后端逻辑需要成对设计',
-  '前端代码回写：将本地 {表单ID}.js 通过 Monaco model API 回写到 #jsText',
-  '后端代码回写：将本地 C# 类名 .cs 通过 Monaco model API 回写到 #csText',
+  '前端代码回写：将本地 {表单ID}.js 通过 Monaco model API 回写到 .js-code-editor',
+  '后端代码回写：将本地 C# 类名 .cs 通过 Monaco model API 回写到 .cs-code-editor',
   '产物目录：design/ 下生成 design-js.md（前端）与 design-cs.md（后端），可分别开关',
-  '模型匹配：氚云 Monaco model 语言 ID 为 undefined，先按内容正则区分 JS/C#，多 model 命中时按容器挂载、Monaco 版本号、创建顺序和长度评分',
+  '模型匹配：先按编辑器容器定位，容器失配时用 Monaco 语言 ID（javascript / csharp）匹配，最后回退内容正则；多 model 命中时按容器挂载、Monaco 版本号、创建顺序和长度评分',
 ];
 
 export const READONLY_SETTINGS: readonly string[] = [
@@ -143,10 +144,11 @@ export function resolvePageTypeConfig(pageUrl: string): PageTypeConfig | null {
   const platformKey = resolvePlatformKey(pageUrl);
 
   if (platformKey === 'h3yun') {
-    if (normalizedUrl.includes('list-designer.html') || normalizedUrl.includes('list-design')) {
+    // 新版设计器路由为 /nx/designer/{form|list}/...，与旧版 *.html 入口并存识别
+    if (normalizedUrl.includes('list-designer.html') || normalizedUrl.includes('list-design') || normalizedUrl.includes('/designer/list/')) {
       return buildPageTypeConfig(PAGE_TYPE_CONFIG_TABLE.h3yunList!);
     }
-    if (normalizedUrl.includes('form-designer.html') || normalizedUrl.includes('form-design')) {
+    if (normalizedUrl.includes('form-designer.html') || normalizedUrl.includes('form-design') || normalizedUrl.includes('/designer/form/')) {
       return buildPageTypeConfig(PAGE_TYPE_CONFIG_TABLE.h3yunForm!);
     }
     return buildPageTypeConfig(PAGE_TYPE_CONFIG_TABLE.h3yunDefault!);

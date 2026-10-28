@@ -11,12 +11,14 @@
 
 import type { H3yunDesignerMetadataResult } from '../types/injection.js';
 
-export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
+export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadataResult> {
   // ── 局部常量（executeScript 序列化约束：不能引用文件外层常量）──
   // 氚云统一读取规则：布局 / 容器 / 说明类控件不读取（一行多列 102、分组标题 101、
   // 描述说明 FormDescription、标签页 FormTab）。镜像实现——与 src/lib/platform/control-metadata.ts
   // 的忽略清单保持一致，修改需同步（executeScript 序列化约束：不能引用文件外层常量）。
-  const IGNORED_CONTROL_KEYS = ["102", "101", "formdescription", "formtab"];
+  // 旧版 allControls 的布局类只有数字码（101 / 102），新版 designContent 改用 ControlKey（FormLayout / FormTab），
+  // 两者都必须登记，否则一行多列会被当成业务控件输出。
+  const IGNORED_CONTROL_KEYS = ["102", "101", "formlayout", "formdescription", "formtab"];
   /** 类型码缺失时按「读取」处理，避免漏抓设计器新增控件 */
   function isReadableControlKey(controlKey: unknown): boolean {
     const key = text(controlKey).toLowerCase();
@@ -36,6 +38,7 @@ export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
     proxy?: unknown;
     ctx?: unknown;
     props?: unknown;
+    parent?: Vue3ComponentLike | null;
     vnode?: { props?: unknown };
     [key: string]: unknown;
   }
@@ -133,7 +136,19 @@ export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
   function pageParams(): Record<string, string> {
     const url = new URL(window.location.href);
     const hashQuery = url.hash.includes("?") ? url.hash.slice(url.hash.indexOf("?") + 1) : "";
-    return Object.assign(Object.fromEntries(url.searchParams.entries()), Object.fromEntries(new URLSearchParams(hashQuery).entries()));
+    const params: Record<string, string> = Object.assign(
+      Object.fromEntries(url.searchParams.entries()),
+      Object.fromEntries(new URLSearchParams(hashQuery).entries())
+    );
+    // 新版设计器改用路径传参：/nx/designer/{form|list}/{应用编码}/{表单编码}
+    if (!params.appcode || !params.id) {
+      const matched = url.pathname.match(/\/designer\/(?:form|list)\/([^/]+)\/([^/]+)\/?$/);
+      if (matched) {
+        if (!params.appcode) params.appcode = matched[1] || "";
+        if (!params.id) params.id = matched[2] || "";
+      }
+    }
+    return params;
   }
   function readAttribute(element: Element, names: string[]): string {
     for (const name of names) {
@@ -533,11 +548,23 @@ export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
       return null;
     }
 
-    // 优先通过设计器根节点读取
-    const designerRoot = document.querySelector(".designer.web") as VueElement | null;
-    if (designerRoot?.__vue__) {
-      const found = searchVueForAllControls(designerRoot.__vue__);
-      if (found) return found;
+    // 优先通过设计器根节点读取。新版氚云改用 micro-app 微前端，根节点类名随版本变化，
+    // 因此按候选列表逐个尝试，同时兼容 Vue2 的 __vue__ 与 Vue3 的 __vueParentComponent。
+    const designerRootSelectors = [".designer.web", ".form-designer", ".designer-layout", "#microApp"];
+    for (const selector of designerRootSelectors) {
+      const designerRoot = document.querySelector(selector) as VueElement | null;
+      if (!designerRoot) continue;
+      if (designerRoot.__vue__) {
+        const found = searchVueForAllControls(designerRoot.__vue__);
+        if (found) return found;
+      }
+      // Vue3：沿组件 parent 链上溯，逐层检查 proxy / ctx 上是否挂了 allControls（如 Pinia store）。
+      let component: Vue3ComponentLike | null = designerRoot.__vueParentComponent ?? null;
+      for (let depth = 0; component && depth < 24; depth++) {
+        const found = searchVueForAllControls(component.proxy ?? component.ctx);
+        if (found) return found;
+        component = component.parent ?? null;
+      }
     }
 
     // 回退：从子表控件沿祖先链查找
@@ -669,8 +696,142 @@ export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
     return controls;
   }
 
+  // ── 新版设计器接口（/v1/formdesign/load）────────────────────────
+  // 新版氚云把控件树序列化进 returnData.designContent（JSON 字符串数组），
+  // 节点形状为 { Key, ParentKey, Options: { ControlKey, DisplayName, DisplayRule, ... }, Type, ChildControls }。
+  // DOM 只保留 data-field / data-control-key，拿不到选项值、默认值、关联表单和隐藏规则，因此接口为主路径。
+  function readNodeField(node: Record<string, unknown>, fieldName: string): unknown {
+    const options = node?.Options;
+    if (options && typeof options === "object") {
+      const optionsRecord = options as Record<string, unknown>;
+      for (const key of Object.keys(optionsRecord)) {
+        if (key.toLowerCase() === fieldName.toLowerCase()) {
+          const value = optionsRecord[key];
+          if (value !== undefined && value !== null) return value;
+        }
+      }
+    }
+    for (const key of Object.keys(node || {})) {
+      if (key.toLowerCase() === fieldName.toLowerCase()) {
+        const value = node[key];
+        if (value !== undefined && value !== null) return value;
+      }
+    }
+    return undefined;
+  }
+  // 显示隐藏规则在新版是 { Rule: "..." }，为空时输出空串，避免 FromCode 出现 {"Rule":""}
+  function readNodeRule(value: unknown): string {
+    if (value === null || value === undefined) return "";
+    if (typeof value === "string") return text(value);
+    if (typeof value === "object") {
+      const record = value as Record<string, unknown>;
+      const rule = record.Rule ?? record.rule;
+      if (rule !== undefined && rule !== null) return text(rule);
+      return safeText(value);
+    }
+    return text(value);
+  }
+  function readNodeItems(value: unknown): unknown[] {
+    return Array.isArray(value) ? value : (value ? [value] : []);
+  }
+  // 布局 / 容器节点：ControlKey 为 FormLayout 等，或 Type 为数字码 101 / 102
+  function isLayoutNode(node: Record<string, unknown>, controlKey: string): boolean {
+    const typeCode = text(node.Type).toLowerCase();
+    const key = controlKey.toLowerCase();
+    return IGNORED_CONTROL_KEYS.indexOf(key) >= 0 || IGNORED_CONTROL_KEYS.indexOf(typeCode) >= 0;
+  }
+  function toDesignChild(node: Record<string, unknown>): AllControlChild {
+    return {
+      code: text(node.Key),
+      displayName: text(readNodeField(node, "DisplayName")),
+      controlKey: text(readNodeField(node, "ControlKey") ?? readNodeField(node, "Type")),
+      defaultValue: text(readNodeField(node, "DefaultValue")),
+      boschemaCode: text(readNodeField(node, "BOSchemaCode")),
+      displayRule: readNodeRule(readNodeField(node, "DisplayRule")),
+      defaultItems: readNodeItems(readNodeField(node, "DefaultItems") ?? readNodeField(node, "Items"))
+    };
+  }
+  function toDesignControl(node: Record<string, unknown>, children: AllControlChild[]): AllControl {
+    return {
+      code: text(node.Key),
+      displayName: text(readNodeField(node, "DisplayName")),
+      controlKey: text(readNodeField(node, "ControlKey") ?? readNodeField(node, "Type")),
+      sheetCode: children.length > 0 ? text(node.Key) : "",
+      children,
+      boschemaCode: text(readNodeField(node, "BOSchemaCode")),
+      defaultValue: text(readNodeField(node, "DefaultValue")),
+      displayRule: readNodeRule(readNodeField(node, "DisplayRule")),
+      defaultItems: readNodeItems(readNodeField(node, "DefaultItems") ?? readNodeField(node, "Items"))
+    };
+  }
+  function extractControlsFromDesignContent(nodes: unknown[]): AllControl[] {
+    const controls: AllControl[] = [];
+    function visit(list: unknown[]): void {
+      for (const item of list) {
+        if (!item || typeof item !== "object") continue;
+        const node = item as Record<string, unknown>;
+        const controlKey = text(readNodeField(node, "ControlKey"));
+        const childNodes = Array.isArray(node.ChildControls) ? node.ChildControls : [];
+        // 布局容器（一行多列 / 分组标题 / 标签页）：展开其子控件到主表层级
+        if (isLayoutNode(node, controlKey)) {
+          visit(childNodes);
+          continue;
+        }
+        if (!isReadableControlKey(controlKey || text(node.Type))) continue;
+        const isSheet = controlKey.toLowerCase() === "formgridview";
+        const children = isSheet
+          ? childNodes
+            .filter((child): child is Record<string, unknown> => Boolean(child) && typeof child === "object")
+            .map(toDesignChild)
+            .filter((child) => isReadableControlKey(child.controlKey))
+          : [];
+        controls.push(toDesignControl(node, children));
+      }
+    }
+    visit(nodes);
+    return controls;
+  }
+  async function loadControlsFromFormDesignApi(schemaCode: string): Promise<AllControl[] | null> {
+    if (!schemaCode) return null;
+    const controller = new AbortController();
+    const timer = setTimeout(function () { controller.abort(); }, 6000);
+    try {
+      const response = await fetch(`/v1/formdesign/load?schemaCode=${encodeURIComponent(schemaCode)}`, {
+        credentials: "include",
+        signal: controller.signal
+      });
+      if (!response.ok) return null;
+      const payload = (await response.json()) as Record<string, unknown>;
+      const returnData = payload?.returnData;
+      if (!returnData || typeof returnData !== "object") return null;
+      const designContent = (returnData as Record<string, unknown>).designContent;
+      if (typeof designContent !== "string" || !designContent.trim()) return null;
+      const parsed: unknown = JSON.parse(designContent);
+      if (!Array.isArray(parsed)) return null;
+      return extractControlsFromDesignContent(parsed);
+    } catch (_error) {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   try {
     const params = pageParams();
+
+    // 策略0：新版设计器接口，designContent 携带完整控件树（选项值 / 默认值 / 关联表单 / 隐藏规则齐全）
+    const apiControls = await loadControlsFromFormDesignApi(text(params.id));
+    if (apiControls && apiControls.length > 0) {
+      return {
+        ok: true,
+        pageUrl: window.location.href,
+        appCode: text(params.appcode),
+        formId: text(params.id),
+        controls: apiControls,
+        source: "formDesignApi",
+        readDiagnostic: `formDesignApi controls=${apiControls.length}`
+      } as unknown as H3yunDesignerMetadataResult;
+    }
 
     // 优先使用 Vue allControls 全局状态读取完整控件编码（含自定义编码），
     // 该方式直接读取设计器状态，不受 DOM 懒加载影响，编码最完整。
@@ -687,11 +848,19 @@ export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
     // 回退：通过 DOM 扫描 + Vue 状态遍历 + 编码目录回填获取控件编码（兜底逻辑）
     // 氚云设计器主表控件有两种常见结构：
     // 1. 早期版本：.control-container[data-code]
-    // 2. 当前版本（如图）：.layout-control__item[data-code]
-    // 为避免遗漏，使用 .designer.web [data-code] 并排除已知的非表单控件元素（如左侧工具栏）
-    const designerRootForDom = document.querySelector(".designer.web");
-    if (!designerRootForDom) {
-      return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls: [], source: "dom" } as unknown as H3yunDesignerMetadataResult;
+    // 2. 旧版设计器：.layout-control__item[data-code]
+    // 根节点类名随版本变化（新版为 micro-app），按候选列表解析；全部未命中时退回 body，
+    // 由下方控件类名过滤排除左侧工具栏等非画布元素。
+    const designerRootSelectors = [".designer.web", ".form-designer", ".designer-layout", "#microApp"];
+    let designerRootForDom: Element = document.body;
+    let designerRootSelectorHit = "body";
+    for (const selector of designerRootSelectors) {
+      const candidate = document.querySelector(selector);
+      if (candidate) {
+        designerRootForDom = candidate;
+        designerRootSelectorHit = selector;
+        break;
+      }
     }
     const allDataCodeElements = Array.from(designerRootForDom.querySelectorAll("[data-code]"));
     // 只取主表控件元素（排除左侧工具栏、拖拽面板等非画布控件）：
@@ -723,7 +892,9 @@ export function h3yunDesignerMetadataMain(): H3yunDesignerMetadataResult {
       return control;
     });
     const diagnosticDomSnapshot = hasMissingChildCodes(controls) ? buildMissingCodeDomSnapshot(designerRootForDom, sheetFieldCatalog) : null;
-    return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls, source: "dom", _diagnosticDomSnapshot: diagnosticDomSnapshot } as unknown as H3yunDesignerMetadataResult;
+    // 控件为空最常见的根因是设计器换版导致根节点或控件属性改名，记录路径上的关键计数便于定位。
+    const readDiagnostic = `root=${designerRootSelectorHit}, dataCode=${allDataCodeElements.length}, controlElements=${controlElements.length}, dataSheet=${designerRootForDom.querySelectorAll("[data-sheet='true']").length}`;
+    return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls, source: "dom", readDiagnostic, _diagnosticDomSnapshot: diagnosticDomSnapshot } as unknown as H3yunDesignerMetadataResult;
   } catch (error) {
     return { ok: false, errorCode: "H3YUN_DESIGNER_METADATA_FAILED", details: error instanceof Error ? error.message : String(error), controls: [] } as unknown as H3yunDesignerMetadataResult;
   }

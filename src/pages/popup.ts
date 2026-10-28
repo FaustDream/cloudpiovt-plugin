@@ -41,7 +41,11 @@ import {
   clearRecentTargetDirectoriesByPlatform,
   resolveRecentEntryPlatform,
 } from '../services/recent-target-directories.js';
-import { getStoredDirectoryPath, saveHandleSelection, resolveTargetDirectoryHandle } from '../services/target-directory-state.js';
+import {
+  getStoredDirectoryPath,
+  saveHandleSelection,
+  type HandleSelectionResult,
+} from '../services/target-directory-state.js';
 import {
   buildScopeOptions,
   formatArtifactScopeBadge,
@@ -64,6 +68,7 @@ import {
   queryHandlePermissionState,
   requestHandlePermissionState,
   requestTargetDirectoryPermission,
+  confirmForcodeOverride,
 } from '../services/target-directory-access.js';
 import { checkTargetDirectoryHealth } from '../services/target-directory-check.js';
 import type { TargetDirectoryCheckResult } from '../services/target-directory-check.js';
@@ -208,6 +213,27 @@ function clearStatus(): void {
   renderStatus();
 }
 
+function isNotAllowedError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'NotAllowedError';
+}
+
+function formatExecutionError(error: unknown): string {
+  if (isNotAllowedError(error)) {
+    return '目标目录存在性探测失败：当前浏览器或平台不允许在当前上下文访问该目录（NotAllowedError）';
+  }
+  if (error instanceof DirectoryError) return error.message;
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+function reportExecutionError(operation: string, error: unknown): void {
+  const message = formatExecutionError(error);
+  const suggestion = isNotAllowedError(error)
+    ? '请在扩展弹窗中点击「更新当前路径」重新选择目录后重试'
+    : '请检查当前页面和目标目录后重试';
+  addErrorLog(`${operation}：${message}`, suggestion);
+}
+
 // ── Busy State ────────────────────────────────────────
 
 function setBusy(busy: boolean): void {
@@ -222,8 +248,8 @@ async function runWithButtonBusy(button: HTMLElement | null, task: () => Promise
   try {
     await task();
   } catch (error: unknown) {
-    // 兜底捕获所有未处理异常，避免写入/探测失败时无日志（符合"不得静默吞掉异常"）
-    addErrorLog(`操作失败：${error instanceof Error ? error.message : String(error)}`);
+    // 所有按钮操作统一在此记录一次，底层服务只负责继续抛出异常。
+    reportExecutionError('操作失败', error);
   } finally {
     setBusy(false);
     if (button) button.classList.remove('btn-busy');
@@ -304,6 +330,72 @@ async function updateDirectoryDisplay(): Promise<void> {
 
 // ── Directory Selection ────────────────────────────────
 
+// ── fromcode 目录归属校验 ──────────────────────────────
+
+/** mismatched 时弹确认框：目录属于其他表单，是否仍强制关联到当前页面 */
+function promptForcodeConfirm(label: string, storedCode: string): boolean {
+  return window.confirm(
+    `目标目录「${label}」已关联其他表单（fromcode: ${storedCode}）。\n\n` +
+    '是否仍要关联到当前页面？\n' +
+    '确认后将把该目录关联到当前页面的表单编码。',
+  );
+}
+
+/** 用户确认强制关联：绑定目录并在扩展本地记录 forced 关联。 */
+async function forceForcodeAssociate(
+  handle: FileSystemDirectoryHandle,
+  label: string,
+  storedCode: string,
+  pageType: string,
+): Promise<boolean> {
+  const forced = await confirmForcodeOverride(handle, state.pageContext, pageType);
+  if (!forced) {
+    addErrorLog('强制关联失败，请重试');
+    return false;
+  }
+  addWarningLog(
+    `目录「${label}」已强制关联（原 fromcode: ${storedCode}）`,
+    '已记录目录与当前页面的强制关联',
+  );
+  return true;
+}
+
+/** 绑定成功后按校验结论输出日志反馈（matched / missing） */
+function reportForcodeStatus(fromcode: string | undefined, label: string): void {
+  if (fromcode === 'matched') {
+    addSuccessLog('目录表单编码校验通过，目录与当前页面匹配');
+  } else if (fromcode === 'missing') {
+    addWarningLog(
+      `目录「${label}」尚无表单归属关联（可能是新建或未初始化目录）`,
+      '确认后首次写入会在扩展本地记录目录归属，不会在目录中新增标记文件',
+    );
+  }
+}
+
+/**
+ * 统一处理 saveHandleSelection 的 fromcode 校验结果：
+ * mismatched 时弹确认由用户决定（拒绝则不绑定，返回 false）；其余结论出日志并放行。
+ */
+async function applyHandleSelectionFromcode(
+  selection: HandleSelectionResult,
+  handle: FileSystemDirectoryHandle,
+  pageType: string,
+): Promise<boolean> {
+  if (selection.handleModeSelected) {
+    reportForcodeStatus(selection.fromcode, selection.label);
+    return true;
+  }
+  const storedCode = selection.fromcodeValue || '未知编码';
+  if (!promptForcodeConfirm(selection.label, storedCode)) {
+    addWarningLog(
+      `目录「${selection.label}」属于其他表单（fromcode: ${storedCode}），未关联`,
+      '请选择其他目录；或重新选择该目录并在提示中确认强制关联',
+    );
+    return false;
+  }
+  return forceForcodeAssociate(handle, selection.label, storedCode, pageType);
+}
+
 /**
  * 恢复历史目录：通过历史记录中的 scope 精确定位 IndexedDB 中的页面级句柄，
  * 直接在该句柄上检查/请求权限（而非通过 resolveTargetDirectoryHandle 的 scope 解析，
@@ -316,16 +408,15 @@ async function handleSelectHistoryPath(path: string): Promise<void> {
   closeSearchDropdown();
 
   // 精确定位历史路径对应的句柄：仅用历史条目自身记录的 scope 从 IndexedDB
-  // 获取页面级句柄（句柄名必须与历史 path 一致，防止 scope 被其他目录覆盖后误恢复）。
-  // 不再回退 pageType 全局句柄——旧共享槽已退役，且该槽会被其他页面污染导致恢复落空。
+  // 获取页面级句柄。目录归属不再依赖句柄名对比（旧验证已退役），
+  // 由后续 saveHandleSelection 的 fromcode 校验统一判定。
   const activePlatform = getActivePlatformKey();
   const entry = state.recentDirectories.find(
     (r) => r.path === path && resolveRecentEntryPlatform(r, state.config) === activePlatform,
   );
   let handle: FileSystemDirectoryHandle | undefined;
   if (entry?.scope) {
-    const scopedHandle = await getTargetDirectoryHandleForScope(entry.scope);
-    if (scopedHandle && scopedHandle.name === path) handle = scopedHandle;
+    handle = await getTargetDirectoryHandleForScope(entry.scope);
   }
   if (!handle) {
     // 目录选择器只由用户显式点击「更新当前路径」触发，这里只提示、不代用户弹窗
@@ -340,7 +431,8 @@ async function handleSelectHistoryPath(path: string): Promise<void> {
   const permission = await queryHandlePermissionState(handle);
   if (permission === 'granted') {
     const currentPageType = state.pageTypeConfig?.pageType || 'default';
-    await saveHandleSelection(handle, state.pageContext, currentPageType);
+    const selection = await saveHandleSelection(handle, state.pageContext, currentPageType);
+    if (!(await applyHandleSelectionFromcode(selection, handle, currentPageType))) return;
     state.currentDirectoryPath = handle.name;
     state.currentDirectoryLabel = handle.name;
     await updateDirectoryDisplay();
@@ -354,7 +446,8 @@ async function handleSelectHistoryPath(path: string): Promise<void> {
   const granted = await requestHandlePermissionState(handle);
   if (granted === 'granted') {
     const currentPageType = state.pageTypeConfig?.pageType || 'default';
-    await saveHandleSelection(handle, state.pageContext, currentPageType);
+    const selection = await saveHandleSelection(handle, state.pageContext, currentPageType);
+    if (!(await applyHandleSelectionFromcode(selection, handle, currentPageType))) return;
     state.currentDirectoryPath = handle.name;
     state.currentDirectoryLabel = handle.name;
     await updateDirectoryDisplay();
@@ -404,33 +497,52 @@ async function handleCopyPath(): Promise<void> {
   }
 }
 
+function reportDirectoryCheckSuccess(check: TargetDirectoryCheckResult, suggestion?: string): void {
+  const label = check.label || '未命名目录';
+  addSuccessLog(`目录校验通过：目录「${label}」的表单编码与当前页面匹配`, suggestion);
+}
+
+function reportDirectoryCheckResult(check: TargetDirectoryCheckResult): void {
+  if (check.health === 'ok') {
+    reportDirectoryCheckSuccess(check);
+  } else if (check.health === 'unbound') {
+    reportUnboundDefaultDirectory(check.platformKey);
+  } else {
+    reportDirectoryCheckIssue(check);
+  }
+}
+
 /**
  * 输出自检未通过的原因（红字 / 黄字）与处置建议。
  *
- * 只处理「需要用户处理」的结论：目录已消失（红）、平台默认目录配置冲突（红）、
- * 无读写授权（黄）。自检通过与未绑定不在此输出，由调用方决定是否需要提示。
+ * 只处理「需要用户判断」的结论：尚无表单归属关联（黄，新建目录请用户确认）、
+ * fromcode 属于其他表单（红，请用户确认归属）、权限被拒（黄/普通日志）。
+ * 自检通过与未绑定不在此输出，由调用方决定是否需要提示。
+ * 不做任何二次校验或临时文件测试。
  */
 function reportDirectoryCheckIssue(check: TargetDirectoryCheckResult): void {
-  const platformLabel = PLATFORM_LABELS[check.platformKey];
   const label = check.label || '未命名目录';
 
   switch (check.health) {
-    case 'missing':
-      addErrorLog(
-        `路径自检未通过：${platformLabel}目录「${label}」已不存在（可能已被移动或删除）`
-        + (check.clearedBinding ? '，已清除该目录的失效绑定' : ''),
-        '请点击「更新当前路径」重新选择目标目录',
+    case 'fromcode-missing':
+      addWarningLog(
+        `目录「${label}」尚无表单归属关联（可能是新建或未初始化目录）`,
+        '请确认该目录是否用于当前页面；确认后归属只保存在扩展本地，不会新增标记文件',
       );
       return;
-    case 'platform-conflict':
+    case 'fromcode-mismatched':
       addErrorLog(
-        `路径自检未通过：${platformLabel}默认目录与另一个平台的默认目录是同一个目录「${label}」`,
-        '请在设置页「默认目录」为云枢与氚云分别配置各自的工作目录',
+        `目录「${label}」的表单编码（fromcode: ${check.fromcodeValue || '未知'}）与当前页面不匹配，可能属于其他表单`,
+        '请确认目录归属；如需关联当前页面，请点击「更新当前路径」重新选择该目录并确认强制关联',
       );
+      return;
+    case 'permission-prompt':
+      // 浏览器重启后句柄权限退化为 prompt 是正常待授权状态，实际授权在用户手势内完成
+      addLog(`目录「${label}」权限待确认，首次操作时浏览器会请求授权`);
       return;
     case 'permission-denied':
       addWarningLog(
-        `路径自检未通过：目录「${label}」没有读写授权`,
+        `目录校验未通过：目录「${label}」没有读取权限`,
         '请点击「更新当前路径」重新授权或重新选择目标目录',
       );
       return;
@@ -473,13 +585,13 @@ async function handleRefreshDirectory(): Promise<void> {
   await runWithButtonBusy(dom.refreshHandleBtn, async () => {
     const pageType = resolveEffectivePageType();
 
-    // 1) 自检：只输出结论，不决定是否弹窗
-    const check = await checkTargetDirectoryHealth(state.pageContext, pageType, { clearStaleBinding: true });
+    // 1) 自检（fromcode 唯一校验方式）：只输出结论，不决定是否弹窗
+    const check = await checkTargetDirectoryHealth(state.pageContext, pageType);
     const label = check.label || '未命名目录';
 
     if (check.health === 'ok') {
-      addSuccessLog(`路径自检通过：目录「${label}」存在且可读写`, '可在弹出的对话框中选择其它目录');
-    } else if (check.health === 'permission-denied') {
+      reportDirectoryCheckSuccess(check, '可在弹出的对话框中选择其它目录');
+    } else if (check.health === 'permission-denied' || check.health === 'permission-prompt') {
       // 浏览器重启后句柄权限常退化为 prompt：在用户手势内补授权，成功即恢复当前目录的读写
       const permission = await requestTargetDirectoryPermission(state.pageContext, pageType);
       if (permission === 'granted') {
@@ -503,9 +615,28 @@ async function handleRefreshDirectory(): Promise<void> {
       addWarningLog('目录选择已取消');
       return;
     }
+    // fromcode 校验：mismatched（目录属于其他表单）时弹确认由用户决定是否强制关联
+    if (result.fromcodeConfirm) {
+      const { handle, fromcodeValue } = result.fromcodeConfirm;
+      const storedCode = fromcodeValue || '未知编码';
+      if (!promptForcodeConfirm(result.label, storedCode)) {
+        addWarningLog(
+          `目录「${result.label}」属于其他表单（fromcode: ${storedCode}），未关联`,
+          '请选择其他目录；或重新选择该目录并在提示中确认强制关联',
+        );
+        return;
+      }
+      if (!(await forceForcodeAssociate(handle, result.label, storedCode, pageType))) return;
+    } else {
+      reportForcodeStatus(result.fromcode, result.label);
+    }
     await updateDirectoryDisplay();
     await loadRecentDirectories();
     addSuccessLog(`路径已更新：${result.label}`);
+
+    // 新路径绑定后必须立即重新验证，确保句柄和实际读写能力一致。
+    const reboundCheck = await checkTargetDirectoryHealth(state.pageContext, pageType);
+    reportDirectoryCheckResult(reboundCheck);
   });
 }
 
@@ -1304,10 +1435,15 @@ async function handleH3yunCaptureAll(): Promise<void> {
       // 列表设计模式无图形控件，靠 controls.length 判断即可，无需单独分支
       if (fromCodeEnabled && metadataOk && controls.length) {
         filesToWrite.push({ fileName: FROM_CODE_FILE_NAME, content: buildH3yunFromCodeContent(metadata) });
+        const sourceLabel = metadata?.ok && metadata.source === 'formDesignApi' ? '设计器接口' : 'DOM/状态';
+        addLog(`图形控件：${controls.length} 个（来源：${sourceLabel}）`, 'info');
       } else if (fromCodeEnabled) {
         skipped.push('图形控件');
         if (!metadataOk) {
           addLog(`图形控件元数据未就绪：${formatProbeFailure(metadataResult, '未返回结果')}，将跳过 FromCode`, 'warning');
+        } else {
+          const readDiagnostic = metadata?.ok ? metadata.readDiagnostic || '无诊断信息' : '无诊断信息';
+          addLog(`图形控件未解析出任何控件（${readDiagnostic}），将跳过 FromCode`, 'warning');
         }
       } else {
         skipped.push('FromCode（已关闭）');
@@ -1434,29 +1570,30 @@ async function runOperationWithPreflight(
   const results: PreflightResult[] = [];
 
   // Page context check
-  if (state.pageContext?.url) {
-    const isRecognized = isRecognizedPlatformUrl(state.pageContext.url);
+  const isRecognized = Boolean(
+    state.pageContext?.url && isRecognizedPlatformUrl(state.pageContext.url),
+  );
+  results.push(createPreflightResult({
+    operationId, checkId: 'page.recognized',
+    severity: isRecognized ? 'info' : 'blocker',
+    ok: isRecognized,
+    errorCode: isRecognized ? '' : 'ERR_INVALID_TARGET',
+    evidence: state.pageContext.url,
+    nextAction: isRecognized ? '' : '请在云枢或氚云设计页面使用本扩展',
+  }));
+
+  // 目录检查：当前页面有效句柄存在即可（目录归属由 fromcode 校验在写入链路把守）
+  if (isRecognized) {
+    const path = await getStoredDirectoryPath(state.pageContext, resolveEffectivePageType());
     results.push(createPreflightResult({
-      operationId, checkId: 'page.recognized',
-      severity: isRecognized ? 'info' : 'blocker',
-      ok: isRecognized,
-      errorCode: isRecognized ? '' : 'ERR_INVALID_TARGET',
-      evidence: state.pageContext.url,
-      nextAction: isRecognized ? '' : '请在云枢或氚云设计页面使用本扩展',
+      operationId, checkId: 'directory.selected',
+      severity: path ? 'info' : 'blocker',
+      ok: Boolean(path),
+      errorCode: path ? '' : 'ERR_DIRECTORY_NOT_SELECTED',
+      evidence: path || '未选择',
+      nextAction: path ? '' : '请点击「更新当前路径」选择目标目录',
     }));
   }
-
-  // Directory check — 使用与展示 / 写入一致的页面生效 pageType 解析
-  const handle = await resolveTargetDirectoryHandle(state.pageContext, resolveEffectivePageType());
-  const hasDirectory = Boolean(handle);
-  results.push(createPreflightResult({
-    operationId, checkId: 'directory.selected',
-    severity: hasDirectory ? 'info' : 'blocker',
-    ok: hasDirectory,
-    errorCode: hasDirectory ? '' : 'ERR_DIRECTORY_NOT_SELECTED',
-    evidence: hasDirectory ? (handle?.name || '已选择') : 'no directory selected',
-    nextAction: hasDirectory ? '' : '请先选择目标目录',
-  }));
 
   if (hasBlockingPreflightResult(results)) {
     for (const result of results) {
@@ -1575,13 +1712,10 @@ async function init(): Promise<void> {
   // 渲染 UI（目录名从当前有效句柄解析，展示与读写同源）
   await updateDirectoryDisplay();
 
-  // 目录路径自检：只报告异常结论（目录已被移动 / 删除、平台默认目录配置冲突、
-  // 权限失效、默认目录未绑定句柄），通过时不输出，避免每次打开弹窗都刷一条绿字。
-  const check = await checkTargetDirectoryHealth(state.pageContext, resolveEffectivePageType());
-  if (check.health === 'unbound') {
-    reportUnboundDefaultDirectory(check.platformKey);
-  } else if (check.health !== 'ok') {
-    reportDirectoryCheckIssue(check);
+  // 只有识别为云枢 / 氚云页面时才自动自检；其它页面不触碰目录。
+  if (isRecognizedPlatformUrl(state.pageContext.url)) {
+    const check = await checkTargetDirectoryHealth(state.pageContext, resolveEffectivePageType());
+    reportDirectoryCheckResult(check);
   }
 
   // 状态
@@ -1711,5 +1845,7 @@ function bindEvents(): void {
 
 document.addEventListener('DOMContentLoaded', () => {
   bindEvents();
-  init().then(() => logger.debug('Popup ready'));
+  init()
+    .then(() => logger.debug('Popup ready'))
+    .catch((error: unknown) => reportExecutionError('页面初始化失败', error));
 });

@@ -5,7 +5,7 @@
  */
 import { STORAGE_KEYS } from '../lib/constants.js';
 import { normalizePath, extractLastFolderName } from '../lib/utils.js';
-import { getPlatformKeyFromPageType, getFallbackDirectoryPathByPlatform } from './config.js';
+import { getPlatformKeyFromPageType, getFallbackDirectoryPathByPlatform, loadConfig } from './config.js';
 import type { ExtensionConfig } from '../types/config.js';
 import type { PlatformKey } from '../types/platform.js';
 
@@ -49,15 +49,23 @@ function normalizePageType(value: unknown): string {
   return String(value || '').trim() || 'default';
 }
 
-/** 历史目录去重键：云枢与氚云即使选择同一目录，也必须保留两条独立记录。 */
-function getRecentEntryIdentity(entry: RecentDirectoryEntry): string {
-  const pageType = normalizePageType(entry.pageType).toLowerCase();
-  const platform = pageType === 'default' ? 'unknown' : getPlatformKeyFromPageType(pageType);
-  return `${platform}:${entry.path}`;
+/**
+ * 历史目录去重键：云枢与氚云即使选择同一目录，也必须保留两条独立记录。
+ *
+ * 平台判定必须与 resolveRecentEntryPlatform（UI 展示过滤）完全一致：
+ * 若此处将 pageType='default' 归为 'unknown' 而展示层归为具体平台，
+ * 同一目录在「已识别页面选择」与「未识别页面重选」两种入口下会产生
+ * 两条身份不同的记录，下拉列表即出现多条同名同路径目录。
+ */
+function getRecentEntryIdentity(entry: RecentDirectoryEntry, config: ExtensionConfig | null): string {
+  return `${resolveRecentEntryPlatform(entry, config)}:${entry.path}`;
 }
 
 /** 清洗并排序最近目录列表 */
-export function normalizeRecentTargetDirectories(value: unknown): RecentDirectoryEntry[] {
+export function normalizeRecentTargetDirectories(
+  value: unknown,
+  config: ExtensionConfig | null = null,
+): RecentDirectoryEntry[] {
   if (!Array.isArray(value)) return [];
 
   const sorted = value
@@ -76,7 +84,7 @@ export function normalizeRecentTargetDirectories(value: unknown): RecentDirector
   const seen = new Set<string>();
   const deduped: RecentDirectoryEntry[] = [];
   for (const record of sorted) {
-    const identity = getRecentEntryIdentity(record);
+    const identity = getRecentEntryIdentity(record, config);
     if (seen.has(identity)) continue;
     seen.add(identity);
     deduped.push(record);
@@ -88,9 +96,10 @@ export function normalizeRecentTargetDirectories(value: unknown): RecentDirector
 export function mergeRecentTargetDirectories(
   records: unknown,
   nextRecord: Partial<RecentDirectoryEntry> & { path?: string },
+  config: ExtensionConfig | null = null,
 ): RecentDirectoryEntry[] {
   const normalizedPath = normalizePath(nextRecord.path);
-  if (!normalizedPath) return normalizeRecentTargetDirectories(records);
+  if (!normalizedPath) return normalizeRecentTargetDirectories(records, config);
 
   const merged = [
     {
@@ -99,18 +108,22 @@ export function mergeRecentTargetDirectories(
       lastUsedAt: normalizeTimestamp(nextRecord.lastUsedAt) || Date.now(),
       scope: typeof nextRecord.scope === 'string' && nextRecord.scope.trim() ? nextRecord.scope.trim() : undefined,
     },
-    ...normalizeRecentTargetDirectories(records),
+    ...normalizeRecentTargetDirectories(records, config),
   ];
-  return normalizeRecentTargetDirectories(merged);
+  return normalizeRecentTargetDirectories(merged, config);
 }
 
 async function loadRecords(): Promise<RecentDirectoryEntry[]> {
-  const stored = await chrome.storage.local.get({ [STORAGE_KEYS.RECENT_DIRECTORIES]: [] });
-  return normalizeRecentTargetDirectories(stored[STORAGE_KEYS.RECENT_DIRECTORIES]);
+  const [stored, config] = await Promise.all([
+    chrome.storage.local.get({ [STORAGE_KEYS.RECENT_DIRECTORIES]: [] }),
+    loadConfig(),
+  ]);
+  return normalizeRecentTargetDirectories(stored[STORAGE_KEYS.RECENT_DIRECTORIES], config);
 }
 
 async function saveRecords(records: RecentDirectoryEntry[]): Promise<RecentDirectoryEntry[]> {
-  const normalized = normalizeRecentTargetDirectories(records);
+  const config = await loadConfig();
+  const normalized = normalizeRecentTargetDirectories(records, config);
   await chrome.storage.local.set({ [STORAGE_KEYS.RECENT_DIRECTORIES]: normalized });
   return normalized;
 }
@@ -126,8 +139,8 @@ export async function addRecentTargetDirectory(
   pageType?: string,
   scope?: string,
 ): Promise<RecentDirectoryEntry[]> {
-  const records = await loadRecords();
-  const next = mergeRecentTargetDirectories(records, { path, pageType, lastUsedAt: Date.now(), scope });
+  const [records, config] = await Promise.all([loadRecords(), loadConfig()]);
+  const next = mergeRecentTargetDirectories(records, { path, pageType, lastUsedAt: Date.now(), scope }, config);
   return saveRecords(next);
 }
 

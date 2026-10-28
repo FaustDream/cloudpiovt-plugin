@@ -106,7 +106,7 @@ export type BizRuleWritebackResult = BizRuleWritebackSuccess | InjectionFailure;
 // ─── 氚云代码编辑器 h3yunCodeEditorProbeMain / Writeback ────────
 
 export interface H3yunCodeEditorProbeInput {
-  /** 容器选择器，前端 "#jsText"，后端 "#csText" */
+  /** 容器选择器，前端 ".js-code-editor"，后端 ".cs-code-editor" */
   readonly selector: string;
   readonly codeKind: 'frontend' | 'backend';
 }
@@ -153,9 +153,11 @@ export interface H3yunDesignerMetadataSuccess {
   readonly controls: readonly ControlMeta[];
   readonly appCode: string;
   readonly formId: string;
-  readonly source: 'allControls' | 'dom';
+  readonly source: 'formDesignApi' | 'allControls' | 'dom';
   /** 子表字段编码缺失诊断（用于排查） */
   readonly missingChildCodes?: readonly string[];
+  /** 控件读取路径诊断（命中根节点、候选元素数量），控件为空时用于定位设计器结构变化 */
+  readonly readDiagnostic?: string;
 }
 
 export type H3yunDesignerMetadataResult = H3yunDesignerMetadataSuccess | InjectionFailure;

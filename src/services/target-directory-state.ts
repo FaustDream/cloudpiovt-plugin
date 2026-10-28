@@ -3,18 +3,32 @@
  *
  * 新版语义（替代旧版共享槽回退）：
  * - 页面已绑定时，目录记忆粒度 = 页面业务实例(scope)，页面间永不串用；
- * - 页面未绑定时，展示与读写统一回退到当前平台自己的默认目录句柄；
- * - 展示路径、选择器 startIn、文件读写和权限检查共用同一有效句柄解析结果；
+ * - 页面未绑定时，展示和选择器可回退到当前平台默认目录，但文件读写必须先命中当前页面缓存；
+ * - 页面展示、选择器 startIn 和通用句柄解析共用同一有效句柄来源，读写入口另加页面绑定门禁；
  * - 旧共享槽（pageType 全局句柄、平台 LAST_DIRECTORY）已整体退役，
  *   通过 cleanupLegacyDirectoryData() 在扩展启动时清理。
  */
 
 import { logger } from '../lib/logger.js';
 import { STORAGE_KEYS } from '../lib/constants.js';
-import { createTargetDirectoryPageScope, saveTargetDirectoryPathByScope, clearTargetDirectoryPathByScope, clearTargetDirectoryPathsByScopePrefix, clearTargetDirectorySnapshotsByScopePrefix } from './target-directory-session.js';
+import {
+  createTargetDirectoryPageScope,
+  saveTargetDirectoryPathByScope,
+  clearTargetDirectoryPathByScope,
+  clearTargetDirectoryPathsByScopePrefix,
+  clearTargetDirectorySnapshotsByScopePrefix,
+} from './target-directory-session.js';
 import { getTargetDirectoryHandleForScope, clearTargetDirectoryHandleForScope, saveTargetDirectoryHandleForScope, clearTargetDirectoryHandlesByScopePrefix, clearAllTargetDirectoryHandles, getDefaultDirectoryHandle } from '../lib/directory/file-handle-db.js';
 import { addRecentTargetDirectory } from './recent-target-directories.js';
 import { getPlatformKeyFromPageType } from './config.js';
+import {
+  verifyDirectoryFromcode,
+  readDirectoryFromcode,
+  setFromcodeAssociation,
+  clearFromcodeAssociation,
+  extractPageFormCode,
+  type FromcodeStatus,
+} from './directory-fromcode.js';
 import type { PlatformKey } from '../types/platform.js';
 
 interface TabInfo {
@@ -73,35 +87,89 @@ export async function getStoredDirectoryPath(
 
 // ── 选择目录后同步落库 ────────────────────────────────
 
+/** saveHandleSelection 结果：fromcode 校验结论 + 目录归属其他表单时的编码（供 UI 提示/确认） */
+export interface HandleSelectionResult {
+  readonly handleModeSelected: boolean;
+  readonly path: string;
+  readonly label: string;
+  readonly fromcode: FromcodeStatus | 'mismatched-forced';
+  /** mismatched / mismatched-forced 时目录 fromcode 中的编码 */
+  readonly fromcodeValue?: string;
+}
+
 /**
  * 选择 Handle 目录后绑定到当前页面 scope：
  * - 仅写「页面级句柄 + 页面级路径 + 最近使用历史」，不写任何全局/平台共享槽
  *   （旧版会覆盖 pageType 全局句柄与 LAST_DIRECTORY，导致多页面互相污染）。
  * - 展示与读写均通过 scope 句柄解析，后续不会被其他页面的选择覆盖。
+ * - 绑定前校验页面 scope 的目录表单编码关联及旧版 fromcode 文件：mismatched（目录属于其他表单）且未强制确认时
+ *   不执行绑定，返回 handleModeSelected=false 由调用方提示用户决定。
  */
 export async function saveHandleSelection(
   handle: FileSystemDirectoryHandle,
   tab: TabInfo | number,
   pageType = 'default',
-): Promise<{ handleModeSelected: boolean; path: string; label: string }> {
+  options: { forceFromcode?: boolean } = {},
+): Promise<HandleSelectionResult> {
   const pageScope = createTargetDirectoryPageScope(tab, pageType);
-
+  const pageUrl = typeof tab === 'object' ? (tab.url || tab.pendingUrl || '') : '';
   const label = handle.name || '';
-  await addRecentTargetDirectory(label, pageType, pageScope || undefined);
-  if (pageScope) {
-    // 绑定页面级句柄 + 路径快照（目录名）
-    await saveTargetDirectoryHandleForScope(handle, pageScope);
-    await saveTargetDirectoryPathByScope(pageScope, label);
+
+  const fromcode = await verifyDirectoryFromcode(handle, pageUrl, pageType, pageScope);
+  if (fromcode === 'mismatched' && !options.forceFromcode) {
+    let stored: string | null = null;
+    try {
+      stored = await readDirectoryFromcode(handle);
+    } catch {
+      stored = null; // 读取被拒：verify 已得到 mismatched，值缺失时由 UI 显示占位
+    }
+    return { handleModeSelected: false, path: '', label, fromcode, fromcodeValue: stored ?? '' };
   }
 
-  return { handleModeSelected: true, path: '', label };
+  await addRecentTargetDirectory(label, pageType, pageScope || undefined);
+  if (pageScope) {
+    // 绑定页面级句柄 + 路径快照（目录名），并按校验结论维护本地编码关联
+    await saveTargetDirectoryHandleForScope(handle, pageScope);
+    await saveTargetDirectoryPathByScope(pageScope, label);
+    await updateFromcodeAssociationForScope(
+      pageScope,
+      fromcode,
+      pageUrl,
+      pageType,
+      options.forceFromcode ?? false,
+    );
+  }
+
+  return {
+    handleModeSelected: true,
+    path: '',
+    label,
+    fromcode: fromcode === 'mismatched' ? 'mismatched-forced' : fromcode,
+  };
+}
+
+/** 按校验结论维护页面 scope 的目录表单编码关联。 */
+async function updateFromcodeAssociationForScope(
+  pageScope: string,
+  fromcode: FromcodeStatus,
+  pageUrl: string,
+  pageType: string,
+  forceFromcode: boolean,
+): Promise<void> {
+  const formCode = extractPageFormCode(pageUrl, pageType);
+  if (!formCode || fromcode === 'unreadable') {
+    await clearFromcodeAssociation(pageScope);
+    return;
+  }
+  await setFromcodeAssociation(pageScope, formCode, fromcode === 'mismatched' && forceFromcode);
 }
 
 /**
- * 解析当前页面实际使用的目录句柄。
+ * 解析当前页面通用句柄来源。
  *
- * 回退顺序与 getStoredDirectoryPath（展示）完全一致：页面 scope 句柄 → 当前平台
- * 默认句柄 → undefined。不同页面不会共享页面 scope，云枢与氚云也不会共享默认句柄。
+ * 回退顺序与 getStoredDirectoryPath（展示）一致：页面 scope 句柄 → 当前平台默认句柄
+ * → undefined。目录归属由页面 scope 表单编码关联校验（directory-fromcode.ts），
+ * 无编码页面不做归属校验。
  */
 export async function resolveTargetDirectoryHandle(
   tab: TabInfo | number,
@@ -109,28 +177,6 @@ export async function resolveTargetDirectoryHandle(
 ): Promise<FileSystemDirectoryHandle | undefined> {
   const resolved = await resolveTargetDirectorySelection(tab, pageType);
   return resolved?.handle;
-}
-
-// ── 失效绑定清理 ──────────────────────────────────────
-
-/**
- * 清理指向「已不存在目录」的页面级绑定（句柄 + 路径快照）。
- *
- * 目录被移动 / 删除后句柄不会自动失效，继续保留会让该页面反复解析到一个死目录
- * （显示有目录、实际写入失败）。清理后页面回到未绑定状态，由用户重新选择。
- *
- * @returns 是否确实清理了绑定（无页面 scope 时返回 false）
- */
-export async function clearStaleTargetDirectoryBinding(
-  tab: TabInfo | number,
-  pageType: string,
-): Promise<boolean> {
-  const pageScope = createTargetDirectoryPageScope(tab, pageType);
-  if (!pageScope) return false;
-
-  await clearTargetDirectoryHandleForScope(pageScope);
-  await clearTargetDirectoryPathByScope(pageScope);
-  return true;
 }
 
 // ── 标签页关闭清理 ────────────────────────────────────

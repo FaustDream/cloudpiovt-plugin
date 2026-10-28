@@ -124,6 +124,54 @@ export async function getTargetDirectoryHandleForScope(
   return withStore('readonly', (store) => store.get(buildPageHandleKey(normalized)));
 }
 
+export interface ScopedTargetDirectoryHandle {
+  readonly pageScope: string;
+  readonly handle: FileSystemDirectoryHandle;
+}
+
+function isDirectoryHandle(value: unknown): value is FileSystemDirectoryHandle {
+  return typeof value === 'object'
+    && value !== null
+    && Reflect.get(value, 'kind') === 'directory'
+    && typeof Reflect.get(value, 'isSameEntry') === 'function';
+}
+
+/** 列出已持久化的页面级目录句柄，用于判断目录是否已关联到其他表单。 */
+export async function getAllTargetDirectoryHandlesForScopes(): Promise<ScopedTargetDirectoryHandle[]> {
+  const database = await openDatabase();
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(FILE_HANDLE_STORE_NAME, 'readonly');
+    const request = transaction.objectStore(FILE_HANDLE_STORE_NAME).openCursor();
+    const handles: ScopedTargetDirectoryHandle[] = [];
+
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+
+      const key = typeof cursor.key === 'string' ? cursor.key : '';
+      const pagePrefix = `${PAGE_HANDLE_KEY_PREFIX}:`;
+      const value: unknown = cursor.value;
+      if (key.startsWith(pagePrefix) && isDirectoryHandle(value)) {
+        handles.push({ pageScope: key.slice(pagePrefix.length), handle: value });
+      }
+      cursor.continue();
+    };
+
+    transaction.oncomplete = () => {
+      database.close();
+      resolve(handles);
+    };
+    transaction.onerror = () => {
+      database.close();
+      reject(transaction.error ?? request.error ?? new ValidationError('读取页面目录句柄失败。', {}));
+    };
+    transaction.onabort = () => {
+      database.close();
+      reject(transaction.error ?? new ValidationError('读取页面目录句柄事务中断。', {}));
+    };
+  });
+}
+
 /** 清理页面级目录句柄 */
 export async function clearTargetDirectoryHandleForScope(pageScope: string): Promise<void> {
   const normalized = normalizeScopeKey(pageScope);

@@ -142,8 +142,9 @@ export function h3yunCodeEditorProbeMain(
     return lines.join("\n");
   }
 
-  // 查找 Monaco model：容器 editor 匹配 → 内容特征匹配 → 唯一 model 兜底。
-  // 氚云 Monaco editor 的 model 语言 ID 全部为 undefined，不可依赖语言匹配。
+  // 查找 Monaco model：容器 editor 匹配 → 语言 ID 匹配 → 内容特征匹配 → 唯一 model 兜底。
+  // 新版氚云 model 带语言 ID（javascript / csharp），旧版为 undefined，
+  // 因此语言匹配排在容器失配之后、内容正则之前。
   function findModel(log: string[]): FindModelState {
     log.push(`[findModel] selector=${input.selector}, codeKind=${input.codeKind || "?"}`);
     const container = document.querySelector(input.selector);
@@ -197,6 +198,31 @@ export function h3yunCodeEditorProbeMain(
       }
     }
     log.push(editor ? "[findModel] 策略1: 容器内找到 editor ✓" : "[findModel] 策略1: 容器内无 editor");
+
+    // 策略1c：容器失配时按语言 ID 匹配（新版氚云 model 语言 ID 已可用，比内容正则可靠）。
+    if (!model && models.length > 0) {
+      const expectedLanguages = input.codeKind === "frontend"
+        ? ["javascript", "javascriptreact", "typescript"]
+        : ["csharp"];
+      log.push(`[findModel] 策略1c: 按语言 ID 匹配 [${expectedLanguages.join(", ")}]`);
+      const langMatched = models
+        .map((m, index) => createModelCandidate(m, index, null))
+        .filter((candidate) => {
+          const lang = String(candidate.model?.getLanguageId?.() || "").toLowerCase();
+          if (candidate.uiNoise) {
+            log.push(`[findModel]   model[${candidate.index}]: 跳过(UI 噪声), lang=${lang || "undefined"}`);
+            return false;
+          }
+          const hit = expectedLanguages.indexOf(lang) >= 0;
+          log.push(`[findModel]   model[${candidate.index}]: lang=${lang || "undefined"}, hit=${hit}, len=${candidate.length}`);
+          return hit;
+        });
+      if (langMatched.length > 0) {
+        const selected = langMatched.reduce((best, current) => (compareModelCandidates(best, current) >= 0 ? best : current));
+        model = selected.model;
+        log.push(`[findModel] 策略1c: 取 model[${selected.index}], len=${selected.length} ✓`);
+      }
+    }
 
     // 策略2：内容特征匹配；多个 model 同时命中时按挂载状态、版本号和创建顺序评分。
     if (!model && models.length > 0) {

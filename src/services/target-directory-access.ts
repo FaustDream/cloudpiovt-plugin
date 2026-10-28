@@ -18,7 +18,17 @@ import {
   clearTabTargetDirectoryData,
   resolveTargetDirectoryHandle,
 } from './target-directory-state.js';
+import { createTargetDirectoryPageScope } from './target-directory-session.js';
+import {
+  extractPageFormCode,
+  getFromcodeAssociation,
+  setFromcodeAssociation,
+  readDirectoryFromcode,
+  removeLegacyDirectoryFromcode,
+  verifyDirectoryFromcode,
+} from './directory-fromcode.js';
 import type { PlatformKey } from '../types/platform.js';
+import { writeFileContent } from './target-directory-write.js';
 
 // ── 公开类型 ──────────────────────────────────────────
 
@@ -58,6 +68,16 @@ export interface SelectDirectoryResult {
   readonly path: string;
   readonly source: 'handle';
   readonly label: string;
+  /** fromcode 校验结论（matched / missing / skipped / mismatched-forced） */
+  readonly fromcode?: string;
+  /**
+   * 目录 fromcode 与当前页面不匹配时携带：目录句柄 + 目录内的表单编码。
+   * 调用方（popup）据此提示用户决定；确认后调用 confirmForcodeOverride 完成强制绑定。
+   */
+  readonly fromcodeConfirm?: {
+    readonly handle: FileSystemDirectoryHandle;
+    readonly fromcodeValue: string;
+  };
 }
 
 export interface WriteFilesResult {
@@ -267,13 +287,40 @@ export async function selectHandleDirectory(
       logger.warn('Directory readwrite permission not granted', { pageType, permission });
       return null;
     }
-    await saveHandleSelection(handle, tab, pageType);
-    return { path: '', source: 'handle', label: handle.name || '' };
+    const selection = await saveHandleSelection(handle, tab, pageType);
+    if (!selection.handleModeSelected) {
+      // 目录 fromcode 属于其他表单：不自动关联，交由调用方提示用户决定
+      return {
+        path: '',
+        source: 'handle',
+        label: selection.label,
+        fromcode: selection.fromcode,
+        fromcodeConfirm: {
+          handle,
+          fromcodeValue: selection.fromcodeValue ?? '',
+        },
+      };
+    }
+    return { path: '', source: 'handle', label: selection.label, fromcode: selection.fromcode };
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') return null;
     logger.error('Handle directory selection failed', { error: String(error) });
     return null;
   }
+}
+
+/**
+ * 用户确认强制关联 fromcode 不匹配的目录：绑定到当前页面并标记 forced，
+ * 首次导出时覆盖写入当前页面表单编码。
+ */
+export async function confirmForcodeOverride(
+  handle: FileSystemDirectoryHandle,
+  tab: TabInfo | number,
+  pageType = 'default',
+): Promise<SelectDirectoryResult | null> {
+  const selection = await saveHandleSelection(handle, tab, pageType, { forceFromcode: true });
+  if (!selection.handleModeSelected) return null;
+  return { path: '', source: 'handle', label: selection.label, fromcode: selection.fromcode };
 }
 
 /** 选择目录并保存绑定 */
@@ -369,6 +416,26 @@ async function resolveSubDirectory(
   return current;
 }
 
+/**
+ * 解析当前页面绑定的写入目录句柄。
+ *
+ * 只要求页面 scope 句柄存在（目录归属由 fromcode 校验在 ensureFromcodeBeforeWrite
+ * 中把守）；无编码页面不做归属校验，凭 scope 句柄直接读写。
+ */
+async function resolvePageBoundDirectoryHandle(
+  tab: TabInfo | number,
+  pageType: string,
+): Promise<ExtendedDirectoryHandle> {
+  const handle = await resolveTargetDirectoryHandle(tab, pageType);
+  if (!handle) {
+    throw new DirectoryError(
+      ERROR_CODE.DIRECTORY_NOT_SELECTED,
+      '当前页面尚未选择目标目录，请点击「更新当前路径」重新选择后再写入。',
+    );
+  }
+  return handle as ExtendedDirectoryHandle;
+}
+
 /** 通过 Handle 通道写文件（支持子目录；路径只含目录段时仅创建文件夹） */
 async function writeFilesViaHandle(
   handle: ExtendedDirectoryHandle,
@@ -400,12 +467,10 @@ async function writeFilesViaHandle(
       // 只指定目录（如 `sql/`）：文件夹建好即完成，不写文件
       if (!parts.fileName) continue;
 
-      const fileHandle = await targetDir.getFileHandle(parts.fileName, { create: true });
-      const writable = await fileHandle.createWritable();
-      await writable.write(entry.content);
-      await writable.close();
+      await writeFileContent(targetDir, parts.fileName, entry.content);
       written++;
     } catch (error: unknown) {
+      if (error instanceof DirectoryError && error.code === ERROR_CODE.FILE_WRITE_CLEANUP) throw error;
       logger.warn('Handle write file failed', { fileName: relativePath, error: String(error) });
     }
   }
@@ -483,6 +548,40 @@ async function statFilesViaHandle(
   return entries;
 }
 
+/** 写入前校验目录归属，并迁移、移除旧版遗留的 fromcode 标记文件。 */
+async function ensureFromcodeBeforeWrite(
+  handle: ExtendedDirectoryHandle,
+  tab: TabInfo | number,
+  pageType: string,
+): Promise<void> {
+  const pageUrl = typeof tab === 'object' ? (tab.url || tab.pendingUrl || '') : '';
+  const formCode = extractPageFormCode(pageUrl, pageType);
+  if (!formCode) return;
+
+  const pageScope = createTargetDirectoryPageScope(tab, pageType);
+  if (!pageScope) return;
+
+  const status = await verifyDirectoryFromcode(handle, pageUrl, pageType, pageScope);
+  if (status === 'mismatched') {
+    const stored = await readDirectoryFromcode(handle);
+    throw new DirectoryError(
+      ERROR_CODE.DIRECTORY_NOT_SELECTED,
+      `目标目录已关联其他表单（fromcode: ${stored || '未知编码'}），已阻止写入。如需关联当前页面，请点击「更新当前路径」重新选择该目录并确认强制关联。`,
+    );
+  }
+  if (status === 'unreadable') {
+    throw new DirectoryError(
+      ERROR_CODE.DIRECTORY_PERMISSION_DENIED,
+      '无法验证目标目录的表单归属，请重新授权或重新选择目标目录后重试。',
+    );
+  }
+
+  const association = await getFromcodeAssociation(pageScope);
+  const forced = association?.formCode === formCode && association.forced;
+  await setFromcodeAssociation(pageScope, formCode, forced);
+  await removeLegacyDirectoryFromcode(handle);
+}
+
 /** 写文件到当前绑定目录 */
 export async function writeFilesToSelection(
   tab: TabInfo | number,
@@ -493,11 +592,8 @@ export async function writeFilesToSelection(
     return { written: 0, directories: 0 };
   }
 
-  const handle = await resolveTargetDirectoryHandle(tab, pageType) as ExtendedDirectoryHandle | undefined;
-  if (!handle) {
-    throw new DirectoryError(ERROR_CODE.DIRECTORY_NOT_SELECTED, '请先选择目标目录。');
-  }
-
+  const handle = await resolvePageBoundDirectoryHandle(tab, pageType);
+  await ensureFromcodeBeforeWrite(handle, tab, pageType);
   return await writeFilesViaHandle(handle, fileEntries);
 }
 
@@ -511,11 +607,7 @@ export async function readFilesFromSelection(
     return { files: [] };
   }
 
-  const handle = await resolveTargetDirectoryHandle(tab, pageType) as ExtendedDirectoryHandle | undefined;
-  if (!handle) {
-    throw new DirectoryError(ERROR_CODE.DIRECTORY_NOT_SELECTED, '请先选择目标目录。');
-  }
-
+  const handle = await resolvePageBoundDirectoryHandle(tab, pageType);
   const permission = await requestHandlePermission(handle, 'read');
   if (permission !== 'granted') {
     throw new DirectoryError(ERROR_CODE.DIRECTORY_PERMISSION_DENIED, '目录读取权限未授予，请点击「更新当前路径」重新授权后重试。');
@@ -534,11 +626,7 @@ export async function fileExistsInSelection(
     return { files: [] };
   }
 
-  const handle = await resolveTargetDirectoryHandle(tab, pageType) as ExtendedDirectoryHandle | undefined;
-  if (!handle) {
-    throw new DirectoryError(ERROR_CODE.DIRECTORY_NOT_SELECTED, '请先选择目标目录。');
-  }
-
+  const handle = await resolvePageBoundDirectoryHandle(tab, pageType);
   const permission = await requestHandlePermission(handle, 'read');
   if (permission !== 'granted') {
     throw new DirectoryError(ERROR_CODE.DIRECTORY_PERMISSION_DENIED, '目录读取权限未授予，请点击「更新当前路径」重新授权后重试。');
