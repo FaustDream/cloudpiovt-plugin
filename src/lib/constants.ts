@@ -31,7 +31,9 @@ export const CLOUDPIVOT_FILE_MAPPINGS = [
 
 /** 氚云代码特征正则 */
 export const H3YUN_CSHARP_PATTERN = /using\s+System|namespace\s+\w+|public\s+class\s+\w+|H3\.SmartForm/;
-export const H3YUN_FRONTEND_PATTERN = /\/\*|\$\..*extend|function\s*\(|控件接口/;
+export const H3YUN_FRONTEND_PATTERN = /\/\*|\$\..*extend|function\s*\(|控件接口|<template[\s>]|export\s+default\s*\{|defineComponent\s*\(/;
+/** 氚云列表设计升级为 Vue 单文件组件：命中则前端文件名使用 .vue */
+export const H3YUN_VUE_SFC_PATTERN = /<template[\s>]|defineComponent\s*\(|<script\s+setup[\s>]/;
 
 // ── Markdown ──────────────────────────────────────────
 

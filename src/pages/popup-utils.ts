@@ -105,7 +105,7 @@ export function resolveH3yunCodeFileName(
 ): string {
   return codeKind === 'backend'
     ? resolveH3yunBackendFileName({ sourceContent: result?.sourceContent, pageUrl })
-    : resolveH3yunFrontendFileName({ pageUrl, designMode });
+    : resolveH3yunFrontendFileName({ sourceContent: result?.sourceContent, pageUrl, designMode });
 }
 
 /** 生成导出文件的下载时间戳（ISO 去分隔符，例：2026-08-04-10-30-00） */
