@@ -143,6 +143,17 @@ UI 当前使用：
 * 云枢和氚云默认目录分开。
 * 页面展示、选择器 `startIn`、权限检查和文件读写必须使用同一解析结果。
 * 不恢复已退役的全局 `pageType` 共享目录槽。
+* 目录归属由页面 scope 的表单编码关联与 IndexedDB 中的目录句柄身份（`isSameEntry`）共同判定；旧版 `fromcode` 文件仅作为迁移输入，不再新建。
+* 不通过创建测试文件夹 / 测试临时文件校验目录路径；首次实际写入时迁移并删除旧版 `fromcode` 文件，目录归属记录只保存在扩展本地存储。
+* 旧的「页面缓存路径 vs 句柄名」对比验证（path-changed / page-mismatch 门禁、历史恢复句柄名检查）已退役。
+
+### 目录表单编码关联（`src/services/directory-fromcode.ts`）
+
+* 表单编码取自页面：云枢 `applicationCode/formCode`，氚云设计器 id；编码关联按页面 scope 保存在 `chrome.storage.local`。
+* 选择目录时与已绑定到同一目录句柄的其他 scope 进行归属比对；不一致（mismatched）不自动绑定，由 popup 弹确认框交用户决定；无关联（missing）视为新目录，首次写入时记录关联。
+* 旧版目录内 `fromcode` 文件只读迁移；完成关联记录后在首次实际写入时删除，不再以该文件作为运行时标记。
+* 提取不到表单编码的页面（skipped）不参与该机制。
+* 关联存储键为 `chrome.storage.local` 的 `fromcodeAssociationMarks`（scope → `{ formCode, forced }`），换绑目录时清除旧关联。
 
 ## 产物
 

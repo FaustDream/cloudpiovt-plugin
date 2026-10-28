@@ -39,19 +39,22 @@ export interface LogEntry {
 export const SEARCH_ITEM_SELECT_ANIMATION_MS = 250;
 
 /**
- * 氚云代码编辑器配置（与 gitHub 原版 H3YUN_CODE_EDITOR_CONFIG 一致）。
- * 注：氚云 Monaco 编辑器语言 ID 全为 undefined，TS 注入层已用内容特征正则替代 modeIds 匹配。
+ * 氚云代码编辑器配置。
+ *
+ * 新版氚云设计器（/nx/designer）移除了 #jsText / #csText 容器，
+ * 改为 .js-code-editor / .cs-code-editor，且前端与后端编辑器同时挂载在页面中，
+ * 只能靠容器选择器区分，不能按可见性判断。
  */
 export const H3YUN_CODE_EDITOR_CONFIG = {
   frontend: {
     codeKind: 'frontend' as const,
     label: '前端代码',
-    selector: '#jsText',
+    selector: '.js-code-editor',
   },
   backend: {
     codeKind: 'backend' as const,
     label: '后端代码',
-    selector: '#csText',
+    selector: '.cs-code-editor',
   },
 } as const;
 

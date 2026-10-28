@@ -128,7 +128,12 @@ export function extractH3yunDesignerId(pageUrl: string): string {
 
     const hashIndex = url.hash.indexOf('?');
     const hashQuery = hashIndex >= 0 ? url.hash.slice(hashIndex + 1) : '';
-    return cleanInlineText(new URLSearchParams(hashQuery).get('id') ?? '');
+    const hashId = cleanInlineText(new URLSearchParams(hashQuery).get('id') ?? '');
+    if (hashId) return hashId;
+
+    // 新版设计器改用路径传参：/nx/designer/{form|list}/{应用编码}/{表单编码}
+    const matched = url.pathname.match(/\/designer\/(?:form|list)\/([^/]+)\/([^/]+)\/?$/);
+    return cleanInlineText(matched?.[2] ?? '');
   } catch (_error) {
     return '';
   }

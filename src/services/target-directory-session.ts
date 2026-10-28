@@ -158,6 +158,14 @@ export async function markTargetDirectoryScopeSnapshot(pageScope: string): Promi
   await chrome.storage.local.set({ [TARGET_DIRECTORY_PAGE_SNAPSHOTS_KEY]: snapshots });
 }
 
+/** 读取页面 scope 对应的缓存路径 */
+export async function getTargetDirectoryPathByScope(pageScope: string): Promise<string> {
+  const key = normalizeScopeKey(pageScope);
+  if (!key) return '';
+  const paths = await loadPagePaths();
+  return paths[key] || '';
+}
+
 /** 保存页面级绝对路径 */
 export async function saveTargetDirectoryPathByScope(
   pageScope: string,

@@ -168,7 +168,7 @@ node scripts/package.mjs
 ```text
 releases/
 ```
-
+不需要生成更新文件说明。
 不得直接修改生成的发布压缩包。
 
 ## API / 平台配置
