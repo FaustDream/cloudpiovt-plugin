@@ -58,7 +58,8 @@ export function h3yunCodeEditorWritebackMain(
   }
 
   const csPattern = /using\s+System|namespace\s+\w+|public\s+class\s+\w+|H3\.SmartForm/;
-  const jsPattern = /\/\*|\$\..*extend|function\s*\(|控件接口/;
+  // 列表设计已升级为 Vue 单文件组件，jsPattern 需覆盖 <template> / export default / defineComponent
+  const jsPattern = /\/\*|\$\..*extend|function\s*\(|控件接口|<template[\s>]|export\s+default\s*\{|defineComponent\s*\(/;
 
   function safeNumber(value: unknown, fallback = 0): number {
     const numberValue = Number(value);
@@ -162,7 +163,7 @@ export function h3yunCodeEditorWritebackMain(
     // 策略1c：容器失配时按语言 ID 匹配（新版氚云 model 语言 ID 已可用，避免写错编辑器）。
     if (!model && models.length > 0) {
       const expectedLanguages = input.codeKind === "frontend"
-        ? ["javascript", "javascriptreact", "typescript"]
+        ? ["javascript", "javascriptreact", "typescript", "vue", "html"]
         : ["csharp"];
       log.push(`[writeback] 策略1c: 按语言 ID 匹配 [${expectedLanguages.join(", ")}]`);
       const langMatched = models

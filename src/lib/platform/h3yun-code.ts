@@ -6,7 +6,7 @@
  */
 
 import { cleanInlineText } from '../utils.js';
-import { H3YUN_CSHARP_PATTERN, H3YUN_FRONTEND_PATTERN, MARKDOWN_FENCE } from '../constants.js';
+import { H3YUN_CSHARP_PATTERN, H3YUN_FRONTEND_PATTERN, H3YUN_VUE_SFC_PATTERN, MARKDOWN_FENCE } from '../constants.js';
 import { H3YUN_BOOLEAN_OPTION_VALUES, isH3yunControlReadable, resolveH3yunOptionsMode } from './control-metadata.js';
 
 // ── 常量 ──────────────────────────────────────────────
@@ -90,7 +90,7 @@ function stripH3yunSheetCodePrefix(value: string): string {
 
 // ── 公开 API ──────────────────────────────────────────
 
-/** 判断源码内容属于前端 JS 还是后端 C# */
+/** 判断源码内容属于前端代码（JS / Vue 单文件组件）还是后端 C# */
 export function isH3yunCodeKindMatch(sourceContent: string, codeKind: 'frontend' | 'backend'): boolean {
   const snippet = (sourceContent || '').substring(0, 2000);
   const isCSharp = H3YUN_CSHARP_PATTERN.test(snippet);
@@ -154,17 +154,27 @@ export function resolveH3yunBackendFileName(input: {
   return base.toLowerCase().endsWith('.cs') ? base : `${base}.cs`;
 }
 
-/** 推断氚云前端 JS 文件名 */
+/**
+ * 推断氚云前端代码文件名。
+ *
+ * 列表设计已升级为 Vue 单文件组件（<template> / <script> / <style scoped>），
+ * 扩展名按内容判定；内容无法识别时列表设计默认 .vue，表单设计默认 .js。
+ */
 export function resolveH3yunFrontendFileName(input: {
+  sourceContent?: string;
   pageUrl?: string;
   designMode?: 'form' | 'list' | 'unknown';
 } = {}): string {
+  const content = String(input.sourceContent ?? '');
+  const looksVue = H3YUN_VUE_SFC_PATTERN.test(content);
+  const looksJs = !looksVue && H3YUN_FRONTEND_PATTERN.test(content);
+  const extension = looksVue || (!looksJs && input.designMode === 'list') ? '.vue' : '.js';
   const base = appendH3yunListModeSuffix(
     sanitizeFileName(extractH3yunDesignerId(input.pageUrl ?? ''))
     || H3YUN_FRONTEND_FALLBACK_FILE_NAME.replace(/\.js$/i, ''),
     input.designMode,
   );
-  return base.toLowerCase().endsWith('.js') ? base : `${base}.js`;
+  return base.toLowerCase().endsWith(extension) ? base : `${base}${extension}`;
 }
 
 // ── 子表控件编码检查 ──────────────────────────────────

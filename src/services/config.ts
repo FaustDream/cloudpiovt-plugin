@@ -93,12 +93,12 @@ export const CLOUDPIVOT_READONLY_SETTINGS: readonly string[] = [
 ];
 
 export const H3YUN_READONLY_SETTINGS: readonly string[] = [
-  '一键抓取写入：读取控件信息、.js-code-editor 前端 JS、.cs-code-editor 后端 C#，并按产物配置补齐协作文档',
+  '一键抓取写入：读取控件信息、.js-code-editor 前端代码（列表设计为 Vue 单文件组件，表单设计为 JS）、.cs-code-editor 后端 C#，并按产物配置补齐协作文档',
   '控件来源：优先读取设计器接口 /v1/formdesign/load 的 designContent 控件树（选项值、默认值、关联表单、隐藏规则齐全），接口不可用时回退 DOM 扫描（仅名称 / 编码 / 类型）',
   '控件读取规则：只读取业务控件，一行多列 / 分组标题 / 描述说明 / 标签页不读取（子表内同样适用）',
   '选项值规则：只有下拉 / 单选 / 复选输出预设选项值，是否类固定输出 true、false，单行文本 / 多行文本等一律不输出',
-  '平台互通：氚云前端 JS 与后端 C# 通过 Ajax 传参互通，前后端逻辑需要成对设计',
-  '前端代码回写：将本地 {表单ID}.js 通过 Monaco model API 回写到 .js-code-editor',
+  '平台互通：氚云前端代码与后端 C# 通过 Ajax 传参互通，前后端逻辑需要成对设计',
+  '前端代码回写：将本地 {表单ID}.vue（列表设计）或 {表单ID}.js（表单设计）通过 Monaco model API 回写到 .js-code-editor',
   '后端代码回写：将本地 C# 类名 .cs 通过 Monaco model API 回写到 .cs-code-editor',
   '产物目录：design/ 下生成 design-js.md（前端）与 design-cs.md（后端），可分别开关',
   '模型匹配：先按编辑器容器定位，容器失配时用 Monaco 语言 ID（javascript / csharp）匹配，最后回退内容正则；多 model 命中时按容器挂载、Monaco 版本号、创建顺序和长度评分',

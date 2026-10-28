@@ -1412,7 +1412,7 @@ async function handleH3yunCaptureAll(): Promise<void> {
       const filesToWrite: { fileName: string; content: string }[] = [];
       const skipped: string[] = [];
 
-      // 与 gitHub 原版 handleH3yunCaptureAllAndWrite 一致：并行探测元数据 / 前端 JS / 后端 C#
+      // 并行探测元数据 / 前端代码 / 后端 C#
       const [metadataResult, frontendResult, backendResult] = await Promise.all([
         safeExecuteScript(tabId, h3yunDesignerMetadataMain, [], '氚云元数据抓取') as Promise<H3yunDesignerMetadataResult | null>,
         safeExecuteScript(tabId, h3yunCodeEditorProbeMain, [H3YUN_CODE_EDITOR_CONFIG.frontend], '氚云前端JS抓取') as Promise<H3yunCodeEditorProbeResult | null>,
@@ -1450,13 +1450,17 @@ async function handleH3yunCaptureAll(): Promise<void> {
       }
 
       if (!frontendEnabled) {
-        skipped.push('前端 JS（已关闭）');
+        skipped.push('前端代码（已关闭）');
       } else if (frontendResult?.ok && frontendResult.sourceContent) {
-        const frontendFileName = resolveH3yunFrontendFileName({ pageUrl: frontendResult.pageUrl || state.pageContext.url, designMode });
+        const frontendFileName = resolveH3yunFrontendFileName({
+          sourceContent: frontendResult.sourceContent,
+          pageUrl: frontendResult.pageUrl || state.pageContext.url,
+          designMode,
+        });
         filesToWrite.push({ fileName: frontendFileName, content: frontendResult.sourceContent });
       } else {
-        skipped.push('前端 JS');
-        addLog(`前端 JS 未挂载：${formatProbeFailure(frontendResult, '前端代码区域未找到或内容为空')}`, 'warning');
+        skipped.push('前端代码');
+        addLog(`前端代码未挂载：${formatProbeFailure(frontendResult, '前端代码区域未找到或内容为空')}`, 'warning');
       }
 
       if (!backendEnabled) {
@@ -1470,7 +1474,7 @@ async function handleH3yunCaptureAll(): Promise<void> {
       }
 
       if (availableCount === 0) {
-        addErrorLog('当前页面没有挂载图形控件、前端 JS 或后端 C# 编辑器', '请确认：1) 已切换到氚云设计页 2) 页面完全加载 3) 前端/后端代码区域已打开');
+        addErrorLog('当前页面没有挂载图形控件、前端代码或后端 C# 编辑器', '请确认：1) 已切换到氚云设计页 2) 页面完全加载 3) 前端/后端代码区域已打开');
         return;
       }
 
