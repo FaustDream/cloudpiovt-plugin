@@ -185,26 +185,27 @@ interface H3yunControlChild {
 
 // ── FromCode 内容生成 ──────────────────────────────────
 
-interface FromCodeControlMeta {
-  readonly code?: string;
-  readonly displayName?: string;
-  readonly controlKey?: string;
-  readonly sheetCode?: string;
-  readonly defaultValue?: string;
-  readonly boschemaCode?: string;
-  readonly displayRule?: string;
-  readonly defaultItems?: readonly { value?: string; name?: string; label?: string; text?: string }[];
-  readonly children?: readonly FromCodeChildMeta[];
-}
-
 interface FromCodeChildMeta {
   readonly code?: string;
   readonly displayName?: string;
   readonly controlKey?: string;
+  /** 控件副标题 */
+  readonly subTitle?: string;
+  /** 悬浮提示内容 */
+  readonly tip?: string;
   readonly defaultValue?: string;
+  /** 格式（日期 / 数字 / 文本等显示格式） */
+  readonly format?: string;
+  /** 是否不允许重复录入 */
+  readonly notRepeat?: boolean;
   readonly boschemaCode?: string;
   readonly displayRule?: string;
   readonly defaultItems?: readonly { value?: string; name?: string; label?: string; text?: string }[];
+}
+
+interface FromCodeControlMeta extends FromCodeChildMeta {
+  readonly sheetCode?: string;
+  readonly children?: readonly FromCodeChildMeta[];
 }
 
 function appendOptionalField(lines: string[], label: string, value: string | undefined): void {
@@ -248,6 +249,22 @@ function appendOptionsField(lines: string[], values: readonly string[]): void {
   lines.push(`选项值: ${values.join('、')}`);
 }
 
+/**
+ * 输出控件定义内容：副标题、悬浮提示、默认值、格式、校验（是否不允许重复录入）。
+ *
+ * 一律仅在设计器给出非空值 / 唯一校验开启时输出，避免每行都挂空字段。
+ */
+function appendControlDefinitionFields(
+  lines: string[],
+  meta: FromCodeChildMeta,
+): void {
+  appendOptionalField(lines, '副标题', meta.subTitle);
+  appendOptionalField(lines, '悬浮提示', meta.tip);
+  appendOptionalField(lines, '默认值', meta.defaultValue);
+  appendOptionalField(lines, '格式', meta.format);
+  if (meta.notRepeat === true) lines.push('不允许重复: 是');
+}
+
 export function buildH3yunFromCodeContent(metadata: {
   pageUrl?: string;
   appCode?: string;
@@ -274,7 +291,7 @@ export function buildH3yunFromCodeContent(metadata: {
     lines.push(`控件编码: ${cleanInlineText(c.code ?? '')}`);
     lines.push(`控件类型: ${cleanInlineText(c.controlKey ?? '')}`);
 
-    appendOptionalField(lines, '默认值', c.defaultValue);
+    appendControlDefinitionFields(lines, c);
     appendOptionalField(lines, '关联表单', c.boschemaCode);
     lines.push(`隐藏规则: ${cleanInlineText(c.displayRule ?? '')}`);
     appendOptionsField(lines, resolveH3yunOptionsValues(c.controlKey, c.defaultItems));
@@ -293,7 +310,7 @@ export function buildH3yunFromCodeContent(metadata: {
         lines.push(`子表控件名称: ${cleanInlineText(child.displayName ?? '')}`);
         lines.push(`子表控件编码: ${stripH3yunSheetCodePrefix(child.code ?? '')}`);
         lines.push(`子表控件类型: ${cleanInlineText(child.controlKey ?? '')}`);
-        appendOptionalField(lines, '默认值', child.defaultValue);
+        appendControlDefinitionFields(lines, child);
         appendOptionalField(lines, '关联表单', child.boschemaCode);
         lines.push(`隐藏规则: ${cleanInlineText(child.displayRule ?? '')}`);
         appendOptionsField(lines, resolveH3yunOptionsValues(child.controlKey, child.defaultItems));
