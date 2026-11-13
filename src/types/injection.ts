@@ -158,6 +158,8 @@ export interface H3yunDesignerMetadataSuccess {
   readonly missingChildCodes?: readonly string[];
   /** 控件读取路径诊断（命中根节点、候选元素数量），控件为空时用于定位设计器结构变化 */
   readonly readDiagnostic?: string;
+  /** 控件定义内容（副标题 / 悬浮提示 / 格式）一个都没读到时给出键名样本，用于定位属性实际键名 */
+  readonly fieldDiagnostic?: string;
 }
 
 export type H3yunDesignerMetadataResult = H3yunDesignerMetadataSuccess | InjectionFailure;

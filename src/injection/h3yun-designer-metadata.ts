@@ -26,16 +26,29 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
   }
 
   // ── 控件定义内容字段（副标题 / 悬浮提示 / 格式 / 是否不允许重复录入）──
-  // 氚云新旧设计器对同一属性使用的键名不一致（designContent 的 Options 与 allControls 的
-  // entry.options 也不同版本有差异），这里按候选清单顺序取第一个非空值；榜单全部未命中时
-  // 不输出该行。新增键名只需追加到对应清单，键名比较为忽略大小写的全等匹配，避免误命中。
-  const SUB_TITLE_FIELD_CANDIDATES = ["SubTitle", "Subheading", "SubHeading", "SecondTitle", "SubName"];
-  const TIP_FIELD_CANDIDATES = ["Tip", "Tips", "TipContent", "TipText", "ToolTip", "Tooltip", "InputTip", "Remark", "RemarkText", "HelpText", "Explain", "Description"];
-  const FORMAT_FIELD_CANDIDATES = ["Format", "DataFormat", "DateFormat", "NumberFormat", "DisplayFormat", "FormatString", "ValueFormat", "ShowFormat"];
+  // 氚云只提供中文属性名（如「副标题」是 2025-10 起的新增属性），接口键名未公开且各版本不一致：
+  // 先按候选清单忽略大小写全等匹配，再按关键字包含匹配兜底（如 IsShowSubTitle 这类开关键），
+  // 取第一个非空值；全部未命中时不输出该行。
+  const SUB_TITLE_FIELD_CANDIDATES = ["SubTitle", "Subtitle", "SubTitleText", "SubTitleContent", "SubDisplayName", "SubName", "Caption", "SubCaption", "SecondaryTitle", "Subheading", "SubHeading", "SecondTitle", "FieldSubTitle"];
+  const TIP_FIELD_CANDIDATES = ["Tip", "Tips", "TipContent", "TipText", "InputTip", "InputTipText", "ToolTip", "Tooltip", "Remark", "RemarkText", "HelpText", "Help", "Explain", "Description", "Desc"];
+  const FORMAT_FIELD_CANDIDATES = ["Format", "DataFormat", "DateFormat", "NumberFormat", "DisplayFormat", "FormatString", "ValueFormat", "ShowFormat", "EditFormat"];
   /** 布尔语义为「唯一 / 不允许重复」 */
-  const NOT_REPEAT_FIELD_CANDIDATES = ["IsUnique", "Unique", "IsOnly", "OnlyOne", "NoRepeat", "IsNoRepeat", "NotRepeat", "IsNotRepeat", "DisallowRepeat", "IsNotAllowRepeat"];
+  const NOT_REPEAT_FIELD_CANDIDATES = ["IsUnique", "Unique", "IsOnly", "OnlyOne", "NoRepeat", "IsNoRepeat", "NotRepeat", "IsNotRepeat", "DisallowRepeat", "IsNotAllowRepeat", "NoDuplicate", "IsNoDuplicate", "IsNotDuplicate"];
   /** 布尔语义为「允许重复」，读取后取反（false 即不允许重复） */
-  const REPEAT_ALLOWED_FIELD_CANDIDATES = ["AllowRepeat", "IsRepeat", "Repeat", "Repeatable", "AllowDuplicate", "IsDuplicate"];
+  const REPEAT_ALLOWED_FIELD_CANDIDATES = ["AllowRepeat", "IsRepeat", "Repeat", "Repeatable", "AllowDuplicate", "IsDuplicate", "AllowSame", "IsAllowRepeat"];
+  /** 关键字兜底：键名包含任一关键字即视为候选（布尔值在文本读取时被忽略，避免命中 IsShowSubTitle 这类开关） */
+  const SUB_TITLE_FIELD_KEYWORDS = ["subtitle", "subheading", "secondtitle", "subname", "caption"];
+  const TIP_FIELD_KEYWORDS = ["tip", "tooltip", "remark", "helptext", "explain"];
+  const FORMAT_FIELD_KEYWORDS = ["format"];
+  /** 设计器控件属性键名样本（诊断用：定义内容读取为空时据此定位实际键名） */
+  const optionKeySample: string[] = [];
+  function rememberOptionKeys(keys: string[]): void {
+    if (optionKeySample.length >= 200) return;
+    for (const key of keys) {
+      if (!key || optionKeySample.indexOf(key) >= 0) continue;
+      optionKeySample.push(key);
+    }
+  }
 
   const DOM_SCAN_ELEMENT_LIMIT = 5000;
   const VUE_SOURCE_NODE_LIMIT = 1200;
@@ -153,9 +166,11 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
     }
     return String(value || "").replace(/\s+/g, " ").trim();
   }
-  // 字段值转文本：对象形态（如本地化文案 { zh: "…" }）优先取可读文案，不输出 [object Object]
+  // 字段值转文本：对象形态（如本地化文案 { zh: "…" }）优先取可读文案，不输出 [object Object]；
+  // 布尔值返回空串——同名键在开关键（IsShowSubTitle）与文案键之间重名时只会命中开关，不能当文案
   function fieldText(value: unknown): string {
     if (value === null || value === undefined) return "";
+    if (typeof value === "boolean") return "";
     if (typeof value === "object") {
       const record = value as Record<string, unknown>;
       const localized = record.zh ?? record.name ?? record.value ?? record.text ?? record.Rule;
@@ -181,6 +196,21 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
       if (key.toLowerCase() === target) return source[key];
     }
     return undefined;
+  }
+  // 关键字兜底：属性可能被包在子对象里（如 { Title, SubTitle }），按关键字逐层找可读文案
+  function findKeywordText(source: unknown, keywords: string[], depth: number): string {
+    if (!source || typeof source !== "object" || depth < 0) return "";
+    const record = source as Record<string, unknown>;
+    for (const key of Object.keys(record)) {
+      const lower = key.toLowerCase();
+      if (!keywords.some((keyword) => lower.indexOf(keyword) >= 0)) continue;
+      const value = record[key];
+      const direct = fieldText(value);
+      if (direct) return direct;
+      const nested = findKeywordText(value, keywords, depth - 1);
+      if (nested) return nested;
+    }
+    return "";
   }
   function pageParams(): Record<string, string> {
     const url = new URL(window.location.href);
@@ -642,17 +672,36 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
     }
     return entry[fieldName];
   }
-  // 控件定义内容（副标题 / 悬浮提示 / 格式）：按候选键名取第一个非空值
-  function readAllControlText(entry: Record<string, unknown>, candidates: string[]): string {
+  // entry 全部属性名（options 优先，其次 entry 自身），用于关键字兜底与键名诊断
+  function entryFieldNames(entry: Record<string, unknown>): string[] {
+    const names: string[] = [];
+    const options = entry?.options;
+    if (options && typeof options === "object") names.push(...Object.keys(options as Record<string, unknown>));
+    for (const key of Object.keys(entry || {})) names.push(key);
+    return names;
+  }
+  // 控件定义内容（副标题 / 悬浮提示 / 格式）：先按候选键名全等匹配，再按关键字包含匹配兜底
+  function readAllControlText(entry: Record<string, unknown>, candidates: string[], keywords: string[]): string {
     const opts = entry?.options && typeof entry.options === "object"
       ? entry.options as Record<string, unknown>
       : null;
-    for (const name of candidates) {
+    function read(name: string): string {
       const fromOptions = readKeyInsensitive(opts, name);
-      const field = fieldText(fromOptions !== undefined && fromOptions !== null ? fromOptions : readKeyInsensitive(entry, name));
+      return fieldText(fromOptions !== undefined && fromOptions !== null ? fromOptions : readKeyInsensitive(entry, name));
+    }
+    for (const name of candidates) {
+      const field = read(name);
       if (field) return field;
     }
-    return "";
+    for (const name of entryFieldNames(entry)) {
+      const key = name.toLowerCase();
+      if (!keywords.some((keyword) => key.indexOf(keyword) >= 0)) continue;
+      const field = read(name);
+      if (field) return field;
+    }
+    const nestedOptions = findKeywordText(opts, keywords, 2);
+    if (nestedOptions) return nestedOptions;
+    return findKeywordText(entry, keywords, 1);
   }
   // 是否不允许重复录入：唯一类键名即正向语义，允许重复类键名读取后取反
   function readAllControlNotRepeat(entry: Record<string, unknown>): boolean {
@@ -680,7 +729,9 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
       if (!Object.prototype.hasOwnProperty.call(rawAllControls, key)) continue;
       const entry = rawAllControls[key];
       if (!entry || typeof entry !== "object") continue;
-      entries.push({ key: key, entry: entry as Record<string, unknown> });
+      const entryRecord = entry as Record<string, unknown>;
+      entries.push({ key: key, entry: entryRecord });
+      rememberOptionKeys(entryFieldNames(entryRecord));
     }
     // 分类：不含点号的是容器控件（主表字段/子表容器），含点号的是子表内字段（sheetCode.fieldCode）
     const containerEntries = entries.filter(function (e) { return e.key.indexOf(".") < 0; });
@@ -711,9 +762,9 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
         code: fieldCode,
         displayName: text(readAllControlField(cEntry, "DisplayName")),
         controlKey: cControlKey,
-        subTitle: readAllControlText(cEntry, SUB_TITLE_FIELD_CANDIDATES),
-        tip: readAllControlText(cEntry, TIP_FIELD_CANDIDATES),
-        format: readAllControlText(cEntry, FORMAT_FIELD_CANDIDATES),
+        subTitle: readAllControlText(cEntry, SUB_TITLE_FIELD_CANDIDATES, SUB_TITLE_FIELD_KEYWORDS),
+        tip: readAllControlText(cEntry, TIP_FIELD_CANDIDATES, TIP_FIELD_KEYWORDS),
+        format: readAllControlText(cEntry, FORMAT_FIELD_CANDIDATES, FORMAT_FIELD_KEYWORDS),
         notRepeat: readAllControlNotRepeat(cEntry),
         defaultValue: text(readAllControlField(cEntry, "DefaultValue")),
         boschemaCode: text(readAllControlField(cEntry, "BOSchemaCode")),
@@ -745,9 +796,9 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
         sheetCode: tKey,
         children: children,
         // 以下字段优先从 entry.options 读取（氚云实际数据位于 options 子对象），回退到 entry 顶层
-        subTitle: readAllControlText(tEntry, SUB_TITLE_FIELD_CANDIDATES),
-        tip: readAllControlText(tEntry, TIP_FIELD_CANDIDATES),
-        format: readAllControlText(tEntry, FORMAT_FIELD_CANDIDATES),
+        subTitle: readAllControlText(tEntry, SUB_TITLE_FIELD_CANDIDATES, SUB_TITLE_FIELD_KEYWORDS),
+        tip: readAllControlText(tEntry, TIP_FIELD_CANDIDATES, TIP_FIELD_KEYWORDS),
+        format: readAllControlText(tEntry, FORMAT_FIELD_CANDIDATES, FORMAT_FIELD_KEYWORDS),
         notRepeat: readAllControlNotRepeat(tEntry),
         boschemaCode: text(readAllControlField(tEntry, "BOSchemaCode")),
         defaultValue: text(readAllControlField(tEntry, "DefaultValue")),
@@ -825,13 +876,29 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
   function readNodeItems(value: unknown): unknown[] {
     return Array.isArray(value) ? value : (value ? [value] : []);
   }
-  // 控件定义内容（副标题 / 悬浮提示 / 格式）：按候选键名取第一个非空值
-  function readNodeText(node: Record<string, unknown>, candidates: string[]): string {
+  // 节点全部属性名（Options 优先，其次节点自身），用于关键字兜底与键名诊断
+  function nodeFieldNames(node: Record<string, unknown>): string[] {
+    const names: string[] = [];
+    const options = node?.Options;
+    if (options && typeof options === "object") names.push(...Object.keys(options as Record<string, unknown>));
+    for (const key of Object.keys(node || {})) names.push(key);
+    return names;
+  }
+  // 控件定义内容（副标题 / 悬浮提示 / 格式）：先按候选键名全等匹配，再按关键字包含匹配兜底
+  function readNodeText(node: Record<string, unknown>, candidates: string[], keywords: string[]): string {
     for (const name of candidates) {
       const field = fieldText(readNodeField(node, name));
       if (field) return field;
     }
-    return "";
+    for (const name of nodeFieldNames(node)) {
+      const key = name.toLowerCase();
+      if (!keywords.some((keyword) => key.indexOf(keyword) >= 0)) continue;
+      const field = fieldText(readNodeField(node, name));
+      if (field) return field;
+    }
+    const nestedOptions = findKeywordText(node?.Options, keywords, 2);
+    if (nestedOptions) return nestedOptions;
+    return findKeywordText(node, keywords, 1);
   }
   // 是否不允许重复录入：唯一类键名即正向语义，允许重复类键名读取后取反
   function readNodeNotRepeat(node: Record<string, unknown>): boolean {
@@ -856,9 +923,9 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
       code: text(node.Key),
       displayName: text(readNodeField(node, "DisplayName")),
       controlKey: text(readNodeField(node, "ControlKey") ?? readNodeField(node, "Type")),
-      subTitle: readNodeText(node, SUB_TITLE_FIELD_CANDIDATES),
-      tip: readNodeText(node, TIP_FIELD_CANDIDATES),
-      format: readNodeText(node, FORMAT_FIELD_CANDIDATES),
+      subTitle: readNodeText(node, SUB_TITLE_FIELD_CANDIDATES, SUB_TITLE_FIELD_KEYWORDS),
+      tip: readNodeText(node, TIP_FIELD_CANDIDATES, TIP_FIELD_KEYWORDS),
+      format: readNodeText(node, FORMAT_FIELD_CANDIDATES, FORMAT_FIELD_KEYWORDS),
       notRepeat: readNodeNotRepeat(node),
       defaultValue: text(readNodeField(node, "DefaultValue")),
       boschemaCode: text(readNodeField(node, "BOSchemaCode")),
@@ -873,9 +940,9 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
       controlKey: text(readNodeField(node, "ControlKey") ?? readNodeField(node, "Type")),
       sheetCode: children.length > 0 ? text(node.Key) : "",
       children,
-      subTitle: readNodeText(node, SUB_TITLE_FIELD_CANDIDATES),
-      tip: readNodeText(node, TIP_FIELD_CANDIDATES),
-      format: readNodeText(node, FORMAT_FIELD_CANDIDATES),
+      subTitle: readNodeText(node, SUB_TITLE_FIELD_CANDIDATES, SUB_TITLE_FIELD_KEYWORDS),
+      tip: readNodeText(node, TIP_FIELD_CANDIDATES, TIP_FIELD_KEYWORDS),
+      format: readNodeText(node, FORMAT_FIELD_CANDIDATES, FORMAT_FIELD_KEYWORDS),
       notRepeat: readNodeNotRepeat(node),
       boschemaCode: text(readNodeField(node, "BOSchemaCode")),
       defaultValue: text(readNodeField(node, "DefaultValue")),
@@ -889,6 +956,7 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
       for (const item of list) {
         if (!item || typeof item !== "object") continue;
         const node = item as Record<string, unknown>;
+        rememberOptionKeys(nodeFieldNames(node));
         const controlKey = text(readNodeField(node, "ControlKey"));
         const childNodes = Array.isArray(node.ChildControls) ? node.ChildControls : [];
         // 布局容器（一行多列 / 分组标题 / 标签页）：展开其子控件到主表层级
@@ -909,6 +977,19 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
     }
     visit(nodes);
     return controls;
+  }
+  // 副标题 / 悬浮提示 / 格式 一个都没读到时，回带控件属性键名样本，便于按实际键名对接（对接后自动静默）
+  function definitionFieldDiagnostic(controls: AllControl[]): string {
+    function hasTextField(control: AllControlChild | AllControl): boolean {
+      return Boolean(control.subTitle || control.tip || control.format);
+    }
+    function hit(control: AllControl): boolean {
+      if (hasTextField(control)) return true;
+      return (control.children || []).some(hasTextField);
+    }
+    if (controls.some(hit)) return "";
+    if (!optionKeySample.length) return "";
+    return `副标题/悬浮提示/格式 均未读取到，控件属性键名：${optionKeySample.slice(0, 40).join("、")}`;
   }
   async function loadControlsFromFormDesignApi(schemaCode: string): Promise<AllControl[] | null> {
     if (!schemaCode) return null;
@@ -948,7 +1029,8 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
         formId: text(params.id),
         controls: apiControls,
         source: "formDesignApi",
-        readDiagnostic: `formDesignApi controls=${apiControls.length}`
+        readDiagnostic: `formDesignApi controls=${apiControls.length}`,
+        fieldDiagnostic: definitionFieldDiagnostic(apiControls)
       } as unknown as H3yunDesignerMetadataResult;
     }
 
@@ -960,7 +1042,7 @@ export async function h3yunDesignerMetadataMain(): Promise<H3yunDesignerMetadata
       if (controls.length > 0) {
         // 说明：原生 controls 字段（displayName/controlKey/children 等）与契约 ControlMeta 形状不同，
         // 为保留原生字段名，在返回边界做一次断言。
-        return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls, source: "allControls" } as unknown as H3yunDesignerMetadataResult;
+        return { ok: true, pageUrl: window.location.href, appCode: text(params.appcode), formId: text(params.id), controls, source: "allControls", fieldDiagnostic: definitionFieldDiagnostic(controls) } as unknown as H3yunDesignerMetadataResult;
       }
     }
 

@@ -1437,6 +1437,8 @@ async function handleH3yunCaptureAll(): Promise<void> {
         filesToWrite.push({ fileName: FROM_CODE_FILE_NAME, content: buildH3yunFromCodeContent(metadata) });
         const sourceLabel = metadata?.ok && metadata.source === 'formDesignApi' ? '设计器接口' : 'DOM/状态';
         addLog(`图形控件：${controls.length} 个（来源：${sourceLabel}）`, 'info');
+        const fieldDiagnostic = metadataOk ? metadata.fieldDiagnostic || '' : '';
+        if (fieldDiagnostic) addLog(fieldDiagnostic, 'info');
       } else if (fromCodeEnabled) {
         skipped.push('图形控件');
         if (!metadataOk) {
