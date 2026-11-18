@@ -78,3 +78,10 @@
 * 不使用 `-Force` 等非必要强制参数。
 * 不得删除与当前任务无关的用户文件。
 * 收尾时检查废弃代码、不可达代码、临时文件和冲突残留。
+
+## 作者身份（Git 提交署名）
+
+* 本仓库所有 Git 提交（含历史提交、所有分支与标签）的 `author.name` 与 `committer.name` 统一为 `凌致`，`author.email` 与 `committer.email` 统一为 `935411629@qq.com`。
+* 本地 `git config user.name` 固定为 `凌致`，`user.email` 固定为 `935411629@qq.com`；提交前不得临时改动。
+* AI 助手代提交时同样使用上述身份，禁止回落到工具默认身份、GitHub noreply 地址或其他历史别名（`FaustDream`、`Lynn`、`吴坤` 等）。
+* 该身份由 2026-11-10 的历史治理统一固化，改写前全量备份位于 `D:\GitHistoryBackup-20261110`。
