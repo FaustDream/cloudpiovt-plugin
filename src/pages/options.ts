@@ -571,7 +571,8 @@ async function pickDefaultDirectory(platformKey: PlatformKey): Promise<void> {
     showToast(label ? `已绑定默认目录：${label}` : '已绑定默认目录', 'success');
   } catch (error: unknown) {
     logger.error('选择默认目录失败', { error: String(error) });
-    showToast('选择目录失败', 'error');
+    const detail = error instanceof Error ? error.message : String(error);
+    showToast(`选择目录失败：${detail}`, 'error');
   }
 }
 

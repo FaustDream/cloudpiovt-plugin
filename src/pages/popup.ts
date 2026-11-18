@@ -13,7 +13,7 @@ import type { PlatformKey, PageTypeConfig } from '../types/platform.js';
 import type { ExtensionConfig } from '../types/config.js';
 import type { ArtifactConfig, ArtifactDefinition } from '../types/artifacts.js';
 import type { RecentDirectoryEntry } from '../services/recent-target-directories.js';
-import type { WriteFilesResult } from '../services/target-directory-access.js';
+import type { SelectDirectoryResult, WriteFilesResult } from '../services/target-directory-access.js';
 import type { PreflightResult } from '../services/preflight-diagnostics.js';
 import type { PageCaptureResult, PageWritebackResult, BizRuleProbeResult, BizRuleWritebackResult, H3yunCodeEditorProbeResult, H3yunCodeEditorWritebackResult, H3yunDesignerMetadataResult } from '../types/injection.js';
 
@@ -570,51 +570,81 @@ function reportUnboundDefaultDirectory(platformKey: PlatformKey): boolean {
   return true;
 }
 
+/** 目录选择器执行失败：把浏览器给出的异常名写进日志，避免统一显示成「已取消」 */
+function reportDirectoryPickFailure(error: unknown): void {
+  const detail = formatDirectoryPickError(error);
+  logger.error('目录选择器执行失败', { error: detail });
+  addErrorLog(
+    `目录选择未完成：${detail}`,
+    '请重新点击「更新当前路径」；若反复失败，请确认浏览器为最新版 Chrome / Edge 后重试',
+  );
+}
+
+function formatDirectoryPickError(error: unknown): string {
+  if (error instanceof DirectoryError) return error.message;
+  if (error instanceof DOMException) return `${error.name}: ${error.message}`;
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+/**
+ * 用户取消目录选择后的收尾：保持当前目录，必要时补一次授权。
+ *
+ * 浏览器重启后句柄权限会退化为 prompt，用户点「更新当前路径」只想恢复授权时会直接
+ * 取消选择器；此时补授权即可继续使用原目录，不必等到写入失败。
+ */
+async function finishDirectoryCancel(pageType: string): Promise<void> {
+  addWarningLog(
+    '目录选择已取消',
+    '当前目录保持不变；若已在对话框中选中文件夹仍提示取消，请更新浏览器或改用 Edge 后重试',
+  );
+
+  let check: TargetDirectoryCheckResult;
+  try {
+    check = await checkTargetDirectoryHealth(state.pageContext, pageType);
+  } catch (error: unknown) {
+    reportExecutionError('目录自检失败', error);
+    return;
+  }
+  if (check.health !== 'permission-prompt' && check.health !== 'permission-denied') return;
+
+  const label = check.label || '当前目录';
+  const permission = await requestTargetDirectoryPermission(state.pageContext, pageType);
+  if (permission === 'granted') {
+    await updateDirectoryDisplay();
+    addSuccessLog(`目录「${label}」已重新授权`, '可直接继续抓取写入');
+    return;
+  }
+  addWarningLog(`目录「${label}」仍没有读写授权`, '请再次点击「更新当前路径」并在浏览器提示中点击「允许」');
+}
+
 /**
  * 「更新当前路径」：用户主动点击即弹出目录选择器（云枢 / 氚云行为一致）。
  *
- * 自检只作为**信息反馈**（红字 / 绿字说明当前目录状态），不再阻断选择器：
- * - 目录正常 → 绿字说明当前目录可用，仍可换成其它目录；
- * - 目录已被移动 / 删除 → 红字提示并清理失效绑定；
- * - 无读写授权 → 先在手势内补一次授权（保证重新授权流程能完成、选择器能定位到当前目录），
- *   再进入选择器；
- * - 未绑定 / 平台默认目录没绑句柄 → 相应提示。
+ * 顺序固定为「先弹选择器，再谈授权」：文件系统授权对话框会消耗这次点击的用户手势，
+ * 先请求授权再弹选择器会被浏览器判为没有用户手势，选择器直接被取消（现象就是日志
+ * 只剩「目录选择已取消」，反复选都不成功）。只有用户取消选择器后，才对现有目录补授权。
  */
 async function handleRefreshDirectory(): Promise<void> {
   if (state.busy) return;
   await runWithButtonBusy(dom.refreshHandleBtn, async () => {
     const pageType = resolveEffectivePageType();
 
-    // 1) 自检（fromcode 唯一校验方式）：只输出结论，不决定是否弹窗
-    const check = await checkTargetDirectoryHealth(state.pageContext, pageType);
-    const label = check.label || '未命名目录';
-
-    if (check.health === 'ok') {
-      reportDirectoryCheckSuccess(check, '可在弹出的对话框中选择其它目录');
-    } else if (check.health === 'permission-denied' || check.health === 'permission-prompt') {
-      // 浏览器重启后句柄权限常退化为 prompt：在用户手势内补授权，成功即恢复当前目录的读写
-      const permission = await requestTargetDirectoryPermission(state.pageContext, pageType);
-      if (permission === 'granted') {
-        await updateDirectoryDisplay();
-        addSuccessLog(`目录「${label}」已重新授权`, '可在弹出的对话框中选择其它目录');
-      } else {
-        addWarningLog(`目录「${label}」没有读写授权`, '可在弹出的对话框中选择目标目录');
-      }
-    } else if (check.health === 'unbound') {
-      // 已配置默认目录却没有句柄时，提示去设置页重新绑定（路径文本无法定位目录）
-      if (!reportUnboundDefaultDirectory(check.platformKey)) {
-        addLog('当前页面尚未绑定目录，请选择目标目录');
-      }
-    } else {
-      reportDirectoryCheckIssue(check);
-    }
-
-    // 2) 无论自检结论如何，用户点击即弹出目录选择器（初始位置由 access 层按本平台解析）
-    const result = await selectAndBindDirectory(state.pageContext, { pageType, isPageSnapshot: false });
-    if (!result) {
-      addWarningLog('目录选择已取消');
+    // 1) 选择器紧跟点击弹出（内部只读查询权限，不会弹授权框）
+    let result: SelectDirectoryResult | null;
+    try {
+      result = await selectAndBindDirectory(state.pageContext, { pageType, isPageSnapshot: false });
+    } catch (error: unknown) {
+      reportDirectoryPickFailure(error);
       return;
     }
+
+    // 2) 用户取消：保持当前目录；当前目录若没有授权，在这里补一次
+    if (!result) {
+      await finishDirectoryCancel(pageType);
+      return;
+    }
+
     // fromcode 校验：mismatched（目录属于其他表单）时弹确认由用户决定是否强制关联
     if (result.fromcodeConfirm) {
       const { handle, fromcodeValue } = result.fromcodeConfirm;

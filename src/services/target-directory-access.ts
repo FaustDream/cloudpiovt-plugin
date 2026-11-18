@@ -8,7 +8,7 @@
  */
 
 import { logger } from '../lib/logger.js';
-import { DirectoryError, ValidationError, ERROR_CODE } from '../lib/errors.js';
+import { BusinessError, DirectoryError, ValidationError, ERROR_CODE } from '../lib/errors.js';
 import { parseRelativePath, joinRelativePath, type RelativePathParts } from '../lib/utils.js';
 import { getDefaultDirectoryHandle } from '../lib/directory/file-handle-db.js';
 import { getPlatformKeyFromPageType } from './config.js';
@@ -109,7 +109,7 @@ type ExtendedDirectoryHandle = FileSystemDirectoryHandle & {
 };
 
 interface DirectoryPickerOptions {
-  /** 目录选择器初始打开位置；缺省使用中性位置（见 NEUTRAL_PICKER_START_IN） */
+  /** 目录选择器初始打开位置；缺省时不传 startIn，由浏览器按 id 记忆定位（见 toPickerStartIn） */
   readonly startIn?: PickerStartIn;
   /** 选择器记忆 id：浏览器按 id 记住上次选定的目录（见 buildPickerId） */
   readonly id?: string;
@@ -124,9 +124,8 @@ type PickerStartIn = FileSystemDirectoryHandle | WellKnownDirectoryName;
 /**
  * 目录选择器「中性」初始位置。
  *
- * 调用方没有可用句柄时必须显式传一个中性位置：不给 startIn 时浏览器会复用
- * 「上一次选择过的目录」，会把另一个平台的默认目录 / 其他页面的历史目录带进来，
- * 这正是「氚云选择器打开在云枢默认目录」的成因。
+ * 只用于本平台从未绑定过目录的情况：此时既没有句柄，也没有本平台的选择记忆。
+ * 一旦本平台选过目录，就交给选择器 id 记忆定位，不再用中性位置覆盖它。
  */
 const NEUTRAL_PICKER_START_IN: WellKnownDirectoryName = 'documents';
 
@@ -141,12 +140,31 @@ function buildPickerId(kind: 'page' | 'default', platformKey: PlatformKey): stri
   return `${kind}-dir-${platformKey}`;
 }
 
+/** 把目录选择器抛出的异常转成一行可读信息（异常名 + 消息），用于日志定位 */
+function describePickerFailure(error: unknown): string {
+  if (error instanceof BusinessError) return error.message;
+  if (error instanceof DOMException) return `${error.name}: ${error.message}`;
+  if (error instanceof Error) return error.message;
+  return String(error);
+}
+
+/**
+ * 是否为「用户手势已失效」类失败。
+ *
+ * 每次弹窗都会消耗这次点击的用户手势，换初始位置重试也只会在没有手势的情况下
+ * 再失败一次（还可能连续闪出对话框），因此这类失败不再降级重试。
+ */
+function isGestureFailure(error: unknown): boolean {
+  return error instanceof DOMException
+    && (error.name === 'SecurityError' || error.name === 'NotAllowedError' || error.name === 'InvalidStateError');
+}
+
 /**
  * 弹出目录选择器。
  *
- * 始终显式指定初始位置，并逐级降级：请求位置 → 中性位置 → 不带 startIn。
- * 不传 startIn 时浏览器会复用「上一次选择过的目录」（可能是另一个平台或另一个
- * 页面遗留的位置），因此只在指定位置都不可用时才作为最后兜底使用。
+ * 只在给了 startIn 时准备一次降级：句柄失效（目录被移动 / 删除）时改为不带
+ * startIn 再弹一次，由选择器 id 记忆定位。其它失败（用户取消、缺少用户手势）
+ * 直接抛给调用方，不重复弹窗。
  */
 async function showDirPicker(options: DirectoryPickerOptions = {}): Promise<FileSystemDirectoryHandle> {
   const w = window as unknown as {
@@ -168,9 +186,7 @@ async function showDirPicker(options: DirectoryPickerOptions = {}): Promise<File
     return w.showDirectoryPicker!(pickerOptions);
   };
 
-  const candidates: Array<PickerStartIn | undefined> = options.startIn
-    ? [options.startIn, NEUTRAL_PICKER_START_IN, undefined]
-    : [NEUTRAL_PICKER_START_IN, undefined];
+  const candidates: Array<PickerStartIn | undefined> = options.startIn ? [options.startIn, undefined] : [undefined];
 
   let lastError: unknown = null;
   for (const startIn of candidates) {
@@ -179,9 +195,10 @@ async function showDirPicker(options: DirectoryPickerOptions = {}): Promise<File
     } catch (error: unknown) {
       if (error instanceof DOMException && error.name === 'AbortError') throw error; // 用户取消
       lastError = error;
+      if (isGestureFailure(error)) throw error; // 换初始位置也不可能成功
       logger.warn('目录选择器初始位置不可用，降级重试', {
         startIn: typeof startIn === 'string' ? startIn : 'handle',
-        error: String(error),
+        error: describePickerFailure(error),
       });
     }
   }
@@ -224,89 +241,81 @@ export function supportsDirectoryPicker(): boolean {
 // ── 目录选择 ──────────────────────────────────────────
 
 /**
- * 取得可作为目录选择器初始位置的句柄。
+ * 解析目录选择器初始打开位置。
  *
- * 未授权的句柄可能被浏览器拒绝作为 startIn，从而静默落到系统默认位置——这正是
- * 「选择器没打开在设置里绑定的默认目录」的成因之一。这里在用户手势内补一次授权
- * 再返回原句柄：授权成功即可正确定位；授权失败也仍用原句柄尝试，由
- * showDirPicker 的降级链兜底。
+ * 只把**已授权**的句柄交给浏览器：
+ *  1) 当前页面 scope 句柄 / 当前平台默认目录句柄（已授权）→ 选择器定位到该目录；
+ *  2) 句柄存在但未授权 → 不传 startIn，由选择器 id 记忆（本平台自己的上次位置）定位；
+ *  3) 本平台从未绑定过目录 → 中性位置，绝不继承其他平台 / 其他页面的历史目录。
+ *
+ * 未授权句柄既无法用于定位，也会诱使这里先弹一次授权框；授权框会消耗这次点击的
+ * 用户手势，浏览器随后会以「缺少用户手势」拒绝打开目录选择器（表现为选择器打不开、
+ * 日志只留「目录选择已取消」）。补授权一律留到选择器之后。
  */
-async function ensureUsablePickerStartIn(
+async function toPickerStartIn(
   handle: FileSystemDirectoryHandle | undefined,
-): Promise<FileSystemDirectoryHandle | undefined> {
-  if (!handle) return undefined;
+): Promise<PickerStartIn | undefined> {
+  if (!handle) return NEUTRAL_PICKER_START_IN;
   if (await queryHandlePermission(handle) === 'granted') return handle;
-
-  const granted = await requestHandlePermission(handle, 'readwrite');
-  if (granted !== 'granted') {
-    logger.warn('目录句柄未授权，选择器初始位置可能无法定位', { permission: granted });
-  }
-  return handle;
+  logger.debug('目录句柄未授权，选择器改用本平台记忆位置', { label: handle.name });
+  return undefined;
 }
 
 /**
- * 解析目录选择器初始打开位置（startIn）对应的句柄。
+ * 弹出原生目录选择器并保存绑定。
  *
- * 优先级（由高到低）：
- *  1) 当前页面 scope 句柄（该页面已绑定目录，选择器定位到当前目录）
- *  2) 当前平台默认目录句柄（页面未绑定时，选择器定位到该平台自己的默认目录）
- *  3) 无 → showDirPicker 使用中性位置（绝不继承其他平台 / 其他页面遗留的位置）
- *
- * 解析直接复用 resolveTargetDirectoryHandle，避免展示、读写和选择器各自维护
- * 不同的回退链；旧共享槽和其他平台目录不会进入此流程。
+ * @returns null 表示用户在浏览器对话框里取消；选择器打不开、未获读写授权属于失败，
+ *          抛出业务异常由调用方写进日志，不能与「用户取消」混为一谈。
  */
-async function resolveDirectoryPickerStartIn(
-  tab: TabInfo | number,
-  pageType: string,
-): Promise<FileSystemDirectoryHandle | undefined> {
-  // 即使句柄当前权限为 prompt/denied 也继续尝试作为 startIn：目录选择器的定位信息与
-  // 授权状态是两件事；先补一次授权以最大化定位成功率，失效时由降级链兜底。
-  return ensureUsablePickerStartIn(await resolveTargetDirectoryHandle(tab, pageType));
-}
-
-/** 弹出原生目录选择器并保存绑定 */
 export async function selectHandleDirectory(
   tab: TabInfo | number,
   pageType = 'default',
 ): Promise<SelectDirectoryResult | null> {
   if (!supportsDirectoryPicker()) return null;
 
+  let handle: FileSystemDirectoryHandle;
   try {
-    // 「更新当前路径」默认打开「当前有效路径 → 项目默认目录」对应的句柄（startIn），
-    // 禁止回退到系统全局默认目录 / 上一次缓存目录 / 其他项目历史目录。
-    const startIn = await resolveDirectoryPickerStartIn(tab, pageType);
-
-    const handle = await showDirPicker({
+    // 「更新当前路径」打开「当前有效路径 → 项目默认目录」对应的句柄（startIn），
+    // 不回退到系统全局默认目录 / 其他平台的历史目录。
+    const startIn = await toPickerStartIn(await resolveTargetDirectoryHandle(tab, pageType));
+    handle = await showDirPicker({
       ...(startIn ? { startIn } : {}),
       id: buildPickerId('page', getPlatformKeyFromPageType(pageType)),
     });
-    // 选择后立即确认读写权限已授予（showDirectoryPicker({ mode: 'readwrite' }) 会弹浏览器自带授权，
-    // 授权状态写入浏览器缓存，后续 queryPermission/requestPermission 直接复用缓存）
-    const permission = await requestHandlePermission(handle, 'readwrite');
-    if (permission !== 'granted') {
-      logger.warn('Directory readwrite permission not granted', { pageType, permission });
-      return null;
-    }
-    const selection = await saveHandleSelection(handle, tab, pageType);
-    if (!selection.handleModeSelected) {
-      // 目录 fromcode 属于其他表单：不自动关联，交由调用方提示用户决定
-      return {
-        path: '',
-        source: 'handle',
-        label: selection.label,
-        fromcode: selection.fromcode,
-        fromcodeConfirm: {
-          handle,
-          fromcodeValue: selection.fromcodeValue ?? '',
-        },
-      };
-    }
-    return { path: '', source: 'handle', label: selection.label, fromcode: selection.fromcode };
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') return null;
-    logger.error('Handle directory selection failed', { error: String(error) });
-    return null;
+    const detail = describePickerFailure(error);
+    logger.error('Handle directory selection failed', { pageType, error: detail });
+    throw new DirectoryError(ERROR_CODE.UNKNOWN, `目录选择器未能打开（${detail}）`, { pageType });
   }
+
+  // showDirectoryPicker({ mode: 'readwrite' }) 已申请读写授权，状态由浏览器缓存；
+  // 这里只确认结果，未授权按失败上报，不再静默当作「已取消」
+  const permission = await requestHandlePermission(handle, 'readwrite');
+  if (permission !== 'granted') {
+    logger.warn('Directory readwrite permission not granted', { pageType, permission });
+    throw new DirectoryError(
+      ERROR_CODE.DIRECTORY_PERMISSION_DENIED,
+      `目录「${handle.name}」未获读写授权（${permission}）`,
+      { pageType, permission },
+    );
+  }
+
+  const selection = await saveHandleSelection(handle, tab, pageType);
+  if (!selection.handleModeSelected) {
+    // 目录 fromcode 属于其他表单：不自动关联，交由调用方提示用户决定
+    return {
+      path: '',
+      source: 'handle',
+      label: selection.label,
+      fromcode: selection.fromcode,
+      fromcodeConfirm: {
+        handle,
+        fromcodeValue: selection.fromcodeValue ?? '',
+      },
+    };
+  }
+  return { path: '', source: 'handle', label: selection.label, fromcode: selection.fromcode };
 }
 
 /**
@@ -346,12 +355,12 @@ export async function selectAndBindDirectory(
 /**
  * 设置页「默认目录」浏览：弹出目录选择器并返回句柄（null 表示用户取消）。
  *
- * 初始位置只用「本平台自己的默认目录句柄」；本平台尚未配置时使用中性位置。
- * 绝不继承另一个平台 / 其他页面遗留的位置——否则很容易把云枢的工作目录绑成
- * 氚云的默认目录，导致平台默认目录指向错误的工作目录。
+ * 初始位置只用「本平台自己的默认目录句柄」（已授权时）或本平台的选择器记忆；
+ * 本平台尚未配置时使用中性位置。绝不继承另一个平台 / 其他页面遗留的位置——否则
+ * 很容易把云枢的工作目录绑成氚云的默认目录。
  *
  * 选择时直接请求读写权限（默认目录会被用于写入）。
- * 失败（非用户取消）抛出异常，由调用方提示。
+ * 失败（非用户取消）抛出业务异常，由调用方提示。
  */
 export async function selectPlatformDefaultDirectory(
   platformKey: PlatformKey,
@@ -362,22 +371,29 @@ export async function selectPlatformDefaultDirectory(
     });
   }
 
-  const startIn = await ensureUsablePickerStartIn(await getDefaultDirectoryHandle(platformKey));
-
+  let handle: FileSystemDirectoryHandle;
   try {
-    const handle = await showDirPicker({
+    const startIn = await toPickerStartIn(await getDefaultDirectoryHandle(platformKey));
+    handle = await showDirPicker({
       ...(startIn ? { startIn } : {}),
       id: buildPickerId('default', platformKey),
     });
-    const permission = await requestHandlePermission(handle, 'readwrite');
-    if (permission !== 'granted') {
-      throw new ValidationError('默认目录未授予读写权限', { platformKey, permission });
-    }
-    return handle;
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') return null;
-    throw error;
+    const detail = describePickerFailure(error);
+    logger.error('Default directory selection failed', { platformKey, error: detail });
+    throw new DirectoryError(ERROR_CODE.UNKNOWN, `目录选择器未能打开（${detail}）`, { platformKey });
   }
+
+  const permission = await requestHandlePermission(handle, 'readwrite');
+  if (permission !== 'granted') {
+    throw new DirectoryError(
+      ERROR_CODE.DIRECTORY_PERMISSION_DENIED,
+      `目录「${handle.name}」未获读写授权（${permission}）`,
+      { platformKey, permission },
+    );
+  }
+  return handle;
 }
 
 // ── 文件读写（仅 Handle 通道） ─────────────────────────

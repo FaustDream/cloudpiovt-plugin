@@ -10,6 +10,7 @@ export const CURRENT_EXTENSION_VERSION: string = chrome.runtime.getManifest().ve
 
 /** 版本更新说明（新的在前） */
 export const RELEASE_NOTES: readonly string[] = [
+  '2.2.4 修复「更新当前路径」反复选目录都失败：浏览器授权提示不再先于目录选择器弹出（授权对话框会消耗点击手势，导致选择器被浏览器直接取消）；选择器打不开或选完未获写入授权时，日志改为输出真实原因，不再统一显示「目录选择已取消」。',
   '2.2.3 氚云 FromCode 副标题等定义内容改为关键字兜底读取：属性键名未知时按 subtitle / tip / format 等关键字匹配，兼容属性被包在子对象里的情况；仍未读到时在弹窗日志给出控件属性键名样本，便于按实际键名对接。',
   '2.2.2 氚云 FromCode 补齐控件定义内容：在名称 / 编码 / 类型之后输出副标题、悬浮提示、默认值、格式与「不允许重复」校验（仅在有值时输出），主子表一致。',
   '2.2.1 氚云列表设计升级为 Vue 单文件组件：前端代码识别增加 <template> / export default / defineComponent 特征，列表设计的前端文件名改用 .vue（表单设计仍为 .js），Monaco 语言匹配补充 vue / html。',
