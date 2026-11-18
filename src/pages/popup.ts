@@ -67,7 +67,6 @@ import {
   fileExistsInSelection,
   queryHandlePermissionState,
   requestHandlePermissionState,
-  requestTargetDirectoryPermission,
   confirmForcodeOverride,
 } from '../services/target-directory-access.js';
 import { checkTargetDirectoryHealth } from '../services/target-directory-check.js';
@@ -588,10 +587,11 @@ function formatDirectoryPickError(error: unknown): string {
 }
 
 /**
- * 用户取消目录选择后的收尾：保持当前目录，必要时补一次授权。
+ * 用户取消目录选择后的收尾：保持当前目录，并对缺授权的状态给出可行的恢复动作。
  *
- * 浏览器重启后句柄权限会退化为 prompt，用户点「更新当前路径」只想恢复授权时会直接
- * 取消选择器；此时补授权即可继续使用原目录，不必等到写入失败。
+ * 句柄授权请求（`FileSystemHandle.requestPermission`）同样要求瞬时用户手势，而这次
+ * 点击的手势已被目录选择器本身消耗，取消后请求授权必定失败（User activation is
+ * required to request permissions），因此这里不再发起授权，只给出能拿到授权的入口。
  */
 async function finishDirectoryCancel(pageType: string): Promise<void> {
   addWarningLog(
@@ -608,14 +608,10 @@ async function finishDirectoryCancel(pageType: string): Promise<void> {
   }
   if (check.health !== 'permission-prompt' && check.health !== 'permission-denied') return;
 
-  const label = check.label || '当前目录';
-  const permission = await requestTargetDirectoryPermission(state.pageContext, pageType);
-  if (permission === 'granted') {
-    await updateDirectoryDisplay();
-    addSuccessLog(`目录「${label}」已重新授权`, '可直接继续抓取写入');
-    return;
-  }
-  addWarningLog(`目录「${label}」仍没有读写授权`, '请再次点击「更新当前路径」并在浏览器提示中点击「允许」');
+  addWarningLog(
+    `目录「${check.label || '当前目录'}」当前没有读写授权`,
+    '点击「历史目录」中的该目录即可重新授权（无需再弹目录对话框），或再次点击「更新当前路径」重新选择',
+  );
 }
 
 /**
@@ -1758,6 +1754,24 @@ async function init(): Promise<void> {
   if (state.pageTypeConfig) {
     addLog(`平台: ${PLATFORM_LABELS[state.pageTypeConfig.platformKey]} (${state.pageTypeConfig.pageLabel})`);
   }
+  addLog(`浏览器: ${describeBrowser()}`);
+}
+
+/**
+ * 浏览器标识（名称 + 主版本 + 系统）。
+ *
+ * 目录选择器与文件系统授权是浏览器原生能力，不同浏览器 / 版本的行为差异只能靠这条
+ * 信息定位，因此每次打开弹窗都记录一次。
+ */
+function describeBrowser(): string {
+  const ua = navigator.userAgent;
+  const edge = /Edg\/(\d+)/.exec(ua);
+  const chrome = /Chrome\/(\d+)/.exec(ua);
+  const name = edge ? 'Edge' : chrome ? 'Chrome' : '未知浏览器';
+  const version = edge?.[1] ?? chrome?.[1] ?? '';
+  const platform = /Windows/.test(ua) ? 'Windows' : /Macintosh/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : '';
+  const label = version ? `${name} ${version}` : name;
+  return platform ? `${label} / ${platform}` : label;
 }
 
 // ── Event Binding ──────────────────────────────────────
