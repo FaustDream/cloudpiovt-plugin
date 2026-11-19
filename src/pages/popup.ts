@@ -657,14 +657,13 @@ async function applyBoundDirectory(result: SelectDirectoryResult, pageType: stri
 }
 
 /**
- * 「更新当前路径」：用户主动点击即弹出目录选择器（云枢 / 氚云行为一致）。
+ * 「更新当前路径」：只走系统目录对话框，不自动切换到其它窗口。
  *
  * 顺序固定为「先弹选择器，再谈授权」：文件系统授权对话框会消耗这次点击的用户手势，
  * 先请求授权再弹选择器会被浏览器判为没有用户手势，选择器直接被取消。
  *
- * 选择器不返回句柄（Chrome 在 Windows 上会在选完文件夹后返回 AbortError，用户按 Esc
- * 也走同一分支）时，直接转入目录窗口：这次点击仍然落到「拖入文件夹即可绑定」的流程上，
- * 不需要用户再点一次按钮，也不会出现「反复选都不行」。
+ * 对话框不返回句柄时（Chrome 在 Windows 上会在选完文件夹后返回 AbortError，用户按 Esc
+ * 也走同一分支）只记录原因并保留当前目录；需要绕开对话框时由用户自己点文件夹按钮。
  */
 async function handleRefreshDirectory(): Promise<void> {
   if (state.busy) return;
@@ -681,10 +680,9 @@ async function handleRefreshDirectory(): Promise<void> {
 
     if (!result) {
       addWarningLog(
-        '系统对话框没有返回目录，已打开目录窗口',
-        '把文件夹拖入窗口即可完成绑定；若是主动取消，关闭该窗口即可',
+        '目录选择未完成，当前目录保持不变',
+        '可重新点击「更新当前路径」；若对话框中已选中文件夹仍无返回，请改用 Edge，或点文件夹按钮在新窗口中绑定',
       );
-      await openDirectoryWindow();
       return;
     }
     await applyBoundDirectory(result, pageType);
