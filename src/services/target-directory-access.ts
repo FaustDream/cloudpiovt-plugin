@@ -289,8 +289,20 @@ export async function selectHandleDirectory(
     throw new DirectoryError(ERROR_CODE.UNKNOWN, `目录选择器未能打开（${detail}）`, { pageType });
   }
 
-  // showDirectoryPicker({ mode: 'readwrite' }) 已申请读写授权，状态由浏览器缓存；
-  // 这里只确认结果，未授权按失败上报，不再静默当作「已取消」
+  return await bindSelectedHandle(handle, tab, pageType);
+}
+
+/**
+ * 绑定并登记一个已取得的目录句柄（系统目录选择器与拖入文件夹共用）。
+ *
+ * 句柄来源不同、带的授权也不同（选择器带读写授权，拖放只带读授权），
+ * 因此统一在这里补一次读写授权；未授权按失败上报，不静默当作「已取消」。
+ */
+async function bindSelectedHandle(
+  handle: FileSystemDirectoryHandle,
+  tab: TabInfo | number,
+  pageType: string,
+): Promise<SelectDirectoryResult> {
   const permission = await requestHandlePermission(handle, 'readwrite');
   if (permission !== 'granted') {
     logger.warn('Directory readwrite permission not granted', { pageType, permission });
@@ -316,6 +328,20 @@ export async function selectHandleDirectory(
     };
   }
   return { path: '', source: 'handle', label: selection.label, fromcode: selection.fromcode };
+}
+
+/**
+ * 绑定用户拖入弹窗的文件夹句柄。
+ *
+ * 拖放只带读授权，必须在拖放当次手势内调用；这是不经过系统目录对话框的
+ * 选择入口，用于 Chrome 在 Windows 上「选完文件夹返回 AbortError」的场景。
+ */
+export async function selectDroppedDirectory(
+  handle: FileSystemDirectoryHandle,
+  tab: TabInfo | number,
+  pageType = 'default',
+): Promise<SelectDirectoryResult> {
+  return await bindSelectedHandle(handle, tab, pageType);
 }
 
 /**

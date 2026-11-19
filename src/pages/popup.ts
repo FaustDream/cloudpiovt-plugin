@@ -137,6 +137,7 @@ const dom = {
   get pageOriginEl() { return $('#page-origin') as HTMLElement; },
   get currentPathTag() { return $('#current-path-tag') as HTMLElement; },
   get refreshHandleBtn() { return $('#refresh-handle-btn') as HTMLElement; },
+  get bindWindowBtn() { return $('#bind-window-btn') as HTMLElement; },
   get copyPathBtn() { return $('#copy-path-btn') as HTMLElement; },
   get searchInput() { return $('#search-path-input') as HTMLInputElement; },
   get searchDropdown() { return $('.search-dropdown') as HTMLElement; },
@@ -364,9 +365,11 @@ function reportForcodeStatus(fromcode: string | undefined, label: string): void 
   if (fromcode === 'matched') {
     addSuccessLog('目录表单编码校验通过，目录与当前页面匹配');
   } else if (fromcode === 'missing') {
-    addWarningLog(
-      `目录「${label}」尚无表单归属关联（可能是新建或未初始化目录）`,
-      '确认后首次写入会在扩展本地记录目录归属，不会在目录中新增标记文件',
+    // 绑定动作本身已把归属登记到扩展本地，这里不能再提示「尚无归属关联」
+    addLog(
+      `目录「${label}」已绑定到当前页面`,
+      'info',
+      '该目录此前没有归属记录，已在扩展本地登记，不会在目录中新增标记文件',
     );
   }
 }
@@ -569,14 +572,14 @@ function reportUnboundDefaultDirectory(platformKey: PlatformKey): boolean {
   return true;
 }
 
-/** 目录选择器执行失败：把浏览器给出的异常名写进日志，避免统一显示成「已取消」 */
-function reportDirectoryPickFailure(error: unknown): void {
+/** 目录绑定执行失败：把浏览器给出的异常名写进日志，避免统一显示成「已取消」 */
+function reportDirectoryPickFailure(
+  error: unknown,
+  suggestion = '请重新点击「更新当前路径」；反复失败时点文件夹按钮在新窗口中拖入文件夹，或改用 Edge',
+): void {
   const detail = formatDirectoryPickError(error);
-  logger.error('目录选择器执行失败', { error: detail });
-  addErrorLog(
-    `目录选择未完成：${detail}`,
-    '请重新点击「更新当前路径」；若反复失败，请确认浏览器为最新版 Chrome / Edge 后重试',
-  );
+  logger.error('目录绑定执行失败', { error: detail });
+  addErrorLog(`目录绑定未完成：${detail}`, suggestion);
 }
 
 function formatDirectoryPickError(error: unknown): string {
@@ -587,16 +590,19 @@ function formatDirectoryPickError(error: unknown): string {
 }
 
 /**
- * 用户取消目录选择后的收尾：保持当前目录，并对缺授权的状态给出可行的恢复动作。
+ * 目录选择未返回句柄后的收尾：保持当前目录，并给出不依赖系统对话框的入口。
  *
- * 句柄授权请求（`FileSystemHandle.requestPermission`）同样要求瞬时用户手势，而这次
- * 点击的手势已被目录选择器本身消耗，取消后请求授权必定失败（User activation is
- * required to request permissions），因此这里不再发起授权，只给出能拿到授权的入口。
+ * 句柄授权请求（`FileSystemHandle.requestPermission`）要求瞬时用户手势，而这次点击的
+ * 手势已被选择器消耗，取消后请求授权必定失败（User activation is required to request
+ * permissions），因此这里不发起授权，只提示能拿到授权的入口。
+ *
+ * 不写「已取消」：Chrome 在 Windows 上存在「选完文件夹后返回 AbortError」的已知问题，
+ * 用户确实选了文件夹也会走到这里，文案改为提示可用的替代入口。
  */
 async function finishDirectoryCancel(pageType: string): Promise<void> {
   addWarningLog(
-    '目录选择已取消',
-    '当前目录保持不变；若已在对话框中选中文件夹仍提示取消，请更新浏览器或改用 Edge 后重试',
+    '目录选择未完成，当前目录保持不变',
+    '若已在对话框中选中文件夹仍提示未完成，属于 Chrome 在 Windows 上的已知问题（选完返回 AbortError，Edge 不受影响）；可点文件夹按钮在新窗口中把文件夹拖入完成绑定',
   );
 
   let check: TargetDirectoryCheckResult;
@@ -610,23 +616,53 @@ async function finishDirectoryCancel(pageType: string): Promise<void> {
 
   addWarningLog(
     `目录「${check.label || '当前目录'}」当前没有读写授权`,
-    '点击「历史目录」中的该目录即可重新授权（无需再弹目录对话框），或再次点击「更新当前路径」重新选择',
+    '点击「历史目录」中的该目录即可重新授权（无需再弹目录对话框），或点文件夹按钮在新窗口中重新绑定',
   );
+}
+
+/**
+ * 目录绑定成功后的统一收尾：fromcode 归属确认 → 刷新展示 → 重新自检。
+ * @returns false 表示用户拒绝强制关联或关联失败（未绑定）
+ */
+async function applyBoundDirectory(result: SelectDirectoryResult, pageType: string): Promise<boolean> {
+  // 目录属于其他表单时弹确认，由用户决定是否强制关联
+  if (result.fromcodeConfirm) {
+    const { handle, fromcodeValue } = result.fromcodeConfirm;
+    const storedCode = fromcodeValue || '未知编码';
+    if (!promptForcodeConfirm(result.label, storedCode)) {
+      addWarningLog(
+        `目录「${result.label}」属于其他表单（fromcode: ${storedCode}），未关联`,
+        '请选择其他目录；或重新选择该目录并在提示中确认强制关联',
+      );
+      return false;
+    }
+    if (!(await forceForcodeAssociate(handle, result.label, storedCode, pageType))) return false;
+  } else {
+    reportForcodeStatus(result.fromcode, result.label);
+  }
+
+  await updateDirectoryDisplay();
+  await loadRecentDirectories();
+  addSuccessLog(`路径已更新：${result.label}`);
+
+  // 新路径绑定后必须立即重新验证，确保句柄和实际读写能力一致。
+  const reboundCheck = await checkTargetDirectoryHealth(state.pageContext, pageType);
+  reportDirectoryCheckResult(reboundCheck);
+  return true;
 }
 
 /**
  * 「更新当前路径」：用户主动点击即弹出目录选择器（云枢 / 氚云行为一致）。
  *
  * 顺序固定为「先弹选择器，再谈授权」：文件系统授权对话框会消耗这次点击的用户手势，
- * 先请求授权再弹选择器会被浏览器判为没有用户手势，选择器直接被取消（现象就是日志
- * 只剩「目录选择已取消」，反复选都不成功）。只有用户取消选择器后，才对现有目录补授权。
+ * 先请求授权再弹选择器会被浏览器判为没有用户手势，选择器直接被取消。选择器不返回
+ * 句柄时，改由拖入文件夹或历史目录完成绑定。
  */
 async function handleRefreshDirectory(): Promise<void> {
   if (state.busy) return;
   await runWithButtonBusy(dom.refreshHandleBtn, async () => {
     const pageType = resolveEffectivePageType();
 
-    // 1) 选择器紧跟点击弹出（内部只读查询权限，不会弹授权框）
     let result: SelectDirectoryResult | null;
     try {
       result = await selectAndBindDirectory(state.pageContext, { pageType, isPageSnapshot: false });
@@ -635,35 +671,39 @@ async function handleRefreshDirectory(): Promise<void> {
       return;
     }
 
-    // 2) 用户取消：保持当前目录；当前目录若没有授权，在这里补一次
     if (!result) {
       await finishDirectoryCancel(pageType);
       return;
     }
-
-    // fromcode 校验：mismatched（目录属于其他表单）时弹确认由用户决定是否强制关联
-    if (result.fromcodeConfirm) {
-      const { handle, fromcodeValue } = result.fromcodeConfirm;
-      const storedCode = fromcodeValue || '未知编码';
-      if (!promptForcodeConfirm(result.label, storedCode)) {
-        addWarningLog(
-          `目录「${result.label}」属于其他表单（fromcode: ${storedCode}），未关联`,
-          '请选择其他目录；或重新选择该目录并在提示中确认强制关联',
-        );
-        return;
-      }
-      if (!(await forceForcodeAssociate(handle, result.label, storedCode, pageType))) return;
-    } else {
-      reportForcodeStatus(result.fromcode, result.label);
-    }
-    await updateDirectoryDisplay();
-    await loadRecentDirectories();
-    addSuccessLog(`路径已更新：${result.label}`);
-
-    // 新路径绑定后必须立即重新验证，确保句柄和实际读写能力一致。
-    const reboundCheck = await checkTargetDirectoryHealth(state.pageContext, pageType);
-    reportDirectoryCheckResult(reboundCheck);
+    await applyBoundDirectory(result, pageType);
   });
+}
+
+/**
+ * 「在窗口中绑定目录」：把目录选择搬到独立窗口。
+ *
+ * 独立窗口而不是动作弹窗：动作弹窗在浏览器失焦（切到资源管理器取文件夹）时会关闭，
+ * 收不到拖入的文件夹。系统目录对话框在 Chrome（Windows）存在「选完文件夹返回
+ * AbortError」的已知问题，拖入文件夹是绕开该对话框的绑定入口。
+ */
+async function handleOpenDirectoryWindow(): Promise<void> {
+  if (!state.pageContext.url) {
+    addErrorLog('页面信息尚未就绪', '请等弹窗识别完当前页面后重试');
+    return;
+  }
+
+  const query = new URLSearchParams({
+    tabId: String(state.pageContext.tabId ?? ''),
+    url: state.pageContext.url,
+    pageType: resolveEffectivePageType(),
+  });
+  await chrome.windows.create({
+    url: `${chrome.runtime.getURL('dir-window.html')}?${query.toString()}`,
+    type: 'popup',
+    width: 520,
+    height: 480,
+  });
+  window.close();
 }
 
 /** 「设置」按钮：打开选项页 */
@@ -1782,6 +1822,7 @@ function bindEvents(): void {
 
   // 目录操作
   dom.refreshHandleBtn?.addEventListener('click', () => handleRefreshDirectory());
+  dom.bindWindowBtn?.addEventListener('click', () => handleOpenDirectoryWindow());
   dom.copyPathBtn?.addEventListener('click', () => handleCopyPath());
 
   // 搜索
