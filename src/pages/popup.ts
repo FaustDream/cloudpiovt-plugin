@@ -590,34 +590,39 @@ function formatDirectoryPickError(error: unknown): string {
 }
 
 /**
- * 目录选择未返回句柄后的收尾：保持当前目录，并给出不依赖系统对话框的入口。
+ * 打开「绑定目录」独立窗口（拖放绑定）。
  *
- * 句柄授权请求（`FileSystemHandle.requestPermission`）要求瞬时用户手势，而这次点击的
- * 手势已被选择器消耗，取消后请求授权必定失败（User activation is required to request
- * permissions），因此这里不发起授权，只提示能拿到授权的入口。
+ * 独立窗口而不是动作弹窗：动作弹窗在浏览器失焦（切到资源管理器取文件夹）时会关闭，
+ * 收不到拖入的文件夹。系统目录对话框在 Chrome（Windows）存在「选完文件夹返回
+ * AbortError」的已知问题，拖入文件夹是绕开该对话框的绑定入口。
  *
- * 不写「已取消」：Chrome 在 Windows 上存在「选完文件夹后返回 AbortError」的已知问题，
- * 用户确实选了文件夹也会走到这里，文案改为提示可用的替代入口。
+ * @returns true 表示窗口已打开、弹窗已关闭，调用方可直接结束本次流程
  */
-async function finishDirectoryCancel(pageType: string): Promise<void> {
-  addWarningLog(
-    '目录选择未完成，当前目录保持不变',
-    '若已在对话框中选中文件夹仍提示未完成，属于 Chrome 在 Windows 上的已知问题（选完返回 AbortError，Edge 不受影响）；可点文件夹按钮在新窗口中把文件夹拖入完成绑定',
-  );
-
-  let check: TargetDirectoryCheckResult;
-  try {
-    check = await checkTargetDirectoryHealth(state.pageContext, pageType);
-  } catch (error: unknown) {
-    reportExecutionError('目录自检失败', error);
-    return;
+async function openDirectoryWindow(): Promise<boolean> {
+  if (!state.pageContext.url) {
+    addErrorLog('页面信息尚未就绪', '请等弹窗识别完当前页面后重试');
+    return false;
   }
-  if (check.health !== 'permission-prompt' && check.health !== 'permission-denied') return;
 
-  addWarningLog(
-    `目录「${check.label || '当前目录'}」当前没有读写授权`,
-    '点击「历史目录」中的该目录即可重新授权（无需再弹目录对话框），或点文件夹按钮在新窗口中重新绑定',
-  );
+  const query = new URLSearchParams({
+    tabId: String(state.pageContext.tabId ?? ''),
+    url: state.pageContext.url,
+    pageType: resolveEffectivePageType(),
+  });
+  try {
+    await chrome.windows.create({
+      url: `${chrome.runtime.getURL('dir-window.html')}?${query.toString()}`,
+      type: 'popup',
+      width: 520,
+      height: 480,
+    });
+  } catch (error: unknown) {
+    reportExecutionError('打开目录窗口失败', error);
+    return false;
+  }
+
+  window.close();
+  return true;
 }
 
 /**
@@ -655,8 +660,11 @@ async function applyBoundDirectory(result: SelectDirectoryResult, pageType: stri
  * 「更新当前路径」：用户主动点击即弹出目录选择器（云枢 / 氚云行为一致）。
  *
  * 顺序固定为「先弹选择器，再谈授权」：文件系统授权对话框会消耗这次点击的用户手势，
- * 先请求授权再弹选择器会被浏览器判为没有用户手势，选择器直接被取消。选择器不返回
- * 句柄时，改由拖入文件夹或历史目录完成绑定。
+ * 先请求授权再弹选择器会被浏览器判为没有用户手势，选择器直接被取消。
+ *
+ * 选择器不返回句柄（Chrome 在 Windows 上会在选完文件夹后返回 AbortError，用户按 Esc
+ * 也走同一分支）时，直接转入目录窗口：这次点击仍然落到「拖入文件夹即可绑定」的流程上，
+ * 不需要用户再点一次按钮，也不会出现「反复选都不行」。
  */
 async function handleRefreshDirectory(): Promise<void> {
   if (state.busy) return;
@@ -672,38 +680,15 @@ async function handleRefreshDirectory(): Promise<void> {
     }
 
     if (!result) {
-      await finishDirectoryCancel(pageType);
+      addWarningLog(
+        '系统对话框没有返回目录，已打开目录窗口',
+        '把文件夹拖入窗口即可完成绑定；若是主动取消，关闭该窗口即可',
+      );
+      await openDirectoryWindow();
       return;
     }
     await applyBoundDirectory(result, pageType);
   });
-}
-
-/**
- * 「在窗口中绑定目录」：把目录选择搬到独立窗口。
- *
- * 独立窗口而不是动作弹窗：动作弹窗在浏览器失焦（切到资源管理器取文件夹）时会关闭，
- * 收不到拖入的文件夹。系统目录对话框在 Chrome（Windows）存在「选完文件夹返回
- * AbortError」的已知问题，拖入文件夹是绕开该对话框的绑定入口。
- */
-async function handleOpenDirectoryWindow(): Promise<void> {
-  if (!state.pageContext.url) {
-    addErrorLog('页面信息尚未就绪', '请等弹窗识别完当前页面后重试');
-    return;
-  }
-
-  const query = new URLSearchParams({
-    tabId: String(state.pageContext.tabId ?? ''),
-    url: state.pageContext.url,
-    pageType: resolveEffectivePageType(),
-  });
-  await chrome.windows.create({
-    url: `${chrome.runtime.getURL('dir-window.html')}?${query.toString()}`,
-    type: 'popup',
-    width: 520,
-    height: 480,
-  });
-  window.close();
 }
 
 /** 「设置」按钮：打开选项页 */
@@ -1822,7 +1807,7 @@ function bindEvents(): void {
 
   // 目录操作
   dom.refreshHandleBtn?.addEventListener('click', () => handleRefreshDirectory());
-  dom.bindWindowBtn?.addEventListener('click', () => handleOpenDirectoryWindow());
+  dom.bindWindowBtn?.addEventListener('click', () => { void openDirectoryWindow(); });
   dom.copyPathBtn?.addEventListener('click', () => handleCopyPath());
 
   // 搜索
