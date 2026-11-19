@@ -28,7 +28,7 @@
           <!-- 当前目录名称：纯展示 -->
           <span id="current-path-tag" class="current-path-tag">未选择目录</span>
           <button id="refresh-handle-btn" class="btn-tool icon-btn icon-btn-prominent" type="button" title="更新当前路径" aria-label="更新当前路径"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg></button>
-          <button id="bind-window-btn" class="btn-tool icon-btn icon-btn-prominent" type="button" title="在窗口中绑定目录（可拖入文件夹）" aria-label="在窗口中绑定目录"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
+          <button id="dir-drop-toggle-btn" class="btn-tool icon-btn icon-btn-prominent" type="button" title="显示/隐藏拖放区（把文件夹拖入即可绑定）" aria-label="显示或隐藏拖放区" aria-expanded="false" aria-controls="dir-drop-panel"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg></button>
           <button id="copy-path-btn" class="btn-tool icon-btn icon-btn-prominent" type="button" title="复制真实路径" aria-label="复制路径"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button>
         </div>
         <!-- 第二行：搜索历史目录（独立整行） -->
@@ -42,6 +42,13 @@
                 <button id="clear-history-btn" class="btn-danger clear-history-btn" type="button">清空历史记录</button>
               </div>
             </div>
+          </div>
+        </div>
+        <!-- 第三行：拖放区（点击文件夹按钮显示/隐藏），把文件夹拖入即绑定目录 -->
+        <div id="dir-drop-panel" class="dir-drop-panel" hidden>
+          <div id="dir-drop-zone" class="dir-drop-zone">
+            <p class="dir-drop-title">把文件夹拖到这里完成绑定</p>
+            <p class="dir-drop-hint">目录归属只记录在扩展本地，不会在目录里新增文件</p>
           </div>
         </div>
       </section>

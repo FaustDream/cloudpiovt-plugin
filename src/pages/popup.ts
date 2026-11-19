@@ -62,6 +62,7 @@ import {
 import { loadScopeOverrides, saveScopeOverrides, clearScopeOverrides } from '../services/artifact-scope-store.js';
 import {
   selectAndBindDirectory,
+  selectDroppedDirectory,
   writeFilesToSelection,
   readFilesFromSelection,
   fileExistsInSelection,
@@ -137,7 +138,9 @@ const dom = {
   get pageOriginEl() { return $('#page-origin') as HTMLElement; },
   get currentPathTag() { return $('#current-path-tag') as HTMLElement; },
   get refreshHandleBtn() { return $('#refresh-handle-btn') as HTMLElement; },
-  get bindWindowBtn() { return $('#bind-window-btn') as HTMLElement; },
+  get dirDropToggleBtn() { return $('#dir-drop-toggle-btn') as HTMLElement | null; },
+  get dirDropPanel() { return $('#dir-drop-panel') as HTMLElement | null; },
+  get dirDropZone() { return $('#dir-drop-zone') as HTMLElement | null; },
   get copyPathBtn() { return $('#copy-path-btn') as HTMLElement; },
   get searchInput() { return $('#search-path-input') as HTMLInputElement; },
   get searchDropdown() { return $('.search-dropdown') as HTMLElement; },
@@ -589,40 +592,125 @@ function formatDirectoryPickError(error: unknown): string {
   return String(error);
 }
 
+// ── 拖放绑定区（弹窗内折叠） ──────────────────────────
+
+/** DataTransferItem.getAsFileSystemHandle 尚未进入 TS 标准库，按可选能力访问 */
+interface HandleCapableDataTransferItem extends DataTransferItem {
+  getAsFileSystemHandle?: () => Promise<FileSystemHandle | null>;
+}
+
+function hasFilePayload(event: DragEvent): boolean {
+  return Array.from(event.dataTransfer?.types ?? []).includes('Files');
+}
+
+function isDropPanelOpen(): boolean {
+  const panel = dom.dirDropPanel;
+  return !!panel && !panel.hidden;
+}
+
+function setDropZoneActive(active: boolean): void {
+  dom.dirDropZone?.classList.toggle('is-over', active);
+}
+
+/** 文件夹按钮：显示 / 隐藏拖放区（再点一次收起） */
+function handleToggleDropPanel(): void {
+  const panel = dom.dirDropPanel;
+  if (!panel) return;
+  panel.hidden = !panel.hidden;
+  dom.dirDropToggleBtn?.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+  if (panel.hidden) {
+    setDropZoneActive(false);
+    return;
+  }
+  addLog(
+    '拖放区已展开',
+    'info',
+    '把文件夹拖入拖放区即可绑定当前页面；从资源管理器拖入时浏览器会先关闭本弹窗，该方式在弹窗内通常收不到文件夹',
+  );
+}
+
 /**
- * 打开「绑定目录」独立窗口（拖放绑定）。
+ * 同步收齐拖入项的句柄请求。
  *
- * 独立窗口而不是动作弹窗：动作弹窗在浏览器失焦（切到资源管理器取文件夹）时会关闭，
- * 收不到拖入的文件夹。系统目录对话框在 Chrome（Windows）存在「选完文件夹返回
- * AbortError」的已知问题，拖入文件夹是绕开该对话框的绑定入口。
- *
- * @returns true 表示窗口已打开、弹窗已关闭，调用方可直接结束本次流程
+ * `getAsFileSystemHandle` 只能在 drop 事件同步阶段调用，事件结束后条目即失效，
+ * 因此先把 Promise 收齐，再做后续异步判断。
  */
-async function openDirectoryWindow(): Promise<boolean> {
-  if (!state.pageContext.url) {
-    addErrorLog('页面信息尚未就绪', '请等弹窗识别完当前页面后重试');
-    return false;
+function collectDroppedHandleRequests(
+  dataTransfer: DataTransfer | null,
+): Array<Promise<FileSystemHandle | null>> {
+  if (!dataTransfer) return [];
+  const requests: Array<Promise<FileSystemHandle | null>> = [];
+  for (const item of Array.from(dataTransfer.items)) {
+    if (item.kind !== 'file') continue;
+    const capable = item as HandleCapableDataTransferItem;
+    if (typeof capable.getAsFileSystemHandle !== 'function') continue;
+    requests.push(capable.getAsFileSystemHandle());
   }
+  return requests;
+}
 
-  const query = new URLSearchParams({
-    tabId: String(state.pageContext.tabId ?? ''),
-    url: state.pageContext.url,
-    pageType: resolveEffectivePageType(),
+/** 取第一个拖入的文件夹句柄；只拖入文件时返回 null */
+async function firstDroppedDirectory(
+  requests: Array<Promise<FileSystemHandle | null>>,
+): Promise<FileSystemDirectoryHandle | null> {
+  for (const request of requests) {
+    try {
+      const handle = await request;
+      if (handle && handle.kind === 'directory') return handle as FileSystemDirectoryHandle;
+    } catch (error: unknown) {
+      logger.debug('读取拖入项句柄失败', { error: String(error) });
+    }
+  }
+  return null;
+}
+
+/** 拖入文件夹即绑定到当前页面（不经过系统目录对话框） */
+async function handleDirectoryDrop(event: DragEvent): Promise<void> {
+  event.preventDefault();
+  setDropZoneActive(false);
+  if (state.busy) return;
+
+  const requests = collectDroppedHandleRequests(event.dataTransfer);
+  if (requests.length === 0) return;
+
+  await runWithButtonBusy(dom.refreshHandleBtn, async () => {
+    const pageType = resolveEffectivePageType();
+    const handle = await firstDroppedDirectory(requests);
+    if (!handle) {
+      addWarningLog('拖入的内容不是文件夹', '请拖入一个文件夹；拖入文件不会绑定目标目录');
+      return;
+    }
+
+    let result: SelectDirectoryResult;
+    try {
+      result = await selectDroppedDirectory(handle, state.pageContext, pageType);
+    } catch (error: unknown) {
+      reportDirectoryPickFailure(error, '请重新把文件夹拖入拖放区；仍失败时改用「历史目录」或 Edge 重试');
+      return;
+    }
+    await applyBoundDirectory(result, pageType);
   });
-  try {
-    await chrome.windows.create({
-      url: `${chrome.runtime.getURL('dir-window.html')}?${query.toString()}`,
-      type: 'popup',
-      width: 520,
-      height: 480,
-    });
-  } catch (error: unknown) {
-    reportExecutionError('打开目录窗口失败', error);
-    return false;
-  }
+}
 
-  window.close();
-  return true;
+/** 拖放区事件的绑定：只在拖放区展开时接管文件拖拽 */
+function bindDropZone(): void {
+  window.addEventListener('dragover', (event) => {
+    if (!hasFilePayload(event) || !isDropPanelOpen()) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy';
+  });
+  window.addEventListener('drop', (event) => {
+    if (!isDropPanelOpen()) return;
+    void handleDirectoryDrop(event);
+  });
+
+  const zone = dom.dirDropZone;
+  zone?.addEventListener('dragenter', () => setDropZoneActive(true));
+  zone?.addEventListener('dragover', (event) => {
+    event.preventDefault();
+    setDropZoneActive(true);
+  });
+  zone?.addEventListener('dragleave', () => setDropZoneActive(false));
 }
 
 /**
@@ -1805,7 +1893,8 @@ function bindEvents(): void {
 
   // 目录操作
   dom.refreshHandleBtn?.addEventListener('click', () => handleRefreshDirectory());
-  dom.bindWindowBtn?.addEventListener('click', () => { void openDirectoryWindow(); });
+  dom.dirDropToggleBtn?.addEventListener('click', () => handleToggleDropPanel());
+  bindDropZone();
   dom.copyPathBtn?.addEventListener('click', () => handleCopyPath());
 
   // 搜索

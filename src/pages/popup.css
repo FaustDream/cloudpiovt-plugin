@@ -950,6 +950,47 @@ button:disabled {
   }
 }
 
+/* ========== 拖放绑定区 ========== */
+/* 由文件夹按钮点击显示 / 隐藏：把文件夹拖入即绑定到当前页面 */
+.dir-drop-panel {
+  margin-top: var(--spacing-sm);
+}
+
+.dir-drop-panel[hidden] {
+  display: none;
+}
+
+.dir-drop-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: var(--spacing-md);
+  border: 2px dashed var(--color-primary);
+  border-radius: var(--radius-lg);
+  background: var(--color-primary-bg);
+  text-align: center;
+  transition: background 0.15s ease;
+}
+
+.dir-drop-zone.is-over {
+  background: #D0E8FF;
+}
+
+.dir-drop-title {
+  margin: 0;
+  color: var(--color-primary);
+  font-size: var(--font-size-body-sm);
+  font-weight: var(--font-weight-semibold);
+}
+
+.dir-drop-hint {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-caption);
+}
+
 /* ========== 减弱动效偏好 ========== */
 @media (prefers-reduced-motion: reduce) {
   *,
