@@ -11,12 +11,7 @@ import { logger } from '../lib/logger.js';
 import { BusinessError, DirectoryError, ValidationError, ERROR_CODE } from '../lib/errors.js';
 import { parseRelativePath, joinRelativePath, type RelativePathParts } from '../lib/utils.js';
 import { getPlatformKeyFromPageType } from './config.js';
-import {
-  getStoredDirectoryPath,
-  saveHandleSelection,
-  clearTabTargetDirectoryData,
-  resolveTargetDirectoryHandle,
-} from './target-directory-state.js';
+import { saveHandleSelection, resolveTargetDirectoryHandle } from './target-directory-state.js';
 import type { PlatformKey } from '../types/platform.js';
 import { writeFileContent } from './target-directory-write.js';
 
@@ -565,26 +560,6 @@ function normalizePermissionState(state: PermissionState): DirectoryPermissionSt
   return state === 'granted' ? 'granted' : state === 'denied' ? 'denied' : 'prompt';
 }
 
-/** 查询当前有效句柄的权限状态（不触发授权弹窗） */
-export async function getTargetDirectoryPermission(
-  tab: TabInfo | number,
-  pageType: string,
-): Promise<DirectoryPermissionState> {
-  const handle = await resolveTargetDirectoryHandle(tab, pageType);
-  if (!handle) return 'none';
-  return normalizePermissionState(await queryHandlePermission(handle));
-}
-
-/** 主动请求当前句柄授权（会触发浏览器授权弹窗，需在用户手势中调用） */
-export async function requestTargetDirectoryPermission(
-  tab: TabInfo | number,
-  pageType: string,
-): Promise<DirectoryPermissionState> {
-  const handle = await resolveTargetDirectoryHandle(tab, pageType);
-  if (!handle) return 'none';
-  return normalizePermissionState(await requestHandlePermission(handle, 'readwrite'));
-}
-
 // ── 指定句柄权限（历史路径恢复专用） ──────────────────
 
 /**
@@ -607,10 +582,3 @@ export async function requestHandlePermissionState(
 ): Promise<DirectoryPermissionState> {
   return normalizePermissionState(await requestHandlePermission(handle, 'readwrite'));
 }
-
-// 重新导出
-export {
-  getStoredDirectoryPath,
-  saveHandleSelection,
-  clearTabTargetDirectoryData,
-};

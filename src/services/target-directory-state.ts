@@ -80,7 +80,7 @@ export async function getStoredDirectoryPath(
 // ── 选择目录后同步落库 ────────────────────────────────
 
 /** saveHandleSelection 结果：绑定的目录名 */
-export interface HandleSelectionResult {
+interface HandleSelectionResult {
   readonly path: string;
   readonly label: string;
 }
