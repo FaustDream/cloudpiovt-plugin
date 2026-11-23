@@ -17,15 +17,6 @@ import {
   clearTabTargetDirectoryData,
   resolveTargetDirectoryHandle,
 } from './target-directory-state.js';
-import { createTargetDirectoryPageScope } from './target-directory-session.js';
-import {
-  extractPageFormCode,
-  getFromcodeAssociation,
-  setFromcodeAssociation,
-  readDirectoryFromcode,
-  removeLegacyDirectoryFromcode,
-  verifyDirectoryFromcode,
-} from './directory-fromcode.js';
 import type { PlatformKey } from '../types/platform.js';
 import { writeFileContent } from './target-directory-write.js';
 
@@ -67,16 +58,6 @@ export interface SelectDirectoryResult {
   readonly path: string;
   readonly source: 'handle';
   readonly label: string;
-  /** fromcode 校验结论（matched / missing / skipped / mismatched-forced） */
-  readonly fromcode?: string;
-  /**
-   * 目录 fromcode 与当前页面不匹配时携带：目录句柄 + 目录内的表单编码。
-   * 调用方（popup）据此提示用户决定；确认后调用 confirmForcodeOverride 完成强制绑定。
-   */
-  readonly fromcodeConfirm?: {
-    readonly handle: FileSystemDirectoryHandle;
-    readonly fromcodeValue: string;
-  };
 }
 
 export interface WriteFilesResult {
@@ -237,20 +218,7 @@ async function bindSelectedHandle(
   }
 
   const selection = await saveHandleSelection(handle, tab, pageType);
-  if (!selection.handleModeSelected) {
-    // 目录 fromcode 属于其他表单：不自动关联，交由调用方提示用户决定
-    return {
-      path: '',
-      source: 'handle',
-      label: selection.label,
-      fromcode: selection.fromcode,
-      fromcodeConfirm: {
-        handle,
-        fromcodeValue: selection.fromcodeValue ?? '',
-      },
-    };
-  }
-  return { path: '', source: 'handle', label: selection.label, fromcode: selection.fromcode };
+  return { path: '', source: 'handle', label: selection.label };
 }
 
 /**
@@ -265,20 +233,6 @@ export async function selectDroppedDirectory(
   pageType = 'default',
 ): Promise<SelectDirectoryResult> {
   return await bindSelectedHandle(handle, tab, pageType);
-}
-
-/**
- * 用户确认强制关联 fromcode 不匹配的目录：绑定到当前页面并标记 forced，
- * 首次导出时覆盖写入当前页面表单编码。
- */
-export async function confirmForcodeOverride(
-  handle: FileSystemDirectoryHandle,
-  tab: TabInfo | number,
-  pageType = 'default',
-): Promise<SelectDirectoryResult | null> {
-  const selection = await saveHandleSelection(handle, tab, pageType, { forceFromcode: true });
-  if (!selection.handleModeSelected) return null;
-  return { path: '', source: 'handle', label: selection.label, fromcode: selection.fromcode };
 }
 
 /** 选择目录并保存绑定 */
@@ -409,8 +363,7 @@ async function assertDirectoryReachable(handle: ExtendedDirectoryHandle): Promis
 /**
  * 解析当前页面绑定的写入目录句柄。
  *
- * 只要求页面 scope 句柄存在（目录归属由 fromcode 校验在 ensureFromcodeBeforeWrite
- * 中把守）；无编码页面不做归属校验，凭 scope 句柄直接读写。
+ * 只要求页面 scope 句柄存在即可读写，不判断目录属于哪个表单（归属由用户自己负责）。
  */
 async function resolvePageBoundDirectoryHandle(
   tab: TabInfo | number,
@@ -551,40 +504,6 @@ async function statFilesViaHandle(
   return entries;
 }
 
-/** 写入前校验目录归属，并迁移、移除旧版遗留的 fromcode 标记文件。 */
-async function ensureFromcodeBeforeWrite(
-  handle: ExtendedDirectoryHandle,
-  tab: TabInfo | number,
-  pageType: string,
-): Promise<void> {
-  const pageUrl = typeof tab === 'object' ? (tab.url || tab.pendingUrl || '') : '';
-  const formCode = extractPageFormCode(pageUrl, pageType);
-  if (!formCode) return;
-
-  const pageScope = createTargetDirectoryPageScope(tab, pageType);
-  if (!pageScope) return;
-
-  const status = await verifyDirectoryFromcode(handle, pageUrl, pageType, pageScope);
-  if (status === 'mismatched') {
-    const stored = await readDirectoryFromcode(handle);
-    throw new DirectoryError(
-      ERROR_CODE.DIRECTORY_NOT_SELECTED,
-      `目标目录已关联其他表单（fromcode: ${stored || '未知编码'}），已阻止写入。如需关联当前页面，请点击「更新当前路径」重新选择该目录并确认强制关联。`,
-    );
-  }
-  if (status === 'unreadable') {
-    throw new DirectoryError(
-      ERROR_CODE.DIRECTORY_PERMISSION_DENIED,
-      '无法验证目标目录的表单归属，请重新授权或重新选择目标目录后重试。',
-    );
-  }
-
-  const association = await getFromcodeAssociation(pageScope);
-  const forced = association?.formCode === formCode && association.forced;
-  await setFromcodeAssociation(pageScope, formCode, forced);
-  await removeLegacyDirectoryFromcode(handle);
-}
-
 /** 写文件到当前绑定目录 */
 export async function writeFilesToSelection(
   tab: TabInfo | number,
@@ -596,7 +515,6 @@ export async function writeFilesToSelection(
   }
 
   const handle = await resolvePageBoundDirectoryHandle(tab, pageType);
-  await ensureFromcodeBeforeWrite(handle, tab, pageType);
   return await writeFilesViaHandle(handle, fileEntries);
 }
 

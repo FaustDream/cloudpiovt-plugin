@@ -198,51 +198,13 @@ body {
 }
 
 /* ========== 当前目录卡片 ========== */
-/* 单行紧凑布局：origin + 分隔符 + 路径文件夹名 + 操作按钮 */
+/* 单行紧凑布局：路径文件夹名 + 操作按钮 */
 .meta-row-inline {
   display: flex;
   justify-content: flex-start;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--spacing-sm);
-}
-
-/* 页面与路径之间的分隔符 */
-.meta-sep {
-  color: var(--color-border-card);
-  font-size: 13px;
-  font-weight: 300;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-/* 页面来源标签 */
-.copy-chip {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 80px;
-  padding: 4px 10px;
-  border: 1px solid var(--color-border-input);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-caption);
-  font-weight: var(--font-weight-medium);
-  line-height: 1.5;
-  text-align: center;
-  white-space: nowrap;
-  cursor: pointer;
-  transition: all var(--transition-fast);
-}
-
-.copy-chip-prominent {
-  padding: 5px 12px;
-  font-size: 13px;
-  font-weight: var(--font-weight-semibold);
-}
-
-.copy-chip:disabled {
-  cursor: default;
-  color: var(--color-text-tertiary);
 }
 
 /* 当前目录名称标签：纯展示，不可编辑 */

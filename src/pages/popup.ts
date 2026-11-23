@@ -41,11 +41,7 @@ import {
   clearRecentTargetDirectoriesByPlatform,
   resolveRecentEntryPlatform,
 } from '../services/recent-target-directories.js';
-import {
-  getStoredDirectoryPath,
-  saveHandleSelection,
-  type HandleSelectionResult,
-} from '../services/target-directory-state.js';
+import { getStoredDirectoryPath, saveHandleSelection } from '../services/target-directory-state.js';
 import {
   buildScopeOptions,
   formatArtifactScopeBadge,
@@ -68,7 +64,6 @@ import {
   fileExistsInSelection,
   queryHandlePermissionState,
   requestHandlePermissionState,
-  confirmForcodeOverride,
 } from '../services/target-directory-access.js';
 import { checkTargetDirectoryHealth } from '../services/target-directory-check.js';
 import type { TargetDirectoryCheckResult } from '../services/target-directory-check.js';
@@ -135,13 +130,12 @@ function $(sel: string): HTMLElement | null { return document.querySelector(sel)
 function $$<T extends HTMLElement = HTMLElement>(sel: string): NodeListOf<T> { return document.querySelectorAll(sel); }
 
 const dom = {
-  get pageOriginEl() { return $('#page-origin') as HTMLElement; },
   get currentPathTag() { return $('#current-path-tag') as HTMLElement; },
   get refreshHandleBtn() { return $('#refresh-handle-btn') as HTMLElement; },
   get dirDropToggleBtn() { return $('#dir-drop-toggle-btn') as HTMLElement | null; },
   get dirDropPanel() { return $('#dir-drop-panel') as HTMLElement | null; },
   get dirDropZone() { return $('#dir-drop-zone') as HTMLElement | null; },
-  get copyPathBtn() { return $('#copy-path-btn') as HTMLElement; },
+  get copyLinkBtn() { return $('#copy-link-btn') as HTMLElement | null; },
   get searchInput() { return $('#search-path-input') as HTMLInputElement; },
   get searchDropdown() { return $('.search-dropdown') as HTMLElement; },
   get searchDropdownList() { return $('.search-dropdown .search-dropdown-list') as HTMLElement; },
@@ -340,9 +334,6 @@ async function updateDirectoryDisplay(): Promise<void> {
   state.currentDirectoryPath = path;
   state.currentDirectoryLabel = extractLastFolderName(path);
 
-  if (dom.copyPathBtn) {
-    dom.copyPathBtn.style.display = path ? '' : 'none';
-  }
   if (dom.currentPathTag) {
     dom.currentPathTag.textContent = path ? state.currentDirectoryLabel || path : '未选择目录';
     dom.currentPathTag.title = path
@@ -352,74 +343,6 @@ async function updateDirectoryDisplay(): Promise<void> {
 }
 
 // ── Directory Selection ────────────────────────────────
-
-// ── fromcode 目录归属校验 ──────────────────────────────
-
-/** mismatched 时弹确认框：目录属于其他表单，是否仍强制关联到当前页面 */
-function promptForcodeConfirm(label: string, storedCode: string): boolean {
-  return window.confirm(
-    `目标目录「${label}」已关联其他表单（fromcode: ${storedCode}）。\n\n` +
-    '是否仍要关联到当前页面？\n' +
-    '确认后将把该目录关联到当前页面的表单编码。',
-  );
-}
-
-/** 用户确认强制关联：绑定目录并在扩展本地记录 forced 关联。 */
-async function forceForcodeAssociate(
-  handle: FileSystemDirectoryHandle,
-  label: string,
-  storedCode: string,
-  pageType: string,
-): Promise<boolean> {
-  const forced = await confirmForcodeOverride(handle, state.pageContext, pageType);
-  if (!forced) {
-    addErrorLog('强制关联失败，请重试');
-    return false;
-  }
-  addWarningLog(
-    `目录「${label}」已强制关联（原 fromcode: ${storedCode}）`,
-    '已记录目录与当前页面的强制关联',
-  );
-  return true;
-}
-
-/** 绑定成功后按校验结论输出日志反馈（matched / missing） */
-function reportForcodeStatus(fromcode: string | undefined, label: string): void {
-  if (fromcode === 'matched') {
-    addSuccessLog('目录表单编码校验通过，目录与当前页面匹配');
-  } else if (fromcode === 'missing') {
-    // 绑定动作本身已把归属登记到扩展本地，这里不能再提示「尚无归属关联」
-    addLog(
-      `目录「${label}」已绑定到当前页面`,
-      'info',
-      '该目录此前没有归属记录，已在扩展本地登记，不会在目录中新增标记文件',
-    );
-  }
-}
-
-/**
- * 统一处理 saveHandleSelection 的 fromcode 校验结果：
- * mismatched 时弹确认由用户决定（拒绝则不绑定，返回 false）；其余结论出日志并放行。
- */
-async function applyHandleSelectionFromcode(
-  selection: HandleSelectionResult,
-  handle: FileSystemDirectoryHandle,
-  pageType: string,
-): Promise<boolean> {
-  if (selection.handleModeSelected) {
-    reportForcodeStatus(selection.fromcode, selection.label);
-    return true;
-  }
-  const storedCode = selection.fromcodeValue || '未知编码';
-  if (!promptForcodeConfirm(selection.label, storedCode)) {
-    addWarningLog(
-      `目录「${selection.label}」属于其他表单（fromcode: ${storedCode}），未关联`,
-      '请选择其他目录；或重新选择该目录并在提示中确认强制关联',
-    );
-    return false;
-  }
-  return forceForcodeAssociate(handle, selection.label, storedCode, pageType);
-}
 
 /**
  * 恢复历史目录：通过历史记录中的 scope 精确定位 IndexedDB 中的页面级句柄，
@@ -432,9 +355,7 @@ async function handleSelectHistoryPath(path: string): Promise<void> {
   if (!path || state.busy) return;
   closeSearchDropdown();
 
-  // 精确定位历史路径对应的句柄：仅用历史条目自身记录的 scope 从 IndexedDB
-  // 获取页面级句柄。目录归属不再依赖句柄名对比（旧验证已退役），
-  // 由后续 saveHandleSelection 的 fromcode 校验统一判定。
+  // 精确定位历史路径对应的句柄：仅用历史条目自身记录的 scope 从 IndexedDB 获取页面级句柄
   const activePlatform = getActivePlatformKey();
   const entry = state.recentDirectories.find(
     (r) => r.path === path && resolveRecentEntryPlatform(r, state.config) === activePlatform,
@@ -455,14 +376,7 @@ async function handleSelectHistoryPath(path: string): Promise<void> {
   // 直接在该句柄上检查权限（不经过 scope 解析，避免命中当前页面已绑定的其他句柄）
   const permission = await queryHandlePermissionState(handle);
   if (permission === 'granted') {
-    const currentPageType = state.pageTypeConfig?.pageType || 'default';
-    const selection = await saveHandleSelection(handle, state.pageContext, currentPageType);
-    if (!(await applyHandleSelectionFromcode(selection, handle, currentPageType))) return;
-    state.currentDirectoryPath = handle.name;
-    state.currentDirectoryLabel = handle.name;
-    await updateDirectoryDisplay();
-    await loadRecentDirectories();
-    addSuccessLog(`已恢复历史目录: ${state.currentDirectoryLabel || path}`);
+    await restoreHistoryDirectory(handle, path, '已恢复历史目录');
     return;
   }
 
@@ -470,14 +384,7 @@ async function handleSelectHistoryPath(path: string): Promise<void> {
   addLog(`历史目录「${extractLastFolderName(path)}」需要重新授权，正在请求授权...`, 'warning');
   const granted = await requestHandlePermissionState(handle);
   if (granted === 'granted') {
-    const currentPageType = state.pageTypeConfig?.pageType || 'default';
-    const selection = await saveHandleSelection(handle, state.pageContext, currentPageType);
-    if (!(await applyHandleSelectionFromcode(selection, handle, currentPageType))) return;
-    state.currentDirectoryPath = handle.name;
-    state.currentDirectoryLabel = handle.name;
-    await updateDirectoryDisplay();
-    await loadRecentDirectories();
-    addSuccessLog(`目录已重新授权并恢复: ${state.currentDirectoryLabel || path}`);
+    await restoreHistoryDirectory(handle, path, '目录已重新授权并恢复');
     return;
   }
 
@@ -486,6 +393,21 @@ async function handleSelectHistoryPath(path: string): Promise<void> {
     `历史目录「${extractLastFolderName(path)}」无法恢复`,
     '请点击「更新当前路径」重新选择目标目录',
   );
+}
+
+/** 把历史目录句柄绑定到当前页面并刷新展示 */
+async function restoreHistoryDirectory(
+  handle: FileSystemDirectoryHandle,
+  path: string,
+  successPrefix: string,
+): Promise<void> {
+  const currentPageType = state.pageTypeConfig?.pageType || 'default';
+  const selection = await saveHandleSelection(handle, state.pageContext, currentPageType);
+  state.currentDirectoryPath = handle.name;
+  state.currentDirectoryLabel = selection.label || handle.name;
+  await updateDirectoryDisplay();
+  await loadRecentDirectories();
+  addSuccessLog(`${successPrefix}: ${state.currentDirectoryLabel || path}`);
 }
 
 async function handleRemoveHistoryPath(path: string): Promise<void> {
@@ -511,25 +433,20 @@ async function handleClearHistory(): Promise<void> {
   renderSearchDropdown('');
 }
 
-async function handleCopyPath(): Promise<void> {
-  await updateDirectoryDisplay();
-  const path = state.currentDirectoryPath;
-  if (path) {
-    await navigator.clipboard.writeText(path);
-    addSuccessLog('路径已复制到剪贴板');
-  } else {
-    addWarningLog('当前未选择目录', '请先点击「选择目录」或从历史目录中选择');
+/** 复制当前页面链接（popup 打开的那个 tab） */
+async function handleCopyLink(): Promise<void> {
+  const url = state.pageContext?.url || (await getActiveTab()).url;
+  if (!url) {
+    addWarningLog('无法获取当前页链接');
+    return;
   }
-}
-
-function reportDirectoryCheckSuccess(check: TargetDirectoryCheckResult, suggestion?: string): void {
-  const label = check.label || '未命名目录';
-  addSuccessLog(`目录校验通过：目录「${label}」的表单编码与当前页面匹配`, suggestion);
+  await navigator.clipboard.writeText(url);
+  addSuccessLog('链接已复制');
 }
 
 function reportDirectoryCheckResult(check: TargetDirectoryCheckResult): void {
   if (check.health === 'ok') {
-    reportDirectoryCheckSuccess(check);
+    addSuccessLog(`目录可用：${check.label || '未命名目录'}`);
   } else if (check.health === 'unbound') {
     reportUnboundDefaultDirectory(check.platformKey);
   } else {
@@ -538,40 +455,17 @@ function reportDirectoryCheckResult(check: TargetDirectoryCheckResult): void {
 }
 
 /**
- * 输出自检未通过的原因（红字 / 黄字）与处置建议。
+ * 输出自检未通过的原因与处置建议。
  *
- * 只处理「需要用户判断」的结论：尚无表单归属关联（黄，新建目录请用户确认）、
- * fromcode 属于其他表单（红，请用户确认归属）、权限被拒（黄/普通日志）。
- * 自检通过与未绑定不在此输出，由调用方决定是否需要提示。
- * 不做任何二次校验或临时文件测试。
+ * 只剩权限相关结论：目录归属由用户自己判断，不再做任何表单编码比对。
  */
 function reportDirectoryCheckIssue(check: TargetDirectoryCheckResult): void {
   const label = check.label || '未命名目录';
 
   switch (check.health) {
-    case 'fromcode-missing':
-      addWarningLog(
-        `目录「${label}」尚无表单归属关联（可能是新建或未初始化目录）`,
-        '请确认该目录是否用于当前页面；确认后归属只保存在扩展本地，不会新增标记文件',
-      );
-      return;
-    case 'fromcode-mismatched':
-      addErrorLog(
-        `目录「${label}」的表单编码（fromcode: ${check.fromcodeValue || '未知'}）与当前页面不匹配，可能属于其他表单`,
-        '请确认目录归属；如需关联当前页面，请点击「更新当前路径」重新选择该目录并确认强制关联',
-      );
-      return;
     case 'permission-prompt':
       // 浏览器重启后句柄权限退化为 prompt 是正常待授权状态，实际授权在用户手势内完成
       addLog(`目录「${label}」权限待确认，首次操作时浏览器会请求授权`);
-      return;
-    case 'association-unreadable':
-      // 目录权限正常，只是本地归属记录没读出来：不提示「没有读取权限」，也不阻断使用
-      addLog(
-        `目录「${label}」的表单归属暂时无法核对`,
-        'info',
-        '目录权限正常，可直接使用；再次点击「更新当前路径」会重新核对归属',
-      );
       return;
     case 'permission-denied':
       addWarningLog(
@@ -606,7 +500,7 @@ function reportUnboundDefaultDirectory(platformKey: PlatformKey): boolean {
 /** 目录绑定执行失败：把浏览器给出的异常名写进日志，避免统一显示成「已取消」 */
 function reportDirectoryPickFailure(
   error: unknown,
-  suggestion = '请重新点击「更新当前路径」；反复失败时点文件夹按钮在新窗口中拖入文件夹，或改用 Edge',
+  suggestion = '请重新点击「更新当前路径」；反复失败时点文件夹按钮展开拖放区，把文件夹拖入绑定',
 ): void {
   const detail = formatDirectoryPickError(error);
   logger.error('目录绑定执行失败', { error: detail });
@@ -741,35 +635,15 @@ function bindDropZone(): void {
   zone?.addEventListener('dragleave', () => setDropZoneActive(false));
 }
 
-/**
- * 目录绑定成功后的统一收尾：fromcode 归属确认 → 刷新展示 → 重新自检。
- * @returns false 表示用户拒绝强制关联或关联失败（未绑定）
- */
-async function applyBoundDirectory(result: SelectDirectoryResult, pageType: string): Promise<boolean> {
-  // 目录属于其他表单时弹确认，由用户决定是否强制关联
-  if (result.fromcodeConfirm) {
-    const { handle, fromcodeValue } = result.fromcodeConfirm;
-    const storedCode = fromcodeValue || '未知编码';
-    if (!promptForcodeConfirm(result.label, storedCode)) {
-      addWarningLog(
-        `目录「${result.label}」属于其他表单（fromcode: ${storedCode}），未关联`,
-        '请选择其他目录；或重新选择该目录并在提示中确认强制关联',
-      );
-      return false;
-    }
-    if (!(await forceForcodeAssociate(handle, result.label, storedCode, pageType))) return false;
-  } else {
-    reportForcodeStatus(result.fromcode, result.label);
-  }
-
+/** 目录绑定成功后的统一收尾：刷新展示 → 重新自检 */
+async function applyBoundDirectory(result: SelectDirectoryResult, pageType: string): Promise<void> {
   await updateDirectoryDisplay();
   await loadRecentDirectories();
   addSuccessLog(`路径已更新：${result.label}`);
 
-  // 新路径绑定后必须立即重新验证，确保句柄和实际读写能力一致。
+  // 绑定后确认句柄确实可读写
   const reboundCheck = await checkTargetDirectoryHealth(state.pageContext, pageType);
   reportDirectoryCheckResult(reboundCheck);
-  return true;
 }
 
 /**
@@ -802,7 +676,7 @@ async function handleRefreshDirectory(): Promise<void> {
     if (!result) {
       addWarningLog(
         '目录选择未完成，当前目录保持不变',
-        '可重新点击「更新当前路径」；若对话框中已选中文件夹仍无返回，请改用 Edge，或点文件夹按钮在新窗口中绑定',
+        '可重新点击「更新当前路径」；若对话框中已选中文件夹仍无返回，点文件夹按钮展开拖放区拖入文件夹，或改用 Edge',
       );
       return;
     }
@@ -826,17 +700,6 @@ function handleExportDropdownToggle(): void {
   state.exportDropdownOpen = !state.exportDropdownOpen;
   const el = dom.exportDropdownMenu;
   if (el) el.hidden = !state.exportDropdownOpen;
-}
-
-/** 拷贝当前实际链接（即 popup 打开的 tab URL）到剪贴板 */
-async function handleCopyCurrentLink(): Promise<void> {
-  const url = state.pageContext?.url || (await getActiveTab()).url;
-  if (url) {
-    await navigator.clipboard.writeText(url);
-    addSuccessLog('链接已复制');
-  } else {
-    addWarningLog('无法获取当前页链接');
-  }
 }
 
 // ── Search Dropdown ────────────────────────────────────
@@ -912,52 +775,9 @@ async function updatePageInfo(): Promise<void> {
   state.pageContext = { tabId: tab.id, url: tab.url, title: tab.title };
   state.pageTypeConfig = resolvePageTypeConfig(tab.url);
 
-  // 页面链接区：显示"复制链接"按钮（不展示完整 URL）
-  renderPageOriginAsCopyButton(tab);
-
   // 根据 URL 自动激活对应平台标签（同时隐藏未激活的 panel 和按钮）
   syncActivePlatformFromPage();
   renderPlatformButtons();
-}
-
-/**
- * 将 #page-origin 渲染为"复制链接"按钮。
- * 完全照搬原版 setCopyableValue 逻辑：displayLabel='复制链接', fullValue=tab.url。
- */
-function renderPageOriginAsCopyButton(tab: { url: string }): void {
-  const el = dom.pageOriginEl as HTMLButtonElement;
-  if (!el) return;
-
-  const normalizedValue = String(tab?.url || '').trim();
-  if (!normalizedValue) {
-    el.textContent = '无法获取';
-    el.dataset.copyValue = '';
-    el.dataset.copyLabel = '页面链接';
-    el.disabled = true;
-    return;
-  }
-
-  el.dataset.copyValue = normalizedValue;
-  el.dataset.copyLabel = '页面链接';
-  el.textContent = '复制链接';
-  el.title = normalizedValue;
-  el.disabled = false;
-  // 确保 HTML 预设的 copy-chip 样式生效（原始 HTML 已有 copy-chip copy-chip-prominent）
-  el.classList.add('copy-chip');
-}
-
-/** 点击 #page-origin 复制链接到剪贴板 */
-async function handleCopyPageOrigin(): Promise<void> {
-  const el = dom.pageOriginEl as HTMLButtonElement;
-  if (el?.disabled) return;
-  const copyValue = String(el?.dataset?.copyValue || '').trim();
-  if (!copyValue) return;
-  try {
-    await navigator.clipboard.writeText(copyValue);
-    addSuccessLog('页面链接已复制');
-  } catch {
-    addErrorLog('复制失败');
-  }
 }
 
 // ── 氚云一键回写 ──────────────────────────────────────
@@ -1782,7 +1602,6 @@ const PREFLIGHT_BLOCKER_MESSAGES: Record<string, string> = {
   'page.recognized': '当前页面不是云枢 / 氚云的设计页面',
   'directory.selected': '尚未选择目标目录',
   'directory.permission': '目标目录未授权',
-  'directory.attached': '目标目录已关联其他表单',
 };
 
 interface DirectoryPreflightVerdict {
@@ -1796,15 +1615,12 @@ interface DirectoryPreflightVerdict {
 /**
  * 目录自检结论 → 预检结果。
  *
- * 只拦截确定会失败的状态：未绑定、明确被拒、目录归属其他表单。
+ * 只拦截确定会失败的状态：未绑定、明确被拒（权限）。
  * 重启后权限退化为 prompt 属正常待授权状态，写入时会请求授权，不提前拦截。
  */
 const DIRECTORY_PREFLIGHT_VERDICTS: Record<TargetDirectoryCheckResult['health'], DirectoryPreflightVerdict> = {
   ok: { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
-  'fromcode-missing': { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
   'permission-prompt': { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
-  // 归属记录读不出来不影响读写，不拦截
-  'association-unreadable': { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
   unbound: {
     checkId: 'directory.selected',
     severity: 'blocker',
@@ -1818,13 +1634,6 @@ const DIRECTORY_PREFLIGHT_VERDICTS: Record<TargetDirectoryCheckResult['health'],
     ok: false,
     errorCode: ERROR_CODE.DIRECTORY_PERMISSION_DENIED,
     nextAction: '请点击「更新当前路径」重新授权该目录',
-  },
-  'fromcode-mismatched': {
-    checkId: 'directory.attached',
-    severity: 'blocker',
-    ok: false,
-    errorCode: ERROR_CODE.DIRECTORY_NOT_SELECTED,
-    nextAction: '请点击「更新当前路径」选择当前表单对应的目录，或确认强制关联该目录',
   },
 };
 
@@ -2018,9 +1827,6 @@ function describeBrowser(): string {
 // ── Event Binding ──────────────────────────────────────
 
 function bindEvents(): void {
-  // 页面链接复制
-  dom.pageOriginEl?.addEventListener('click', () => handleCopyPageOrigin());
-
   // 目录操作
   if (!dom.refreshHandleBtn) {
     logger.error('未找到「更新当前路径」按钮，目录选择入口不可用', { selector: '#refresh-handle-btn' });
@@ -2028,7 +1834,7 @@ function bindEvents(): void {
   dom.refreshHandleBtn?.addEventListener('click', () => handleRefreshDirectory());
   dom.dirDropToggleBtn?.addEventListener('click', () => handleToggleDropPanel());
   bindDropZone();
-  dom.copyPathBtn?.addEventListener('click', () => handleCopyPath());
+  dom.copyLinkBtn?.addEventListener('click', () => handleCopyLink());
 
   // 搜索
   dom.searchInput?.addEventListener('input', () => {
