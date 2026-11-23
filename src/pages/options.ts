@@ -551,8 +551,7 @@ async function persistBoundDefaultDirectoryPaths(): Promise<void> {
 /**
  * 通过原生目录选择器浏览并绑定平台默认目录（保存句柄 + 回填目录名）。
  *
- * 初始位置由 selectPlatformDefaultDirectory 统一决定：只用本平台自己的默认目录句柄，
- * 尚未配置时用中性位置，避免选择器停在另一个平台的默认目录上而绑错工作目录。
+ * 起始位置由按平台分桶的选择器 id 记忆决定，不会停在另一个平台的默认目录上。
  */
 async function pickDefaultDirectory(platformKey: PlatformKey): Promise<void> {
   if (!supportsDirectoryPicker()) {

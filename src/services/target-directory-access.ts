@@ -10,7 +10,6 @@
 import { logger } from '../lib/logger.js';
 import { BusinessError, DirectoryError, ValidationError, ERROR_CODE } from '../lib/errors.js';
 import { parseRelativePath, joinRelativePath, type RelativePathParts } from '../lib/utils.js';
-import { getDefaultDirectoryHandle } from '../lib/directory/file-handle-db.js';
 import { getPlatformKeyFromPageType } from './config.js';
 import {
   getStoredDirectoryPath,
@@ -114,27 +113,6 @@ type ExtendedDirectoryHandle = FileSystemDirectoryHandle & {
   values?(): AsyncIterableIterator<FileSystemHandle>;
 };
 
-interface DirectoryPickerOptions {
-  /** 目录选择器初始打开位置；缺省时不传 startIn，由浏览器按 id 记忆定位（见 toPickerStartIn） */
-  readonly startIn?: PickerStartIn;
-  /** 选择器记忆 id：浏览器按 id 记住上次选定的目录（见 buildPickerId） */
-  readonly id?: string;
-}
-
-/** 浏览器标准目录名（startIn 可接受的字面量） */
-type WellKnownDirectoryName = 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos';
-
-/** 目录选择器初始位置：句柄或浏览器标准目录名 */
-type PickerStartIn = FileSystemDirectoryHandle | WellKnownDirectoryName;
-
-/**
- * 目录选择器「中性」初始位置。
- *
- * 只用于本平台从未绑定过目录的情况：此时既没有句柄，也没有本平台的选择记忆。
- * 一旦本平台选过目录，就交给选择器 id 记忆定位，不再用中性位置覆盖它。
- */
-const NEUTRAL_PICKER_START_IN: WellKnownDirectoryName = 'documents';
-
 /**
  * 目录选择器记忆 id。
  *
@@ -155,29 +133,17 @@ function describePickerFailure(error: unknown): string {
 }
 
 /**
- * 是否为「用户手势已失效」类失败。
- *
- * 每次弹窗都会消耗这次点击的用户手势，换初始位置重试也只会在没有手势的情况下
- * 再失败一次（还可能连续闪出对话框），因此这类失败不再降级重试。
- */
-function isGestureFailure(error: unknown): boolean {
-  return error instanceof DOMException
-    && (error.name === 'SecurityError' || error.name === 'NotAllowedError' || error.name === 'InvalidStateError');
-}
-
-/**
  * 弹出目录选择器。
  *
- * 只在给了 startIn 时准备一次降级：句柄失效（目录被移动 / 删除）时改为不带
- * startIn 再弹一次，由选择器 id 记忆定位。其它失败（用户取消、缺少用户手势）
- * 直接抛给调用方，不重复弹窗。
+ * 必须在用户点击的同步栈里调用：任何前置 await（读 IndexedDB 句柄、查权限）都会把
+ * 调用推出用户激活有效期，表现为选择器既不出现也不报错。起始位置交给选择器 id 记忆，
+ * 因此不再传 startIn（传 startIn 需要先解析句柄，正是这个 await 的位置）。
  */
-async function showDirPicker(options: DirectoryPickerOptions = {}): Promise<FileSystemDirectoryHandle> {
+async function showDirPicker(pickerId: string): Promise<FileSystemDirectoryHandle> {
   const w = window as unknown as {
     showDirectoryPicker?: (options?: {
       mode?: 'read' | 'readwrite';
       id?: string;
-      startIn?: PickerStartIn;
     }) => Promise<FileSystemDirectoryHandle>;
   };
   if (typeof w.showDirectoryPicker !== 'function') {
@@ -185,31 +151,7 @@ async function showDirPicker(options: DirectoryPickerOptions = {}): Promise<File
   }
 
   // 选择时直接请求读写权限：授权状态由浏览器缓存，后续操作从缓存获取，避免首次回写失败
-  const pick = (startIn?: PickerStartIn): Promise<FileSystemDirectoryHandle> => {
-    const pickerOptions: { mode: 'readwrite'; id?: string; startIn?: PickerStartIn } = { mode: 'readwrite' };
-    if (options.id) pickerOptions.id = options.id;
-    if (startIn) pickerOptions.startIn = startIn;
-    return w.showDirectoryPicker!(pickerOptions);
-  };
-
-  const candidates: Array<PickerStartIn | undefined> = options.startIn ? [options.startIn, undefined] : [undefined];
-
-  let lastError: unknown = null;
-  for (const startIn of candidates) {
-    try {
-      return await pick(startIn);
-    } catch (error: unknown) {
-      if (error instanceof DOMException && error.name === 'AbortError') throw error; // 用户取消
-      lastError = error;
-      if (isGestureFailure(error)) throw error; // 换初始位置也不可能成功
-      logger.warn('目录选择器初始位置不可用，降级重试', {
-        startIn: typeof startIn === 'string' ? startIn : 'handle',
-        error: describePickerFailure(error),
-      });
-    }
-  }
-
-  throw lastError ?? new ValidationError('目录选择器不可用', {});
+  return await w.showDirectoryPicker({ mode: 'readwrite', id: pickerId });
 }
 
 function requestHandlePermission(
@@ -247,27 +189,6 @@ export function supportsDirectoryPicker(): boolean {
 // ── 目录选择 ──────────────────────────────────────────
 
 /**
- * 解析目录选择器初始打开位置。
- *
- * 只把**已授权**的句柄交给浏览器：
- *  1) 当前页面 scope 句柄 / 当前平台默认目录句柄（已授权）→ 选择器定位到该目录；
- *  2) 句柄存在但未授权 → 不传 startIn，由选择器 id 记忆（本平台自己的上次位置）定位；
- *  3) 本平台从未绑定过目录 → 中性位置，绝不继承其他平台 / 其他页面的历史目录。
- *
- * 未授权句柄既无法用于定位，也会诱使这里先弹一次授权框；授权框会消耗这次点击的
- * 用户手势，浏览器随后会以「缺少用户手势」拒绝打开目录选择器（表现为选择器打不开、
- * 日志只留「目录选择已取消」）。补授权一律留到选择器之后。
- */
-async function toPickerStartIn(
-  handle: FileSystemDirectoryHandle | undefined,
-): Promise<PickerStartIn | undefined> {
-  if (!handle) return NEUTRAL_PICKER_START_IN;
-  if (await queryHandlePermission(handle) === 'granted') return handle;
-  logger.debug('目录句柄未授权，选择器改用本平台记忆位置', { label: handle.name });
-  return undefined;
-}
-
-/**
  * 弹出原生目录选择器并保存绑定。
  *
  * @returns null 表示用户在浏览器对话框里取消；选择器打不开、未获读写授权属于失败，
@@ -281,10 +202,9 @@ export async function selectHandleDirectory(
 
   let handle: FileSystemDirectoryHandle;
   try {
-    // 选择器必须在用户点击后尽早打开：任何前置 await（IndexedDB 取句柄、查权限）
-    // 都会把调用推出用户激活有效期，表现为弹窗既不出现也不报错。
-    // 起始位置交给选择器 id 记忆（按用途 + 平台分桶），不再等待句柄解析后传 startIn。
-    handle = await showDirPicker({ id: buildPickerId('page', getPlatformKeyFromPageType(pageType)) });
+    // 第一句就打开选择器：任何前置 await 都会把调用推出用户点击的有效期，
+    // 表现为选择器既不出现也不报错。
+    handle = await showDirPicker(buildPickerId('page', getPlatformKeyFromPageType(pageType)));
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') return null;
     const detail = describePickerFailure(error);
@@ -384,10 +304,7 @@ export async function selectAndBindDirectory(
 /**
  * 设置页「默认目录」浏览：弹出目录选择器并返回句柄（null 表示用户取消）。
  *
- * 初始位置只用「本平台自己的默认目录句柄」（已授权时）或本平台的选择器记忆；
- * 本平台尚未配置时使用中性位置。绝不继承另一个平台 / 其他页面遗留的位置——否则
- * 很容易把云枢的工作目录绑成氚云的默认目录。
- *
+ * 起始位置由按平台分桶的选择器 id 记忆决定，因此不会停到另一个平台上次选定的目录。
  * 选择时直接请求读写权限（默认目录会被用于写入）。
  * 失败（非用户取消）抛出业务异常，由调用方提示。
  */
@@ -402,11 +319,7 @@ export async function selectPlatformDefaultDirectory(
 
   let handle: FileSystemDirectoryHandle;
   try {
-    const startIn = await toPickerStartIn(await getDefaultDirectoryHandle(platformKey));
-    handle = await showDirPicker({
-      ...(startIn ? { startIn } : {}),
-      id: buildPickerId('default', platformKey),
-    });
+    handle = await showDirPicker(buildPickerId('default', platformKey));
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') return null;
     const detail = describePickerFailure(error);
