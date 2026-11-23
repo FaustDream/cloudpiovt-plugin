@@ -281,13 +281,10 @@ export async function selectHandleDirectory(
 
   let handle: FileSystemDirectoryHandle;
   try {
-    // 「更新当前路径」打开「当前有效路径 → 项目默认目录」对应的句柄（startIn），
-    // 不回退到系统全局默认目录 / 其他平台的历史目录。
-    const startIn = await toPickerStartIn(await resolveTargetDirectoryHandle(tab, pageType));
-    handle = await showDirPicker({
-      ...(startIn ? { startIn } : {}),
-      id: buildPickerId('page', getPlatformKeyFromPageType(pageType)),
-    });
+    // 选择器必须在用户点击后尽早打开：任何前置 await（IndexedDB 取句柄、查权限）
+    // 都会把调用推出用户激活有效期，表现为弹窗既不出现也不报错。
+    // 起始位置交给选择器 id 记忆（按用途 + 平台分桶），不再等待句柄解析后传 startIn。
+    handle = await showDirPicker({ id: buildPickerId('page', getPlatformKeyFromPageType(pageType)) });
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') return null;
     const detail = describePickerFailure(error);
