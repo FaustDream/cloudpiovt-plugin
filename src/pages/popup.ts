@@ -222,18 +222,29 @@ function isNotAllowedError(error: unknown): boolean {
 
 function formatExecutionError(error: unknown): string {
   if (isNotAllowedError(error)) {
-    return '目标目录存在性探测失败：当前浏览器或平台不允许在当前上下文访问该目录（NotAllowedError）';
+    return '浏览器拒绝了本次目录访问（NotAllowedError），通常是目录授权已失效';
   }
   if (error instanceof DirectoryError) return error.message;
   if (error instanceof Error) return error.message;
   return String(error);
 }
 
+/** 目录类失败的补充动作；目录异常自带的文案已经说明原因，这里只补下一步操作 */
+const DIRECTORY_FAILURE_SUGGESTIONS: Record<string, string> = {
+  [ERROR_CODE.DIRECTORY_NOT_SELECTED]: '请点击「更新当前路径」选择目标目录后重试',
+  [ERROR_CODE.DIRECTORY_PERMISSION_DENIED]: '请点击「更新当前路径」重新授权该目录后重试',
+  [ERROR_CODE.DIRECTORY_UNAVAILABLE]: '请点击「更新当前路径」重新选择该目录后重试',
+};
+
 function reportExecutionError(operation: string, error: unknown): void {
   const message = formatExecutionError(error);
-  const suggestion = isNotAllowedError(error)
-    ? '请在扩展弹窗中点击「更新当前路径」重新选择目录后重试'
-    : '请检查当前页面和目标目录后重试';
+  const directorySuggestion = error instanceof DirectoryError
+    ? DIRECTORY_FAILURE_SUGGESTIONS[error.code]
+    : undefined;
+  const suggestion = directorySuggestion
+    || (isNotAllowedError(error)
+      ? '请在扩展弹窗中点击「更新当前路径」重新选择目录后重试'
+      : '请检查当前页面和目标目录后重试');
   addErrorLog(`${operation}：${message}`, suggestion);
 }
 
@@ -245,14 +256,23 @@ function setBusy(busy: boolean): void {
   buttons.forEach((btn) => { btn.disabled = busy; });
 }
 
-async function runWithButtonBusy(button: HTMLElement | null, task: () => Promise<void>): Promise<void> {
+/**
+ * 统一的按钮忙碌态与异常汇报。
+ *
+ * 底层服务只负责抛错，异常在这里记录一次；返回 null 表示操作抛出异常，
+ * 需要区分成败的调用方（如氚云一键回写）据此统计，不再靠外层 try/catch 猜测。
+ */
+async function runWithButtonBusy<T>(
+  button: HTMLElement | null,
+  task: () => Promise<T>,
+): Promise<T | null> {
   if (button) button.classList.add('btn-busy');
   setBusy(true);
   try {
-    await task();
+    return await task();
   } catch (error: unknown) {
-    // 所有按钮操作统一在此记录一次，底层服务只负责继续抛出异常。
     reportExecutionError('操作失败', error);
+    return null;
   } finally {
     setBusy(false);
     if (button) button.classList.remove('btn-busy');
@@ -931,26 +951,22 @@ async function handleCopyPageOrigin(): Promise<void> {
 
 /**
  * 氚云一键回写：顺序执行前端 + 后端回写，互不阻断。
- * 照搬原版 handleH3yunOneClickWriteback。
+ *
+ * 成败只看 handleH3yunCodeWriteback 的返回值：异常已在 runWithButtonBusy 内
+ * 记录并转成 false，这里再包 try/catch 只会让失败恒被吞成成功。
  */
 async function handleH3yunOneClickWriteback(): Promise<void> {
   if (state.busy || !state.pageContext.tabId) return;
   const kinds: Array<'frontend' | 'backend'> = ['frontend', 'backend'];
   let okCount = 0;
-  let failCount = 0;
   for (const codeKind of kinds) {
-    try {
-      await handleH3yunCodeWriteback(codeKind);
-      okCount++;
-    } catch {
-      failCount++;
-    }
+    if (await handleH3yunCodeWriteback(codeKind)) okCount++;
   }
-  if (failCount) {
-    addErrorLog(`氚云一键回写部分失败（${okCount}/${kinds.length}），请尝试分别回写`);
-  } else {
+  if (okCount === kinds.length) {
     addSuccessLog('氚云一键回写完成');
+    return;
   }
+  addErrorLog(`氚云一键回写部分失败（${okCount}/${kinds.length}），请尝试分别回写`);
 }
 
 // ── 更新范围（主按钮 + 下拉多选） ─────────────────────
@@ -1185,28 +1201,42 @@ function reportArtifactWriteResult(
   const dirPathNote = writeResult.directoryPath ? ` → ${writeResult.directoryPath}` : '';
   const skippedNote = skipped.length > 0 ? `；跳过：${skipped.join('、')}` : '';
   addSuccessLog(`${label}写入完成：${writeResult.written} 个文件${dirNote}${dirPathNote}${skippedNote}`);
+  if (writeResult.failed > 0) {
+    const names = writeResult.failedFiles.slice(0, 3).join('、');
+    const rest = writeResult.failedFiles.length > 3 ? ` 等 ${writeResult.failedFiles.length} 个` : '';
+    addWarningLog(`${label}有 ${writeResult.failed} 个文件未写入：${names}${rest}`, '请确认目标目录仍可写后重试');
+  }
   // 范围选择保持不变（已持久化），仅刷新徽标以反映当前生效值
   renderScopeBadge(getActivePlatformKey());
   return true;
 }
 
 /**
- * 判断是否为「目录未选择 / 未授权」这类正常前置状态。
+ * 目录类失败的分类；null 表示与目录无关的失败。
  *
- * 用户还没选目录是操作顺序问题，不是故障；后续真正写入时会给出明确指引，
- * 这里不该按异常记录，否则每次抓取都会刷一条吓人的报错。
+ * 「未选择 / 未授权」是操作顺序问题，探测阶段跳过即可；
+ * 「目录已失效」必须让用户重新选择，不能退化成「文件不存在」，否则用户会被引去重复抓取。
  */
-function isDirectoryUnavailableError(error: unknown): boolean {
-  if (!(error instanceof DirectoryError)) return false;
-  return error.code === ERROR_CODE.DIRECTORY_NOT_SELECTED
-    || error.code === ERROR_CODE.DIRECTORY_PERMISSION_DENIED;
+function classifyDirectoryFailure(error: unknown): 'unselected' | 'denied' | 'gone' | null {
+  if (!(error instanceof DirectoryError)) return null;
+  if (error.code === ERROR_CODE.DIRECTORY_NOT_SELECTED) return 'unselected';
+  if (error.code === ERROR_CODE.DIRECTORY_PERMISSION_DENIED) return 'denied';
+  if (error.code === ERROR_CODE.DIRECTORY_UNAVAILABLE) return 'gone';
+  return null;
 }
+
+/** 探测阶段跳过目录检查时的日志文案 */
+const DIRECTORY_FAILURE_LOG_MESSAGES: Record<string, string> = {
+  unselected: '尚未选择目标目录，本次跳过目录探测',
+  denied: '目标目录未授权，本次跳过目录探测',
+  gone: '目标目录已失效（被移动或删除），本次跳过目录探测',
+};
 
 /**
  * 探测模板类产物在目标目录中的存在状态。
  *
- * 未选择目录 / 未授权时只记录一条提示并返回空集合（按「全部待生成」处理），
- * 由后续写入环节统一给出「请先选择目标目录」的指引。
+ * 目录未选择 / 未授权 / 已失效时只记一条调试日志并返回空集合（按「全部待生成」处理）：
+ * 探测属于可降级步骤，真正的原因与处置由后续写入环节统一给出。
  */
 async function probeExistingArtifactPaths(artifacts: readonly ArtifactDefinition[]): Promise<ReadonlySet<string>> {
   const pageType = state.pageTypeConfig?.pageType || 'default';
@@ -1220,12 +1250,45 @@ async function probeExistingArtifactPaths(artifacts: readonly ArtifactDefinition
     const stat = await fileExistsInSelection(state.pageContext, pageType, probePaths);
     return toExistingPathSet(stat.files.filter((file) => file.exists).map((file) => file.fileName));
   } catch (error: unknown) {
-    if (isDirectoryUnavailableError(error)) {
-      logger.debug('尚未选择目标目录，本次跳过产物存在性检查');
+    const reason = classifyDirectoryFailure(error);
+    if (reason) {
+      logger.debug(DIRECTORY_FAILURE_LOG_MESSAGES[reason] ?? '目标目录暂不可用，本次跳过产物存在性检查', { reason });
     } else {
       logger.warn('产物存在性检查失败，按「全部待生成」处理', { error: String(error) });
     }
     return new Set<string>();
+  }
+}
+
+/**
+ * 读取目标目录中已有的 FromCode.md，用于保留人工填写的关联表单信息。
+ *
+ * 这一步只是「尽量保留历史内容」，目录不可用时按空内容生成，不阻断本次抓取：
+ * 抓取到的 HTML/CSS/JS 已经在内存里，没有理由因为一次可选读取而整体放弃。
+ */
+async function readExistingFromCodeContent(pageType: string): Promise<string> {
+  try {
+    const result = await readFilesFromSelection(state.pageContext, pageType, [FROM_CODE_FILE_NAME]);
+    return result.files.find((file) => file.fileName === FROM_CODE_FILE_NAME)?.content ?? '';
+  } catch (error: unknown) {
+    logger.warn('读取已有 FromCode.md 失败，本次按空内容生成', { error: String(error) });
+    return '';
+  }
+}
+
+/**
+ * 目标业务规则文件是否已存在（仅用于「已更新 / 已新建」的措辞）。
+ *
+ * 目录不可用时按「不存在」处理：紧随其后的写入会给出精确失败原因，
+ * 这里没必要抢先把同一件事报成一次失败。
+ */
+async function hasExistingBizRuleFile(pageType: string, fileName: string): Promise<boolean> {
+  try {
+    const stat = await fileExistsInSelection(state.pageContext, pageType, [fileName]);
+    return stat.files.find((file) => file.fileName === fileName)?.exists ?? false;
+  } catch (error: unknown) {
+    logger.warn('业务规则文件存在性检查失败，按「新建」处理', { fileName, error: String(error) });
+    return false;
   }
 }
 
@@ -1371,8 +1434,7 @@ async function handleCloudpivotCapture(): Promise<void> {
         // 优先使用 Vue 组件扫描出的表单名称（HTML 中 a-title 可能缺失）
         const metadata = { ...htmlMetadata, formName: formName || htmlMetadata.formName };
         // 读取现有 FromCode.md，跨多次抓取保留人工填写的关联表单信息
-        const existingFromCodeRead = await readFilesFromSelection(state.pageContext, config.pageType, [FROM_CODE_FILE_NAME]);
-        const existingFromCodeContent = existingFromCodeRead.files.find((f) => f.fileName === FROM_CODE_FILE_NAME)?.content ?? '';
+        const existingFromCodeContent = await readExistingFromCodeContent(config.pageType);
         const fromCodeContent = buildFromCodeContent(metadata, state.pageContext.url, existingFromCodeContent);
         filesToWrite.push({ fileName: FROM_CODE_FILE_NAME, content: fromCodeContent });
       }
@@ -1486,8 +1548,7 @@ async function handleCloudpivotBizRuleCapture(): Promise<void> {
 
       // 业务规则抓取只输出业务规则文件本身，不生成 README/AGENTS/DESIGN 等协作文件，
       // 也不受更新范围配置影响（与 gitHub 原版规则一致，避免污染业务规则目录）。
-      const existingFiles = await fileExistsInSelection(state.pageContext, state.pageTypeConfig!.pageType, [data.fileName]);
-      const hadTargetFile = existingFiles.files.find((f) => f.fileName === data.fileName)?.exists ?? false;
+      const hadTargetFile = await hasExistingBizRuleFile(state.pageTypeConfig!.pageType, data.fileName);
 
       const writeResult = await writeFilesToSelection(state.pageContext, state.pageTypeConfig!.pageType, [{ fileName: data.fileName, content: data.sourceContent }]);
       if (writeResult.written === 0) {
@@ -1650,11 +1711,11 @@ async function handleH3yunCaptureAll(): Promise<void> {
 
 // ── H3Yun Writeback ────────────────────────────────────
 
-async function handleH3yunCodeWriteback(codeKind: 'frontend' | 'backend'): Promise<void> {
-  if (state.busy || !state.pageContext.tabId) return;
+async function handleH3yunCodeWriteback(codeKind: 'frontend' | 'backend'): Promise<boolean> {
+  if (state.busy || !state.pageContext.tabId) return false;
   const btnMap = { frontend: dom.h3yunWritebackFrontendBtn, backend: dom.h3yunWritebackBackendBtn };
   const btn = btnMap[codeKind];
-  await runWithButtonBusy(btn, async () => {
+  const succeeded = await runWithButtonBusy(btn, async () => (
     await runOperationWithPreflight(PREFLIGHT_OPERATION_IDS.WRITE_BACK, async () => {
       const config = H3YUN_CODE_EDITOR_CONFIG[codeKind];
       const tabId = state.pageContext.tabId!;
@@ -1666,7 +1727,7 @@ async function handleH3yunCodeWriteback(codeKind: 'frontend' | 'backend'): Promi
 
       if (!probeResult?.ok) {
         addErrorLog(`氚云${config.label}回写失败：${probeResult?.details || `${config.selector} 未找到可回写编辑器`}`, '确认氚云页面已切到对应前端/后端代码区域并完全加载');
-        return;
+        return false;
       }
 
       const fileName = resolveH3yunCodeFileName(codeKind, probeResult, probeResult.pageUrl || state.pageContext.url, designMode);
@@ -1676,7 +1737,7 @@ async function handleH3yunCodeWriteback(codeKind: 'frontend' | 'backend'): Promi
 
       if (!file?.exists || !file.content) {
         addErrorLog(`目标目录中未找到 ${fileName}，请先执行一键抓取写入`);
-        return;
+        return false;
       }
 
       const sourceContent = normalizeExcessBlankLines(file.content);
@@ -1687,15 +1748,18 @@ async function handleH3yunCodeWriteback(codeKind: 'frontend' | 'backend'): Promi
         '氚云代码回写',
       ) as H3yunCodeEditorWritebackResult | null;
 
-      if (writeData?.ok) {
-        const modelNote = writeData.writableCount > 1 ? `（已写入 ${writeData.writableCount} 个 model）` : '';
-        addSuccessLog(`氚云${config.label}回写成功。${modelNote} 文件名：${fileName} 源码长度：${writeData.sourceLength} 字符`);
-      } else {
+      if (!writeData?.ok) {
         const logExtra = writeData?.debugLog ? `\n调试日志：${writeData.debugLog}` : '';
         addErrorLog(`氚云${config.label}回写失败：${writeData?.details || '页面编辑器拒绝回写'}${logExtra}`, '确认氚云页面已切到对应前端/后端代码区域并完全加载');
+        return false;
       }
-    });
-  });
+
+      const modelNote = writeData.writableCount > 1 ? `（已写入 ${writeData.writableCount} 个 model）` : '';
+      addSuccessLog(`氚云${config.label}回写成功。${modelNote} 文件名：${fileName} 源码长度：${writeData.sourceLength} 字符`);
+      return true;
+    })
+  ));
+  return succeeded === true;
 }
 
 // ── Preflight ──────────────────────────────────────────
@@ -1704,12 +1768,74 @@ async function handleH3yunCodeWriteback(codeKind: 'frontend' | 'backend'): Promi
 const PREFLIGHT_BLOCKER_MESSAGES: Record<string, string> = {
   'page.recognized': '当前页面不是云枢 / 氚云的设计页面',
   'directory.selected': '尚未选择目标目录',
+  'directory.permission': '目标目录未授权',
+  'directory.attached': '目标目录已关联其他表单',
 };
 
-async function runOperationWithPreflight(
+interface DirectoryPreflightVerdict {
+  readonly checkId: string;
+  readonly severity: 'blocker' | 'info';
+  readonly ok: boolean;
+  readonly errorCode: string;
+  readonly nextAction: string;
+}
+
+/**
+ * 目录自检结论 → 预检结果。
+ *
+ * 只拦截确定会失败的状态：未绑定、明确被拒、目录归属其他表单。
+ * 重启后权限退化为 prompt 属正常待授权状态，写入时会请求授权，不提前拦截。
+ */
+const DIRECTORY_PREFLIGHT_VERDICTS: Record<TargetDirectoryCheckResult['health'], DirectoryPreflightVerdict> = {
+  ok: { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
+  'fromcode-missing': { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
+  'permission-prompt': { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
+  unbound: {
+    checkId: 'directory.selected',
+    severity: 'blocker',
+    ok: false,
+    errorCode: ERROR_CODE.DIRECTORY_NOT_SELECTED,
+    nextAction: '请点击「更新当前路径」选择目标目录',
+  },
+  'permission-denied': {
+    checkId: 'directory.permission',
+    severity: 'blocker',
+    ok: false,
+    errorCode: ERROR_CODE.DIRECTORY_PERMISSION_DENIED,
+    nextAction: '请点击「更新当前路径」重新授权该目录',
+  },
+  'fromcode-mismatched': {
+    checkId: 'directory.attached',
+    severity: 'blocker',
+    ok: false,
+    errorCode: ERROR_CODE.DIRECTORY_NOT_SELECTED,
+    nextAction: '请点击「更新当前路径」选择当前表单对应的目录，或确认强制关联该目录',
+  },
+};
+
+/** 目录预检：把「绑定了但不可用」提前暴露，避免抓取完成后才在写入环节失败 */
+async function pushDirectoryPreflightResult(
+  results: PreflightResult[],
   operationId: string,
-  task: (results: PreflightResult[]) => Promise<void>,
 ): Promise<void> {
+  const check = await checkTargetDirectoryHealth(state.pageContext, resolveEffectivePageType());
+  const verdict = DIRECTORY_PREFLIGHT_VERDICTS[check.health];
+  results.push(createPreflightResult({
+    operationId,
+    checkId: verdict.checkId,
+    severity: verdict.severity,
+    ok: verdict.ok,
+    errorCode: verdict.errorCode,
+    evidence: check.label ? `目录「${check.label}」` : check.health,
+    nextAction: verdict.nextAction,
+    data: { health: check.health, source: check.source, platformKey: check.platformKey },
+  }));
+}
+
+async function runOperationWithPreflight<T>(
+  operationId: string,
+  task: (results: PreflightResult[]) => Promise<T>,
+): Promise<T | undefined> {
   const results: PreflightResult[] = [];
 
   // Page context check
@@ -1725,28 +1851,17 @@ async function runOperationWithPreflight(
     nextAction: isRecognized ? '' : '请在云枢或氚云设计页面使用本扩展',
   }));
 
-  // 目录检查：当前页面有效句柄存在即可（目录归属由 fromcode 校验在写入链路把守）
-  if (isRecognized) {
-    const path = await getStoredDirectoryPath(state.pageContext, resolveEffectivePageType());
-    results.push(createPreflightResult({
-      operationId, checkId: 'directory.selected',
-      severity: path ? 'info' : 'blocker',
-      ok: Boolean(path),
-      errorCode: path ? '' : 'ERR_DIRECTORY_NOT_SELECTED',
-      evidence: path || '未选择',
-      nextAction: path ? '' : '请点击「更新当前路径」选择目标目录',
-    }));
-  }
+  if (isRecognized) await pushDirectoryPreflightResult(results, operationId);
 
   if (hasBlockingPreflightResult(results)) {
     for (const result of results) {
       if (result.severity !== 'blocker' || result.ok) continue;
       addErrorLog(PREFLIGHT_BLOCKER_MESSAGES[result.checkId] || `预检未通过：${result.checkId}`, result.nextAction);
     }
-    return;
+    return undefined;
   }
 
-  await task(results);
+  return await task(results);
 }
 
 // ── Runtime Log Export ─────────────────────────────────

@@ -87,6 +87,10 @@ export interface WriteFilesResult {
   readonly directories: number;
   /** 目录标签（Handle 通道为目录名） */
   readonly directoryPath?: string;
+  /** 写入失败的文件数（单个文件级失败，不影响其它文件） */
+  readonly failed: number;
+  /** 写入失败的文件相对路径 */
+  readonly failedFiles: readonly string[];
 }
 
 // ── 内部工具 ──────────────────────────────────────────
@@ -106,6 +110,8 @@ interface TabInfo {
 type ExtendedDirectoryHandle = FileSystemDirectoryHandle & {
   requestPermission?(opts: { mode: 'read' | 'readwrite' }): Promise<PermissionState>;
   queryPermission?(opts: { mode: 'read' | 'readwrite' }): Promise<PermissionState>;
+  /** 声明在 DOM.AsyncIterable 库中，当前 tsconfig 未启用，浏览器实际提供 */
+  values?(): AsyncIterableIterator<FileSystemHandle>;
 };
 
 interface DirectoryPickerOptions {
@@ -458,6 +464,38 @@ async function resolveSubDirectory(
   return current;
 }
 
+/** 目录句柄已失效（目录被移动 / 删除 / 授权被收回）时浏览器抛出的异常 */
+function isDirectoryGoneError(error: unknown): boolean {
+  if (!(error instanceof DOMException)) return false;
+  return error.name === 'NotFoundError'
+    || error.name === 'NotAllowedError'
+    || error.name === 'InvalidStateError';
+}
+
+function createDirectoryGoneError(handle: FileSystemDirectoryHandle, cause: unknown): DirectoryError {
+  return new DirectoryError(
+    ERROR_CODE.DIRECTORY_UNAVAILABLE,
+    `目标目录「${handle.name}」已无法访问（可能被移动、删除或授权已失效），请点击「更新当前路径」重新选择。`,
+    { directory: handle.name, error: String(cause) },
+  );
+}
+
+/**
+ * 确认根目录句柄仍然可用。
+ *
+ * `getFileHandle` 对「文件不存在」与「目录已失效」抛同一个 `NotFoundError`，无法区分；
+ * `values()` 迭代只在根目录失效时抛错，空目录正常返回 `done`，因此取首项即可用最低成本判断。
+ */
+async function assertDirectoryReachable(handle: ExtendedDirectoryHandle): Promise<void> {
+  if (typeof handle.values !== 'function') return;
+  try {
+    await handle.values().next();
+  } catch (error: unknown) {
+    if (!isDirectoryGoneError(error)) throw error;
+    throw createDirectoryGoneError(handle, error);
+  }
+}
+
 /**
  * 解析当前页面绑定的写入目录句柄。
  *
@@ -487,9 +525,11 @@ async function writeFilesViaHandle(
   if (permission !== 'granted') {
     throw new DirectoryError(ERROR_CODE.DIRECTORY_PERMISSION_DENIED, '目录写入权限未授予，请点击「更新当前路径」重新授权后重试。');
   }
+  await assertDirectoryReachable(handle);
 
   let written = 0;
   let directories = 0;
+  const failedFiles: string[] = [];
   for (const entry of fileEntries) {
     const { parts, relativePath } = resolveEntryPath(entry.fileName);
     if (!relativePath) {
@@ -513,11 +553,20 @@ async function writeFilesViaHandle(
       written++;
     } catch (error: unknown) {
       if (error instanceof DirectoryError && error.code === ERROR_CODE.FILE_WRITE_CLEANUP) throw error;
+      // 目录在写入过程中被移动或删除：剩余文件必然同样失败，整体上报而不是逐条刷日志
+      if (isDirectoryGoneError(error)) throw createDirectoryGoneError(handle, error);
+      failedFiles.push(relativePath);
       logger.warn('Handle write file failed', { fileName: relativePath, error: String(error) });
     }
   }
 
-  return { written, directories, directoryPath: handle.name };
+  return {
+    written,
+    directories,
+    directoryPath: handle.name,
+    failed: failedFiles.length,
+    failedFiles,
+  };
 }
 
 /** 通过 Handle 通道读取文件（支持子目录） */
@@ -525,6 +574,7 @@ async function readFilesViaHandle(
   handle: ExtendedDirectoryHandle,
   fileNames: readonly string[],
 ): Promise<FileReadEntry[]> {
+  await assertDirectoryReachable(handle);
   const entries: FileReadEntry[] = [];
 
   for (const fileName of fileNames) {
@@ -558,6 +608,7 @@ async function statFilesViaHandle(
   handle: ExtendedDirectoryHandle,
   fileNames: readonly string[],
 ): Promise<FileStatEntry[]> {
+  await assertDirectoryReachable(handle);
   const entries: FileStatEntry[] = [];
 
   for (const fileName of fileNames) {
@@ -631,7 +682,7 @@ export async function writeFilesToSelection(
   fileEntries: readonly FileWriteEntry[],
 ): Promise<WriteFilesResult> {
   if (!Array.isArray(fileEntries) || fileEntries.length === 0) {
-    return { written: 0, directories: 0 };
+    return { written: 0, directories: 0, failed: 0, failedFiles: [] };
   }
 
   const handle = await resolvePageBoundDirectoryHandle(tab, pageType);
