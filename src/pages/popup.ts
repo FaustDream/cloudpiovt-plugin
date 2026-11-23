@@ -774,7 +774,12 @@ async function applyBoundDirectory(result: SelectDirectoryResult, pageType: stri
  * 也走同一分支）只记录原因并保留当前目录；需要绕开对话框时由用户自己点文件夹按钮。
  */
 async function handleRefreshDirectory(): Promise<void> {
-  if (state.busy) return;
+  if (state.busy) {
+    addWarningLog('当前有操作正在进行，请等待完成后再更新路径');
+    return;
+  }
+  // 点击即留痕：区分「事件没到达处理函数」与「选择器调用挂起」，避免再次陷入无迹可查
+  addLog('正在打开系统目录选择器…');
   await runWithButtonBusy(dom.refreshHandleBtn, async () => {
     const pageType = resolveEffectivePageType();
 
@@ -2007,6 +2012,9 @@ function bindEvents(): void {
   dom.pageOriginEl?.addEventListener('click', () => handleCopyPageOrigin());
 
   // 目录操作
+  if (!dom.refreshHandleBtn) {
+    logger.error('未找到「更新当前路径」按钮，目录选择入口不可用', { selector: '#refresh-handle-btn' });
+  }
   dom.refreshHandleBtn?.addEventListener('click', () => handleRefreshDirectory());
   dom.dirDropToggleBtn?.addEventListener('click', () => handleToggleDropPanel());
   bindDropZone();
@@ -2122,7 +2130,13 @@ function bindEvents(): void {
 // ── Bootstrap ──────────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', () => {
-  bindEvents();
+  try {
+    bindEvents();
+  } catch (error: unknown) {
+    // 绑定中断会让全部按钮静默失效，必须留下痕迹而不是停在「检测中」
+    reportExecutionError('事件绑定失败', error);
+    return;
+  }
   init()
     .then(() => logger.debug('Popup ready'))
     .catch((error: unknown) => reportExecutionError('页面初始化失败', error));
