@@ -99,7 +99,8 @@ export async function verifyDirectoryFromcode(
       : null;
     if (associationStatus) return associationStatus;
   } catch (error: unknown) {
-    logger.warn('检查目录表单关联失败', { error: String(error) });
+    // 只剩本地记录读取失败会走到这里，把原因写进消息，避免系统日志只剩一句「失败」
+    logger.warn(`读取目录归属记录失败：${String(error).slice(0, 120)}`);
     return 'unreadable';
   }
 
@@ -172,6 +173,25 @@ export async function clearFromcodeAssociation(scope: string): Promise<void> {
   await chrome.storage.local.set({ [FROMCODE_MARKS_KEY]: associations });
 }
 
+/**
+ * 判断两个句柄是否指向同一目录。
+ *
+ * 历史句柄可能已失效（目录被移动 / 删除、授权被收回），此时 `isSameEntry` 会抛错。
+ * 这类句柄只代表「过去绑过某个目录」，比对失败按「不是同一目录」跳过，
+ * 不能让一个失效句柄把整次归属校验变成「无法读取」。
+ */
+async function isSameDirectory(
+  left: FileSystemDirectoryHandle,
+  right: FileSystemDirectoryHandle,
+): Promise<boolean> {
+  try {
+    return await left.isSameEntry(right);
+  } catch (error: unknown) {
+    logger.debug('目录句柄比对失败，按不同目录跳过', { error: String(error) });
+    return false;
+  }
+}
+
 async function findDirectoryAssociationStatus(
   handle: FileSystemDirectoryHandle,
   currentFormCode: string,
@@ -185,7 +205,7 @@ async function findDirectoryAssociationStatus(
 
   for (const scoped of scopedHandles) {
     const association = associations[scoped.pageScope];
-    if (association && await handle.isSameEntry(scoped.handle)) {
+    if (association && await isSameDirectory(handle, scoped.handle)) {
       matches.push({ pageScope: scoped.pageScope, association });
     }
   }

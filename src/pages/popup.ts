@@ -565,6 +565,14 @@ function reportDirectoryCheckIssue(check: TargetDirectoryCheckResult): void {
       // 浏览器重启后句柄权限退化为 prompt 是正常待授权状态，实际授权在用户手势内完成
       addLog(`目录「${label}」权限待确认，首次操作时浏览器会请求授权`);
       return;
+    case 'association-unreadable':
+      // 目录权限正常，只是本地归属记录没读出来：不提示「没有读取权限」，也不阻断使用
+      addLog(
+        `目录「${label}」的表单归属暂时无法核对`,
+        'info',
+        '目录权限正常，可直接使用；再次点击「更新当前路径」会重新核对归属',
+      );
+      return;
     case 'permission-denied':
       addWarningLog(
         `目录校验未通过：目录「${label}」没有读取权限`,
@@ -1795,6 +1803,8 @@ const DIRECTORY_PREFLIGHT_VERDICTS: Record<TargetDirectoryCheckResult['health'],
   ok: { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
   'fromcode-missing': { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
   'permission-prompt': { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
+  // 归属记录读不出来不影响读写，不拦截
+  'association-unreadable': { checkId: 'directory.selected', severity: 'info', ok: true, errorCode: '', nextAction: '' },
   unbound: {
     checkId: 'directory.selected',
     severity: 'blocker',

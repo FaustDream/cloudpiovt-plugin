@@ -29,7 +29,8 @@ export type TargetDirectoryHealth =
   | 'fromcode-missing' // 本地与旧版标记均无关联（新建 / 未初始化），交由用户确认
   | 'fromcode-mismatched' // 目录已关联其他表单，交由用户确认
   | 'permission-prompt' // 读取被拒但权限为 prompt（重启后正常待授权状态）
-  | 'permission-denied'; // 读取被拒且权限为 denied（用户明确拒绝）
+  | 'permission-denied' // 读取被拒且权限为 denied（用户明确拒绝）
+  | 'association-unreadable'; // 归属校验失败但目录权限正常：不是权限问题，不能报「没有读取权限」
 
 export type TargetDirectorySource = ResolvedTargetDirectory['source'] | 'none';
 
@@ -102,7 +103,11 @@ export async function checkTargetDirectoryHealth(
     return { health: 'fromcode-mismatched', ...base, fromcodeValue: fromcodeValue ?? '' };
   }
 
+  // 归属校验失败但权限正常：目录本身可用，问题在本地归属记录，不能报成「没有读取权限」
   const permission = await queryPermissionSafely(handle);
+  if (permission === 'granted') {
+    return { health: 'association-unreadable', ...base };
+  }
   return {
     health: permission === 'prompt' ? 'permission-prompt' : 'permission-denied',
     ...base,

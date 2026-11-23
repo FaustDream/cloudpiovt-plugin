@@ -157,10 +157,12 @@ async function updateFromcodeAssociationForScope(
   forceFromcode: boolean,
 ): Promise<void> {
   const formCode = extractPageFormCode(pageUrl, pageType);
-  if (!formCode || fromcode === 'unreadable') {
+  if (!formCode) {
     await clearFromcodeAssociation(pageScope);
     return;
   }
+  // 归属记录读不出来不等于「没有关联」：保留已有记录，避免一次读取故障把归属抹掉
+  if (fromcode === 'unreadable') return;
   await setFromcodeAssociation(pageScope, formCode, fromcode === 'mismatched' && forceFromcode);
 }
 
